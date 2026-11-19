@@ -89,7 +89,7 @@ module LavinMQ
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         if @msg_store.failed?
-          @log.error { "Paused, message data can't be loaded. Delete the session to remove it, or fail over to a node with a good copy" }
+          @log.error { "Failed, message data can't be loaded. Delete the session to remove it, or fail over to a node with a good copy" }
           @paused.set(true)
         end
         @metadata_file = File.join(data_dir, ".metadata")
@@ -227,7 +227,7 @@ module LavinMQ
         if paused
           @log.error(exception: ex) do
             if @msg_store.failed?
-              "Paused, message data can't be read. Delete the session to remove it, or fail over to a node with a good copy"
+              "Failed, message data can't be read. Delete the session to remove it, or fail over to a node with a good copy"
             else
               "Paused due to a message store error, resume the session to try again"
             end
@@ -607,7 +607,7 @@ module LavinMQ
       end
 
       # Ends a pause by an operator, and one by a store error, which tries the
-      # store again. A session with data it can't read stays paused until it's
+      # store again. A session with data it can't read stays failed until it's
       # deleted.
       def resume! : Nil
         resumed = @msg_store_lock.synchronize do
@@ -616,7 +616,7 @@ module LavinMQ
             @replicator.try &.delete_file(@paused_file)
           end
           if @msg_store.failed?
-            @log.error { "Still paused, message data can't be read. Delete the session to remove it, or fail over to a node with a good copy" }
+            @log.error { "Still failed, message data can't be read. Delete the session to remove it, or fail over to a node with a good copy" }
             next false
           end
           @paused.set(false)
@@ -628,13 +628,13 @@ module LavinMQ
 
       def state : QueueState
         return QueueState::Closed if closed?
+        return QueueState::Failed if @msg_store.failed? # until it's deleted
         @paused.value ? QueueState::Paused : QueueState::Running
       end
 
       # Why the session is paused, like Queue#paused_reason
       def paused_reason : String?
-        return if closed? || !@paused.value
-        return "unreadable" if @msg_store.failed?
+        return if closed? || !@paused.value || @msg_store.failed?
         File.exists?(@paused_file) ? "operator" : "store_error"
       end
 

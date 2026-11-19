@@ -360,7 +360,7 @@ describe LavinMQ::AMQP::Queue do
   describe "Message data that can't be read" do
     q_name = "unreadable"
 
-    it "pauses the queue without cancelling its consumer, and stays paused when resumed" do
+    it "fails the queue without cancelling its consumer, and stays failed when resumed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
@@ -372,7 +372,7 @@ describe LavinMQ::AMQP::Queue do
 
           bodies = Channel(String).new(4)
           q.subscribe(no_ack: true) { |msg| bodies.send msg.body_io.to_s }
-          should_eventually(be_true) { queue.state.paused? }
+          should_eventually(be_true) { queue.state.failed? }
           queue.closed?.should be_false
           File.exists?(File.join(queue.@data_dir, "paused")).should be_false
 
@@ -382,7 +382,7 @@ describe LavinMQ::AMQP::Queue do
 
           # Reading it again can't help, only a delete does
           queue.resume!
-          queue.state.paused?.should be_true
+          queue.state.failed?.should be_true
           select
           when bodies.receive then fail "delivered a message from a store that can't be read"
           when timeout 50.milliseconds
@@ -402,7 +402,7 @@ describe LavinMQ::AMQP::Queue do
           segment = queue.@msg_store.@segments.first_value
           write_at(segment.path, unreadable_flags_pos(segment.pos, q_name), 0x0003u16)
           q.get(no_ack: true).should be_nil
-          queue.state.paused?.should be_true
+          queue.state.failed?.should be_true
 
           expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge }
           expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge(1) }
@@ -412,7 +412,7 @@ describe LavinMQ::AMQP::Queue do
             end
           end
           queue.message_count.should eq 1
-          queue.state.paused?.should be_true
+          queue.state.failed?.should be_true
 
           unacked[0].ack
           should_eventually(eq 2) { queue.unacked_count }
@@ -421,7 +421,7 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "refuses the purge that reaches it, with or without a count, and pauses the queue" do
+    it "refuses the purge that reaches it, with or without a count, and fails the queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           [nil, 1].each_with_index do |count, i|
@@ -436,14 +436,14 @@ describe LavinMQ::AMQP::Queue do
               count ? queue.purge(count) : queue.purge
             end
             queue.@msg_store.failed?.should be_true
-            queue.state.paused?.should be_true
+            queue.state.failed?.should be_true
             q.publish_confirm("new").should be_false
           end
         end
       end
     end
 
-    it "removes a pause by an operator when resumed, and stays paused" do
+    it "removes a pause by an operator when resumed, and stays failed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
@@ -452,19 +452,19 @@ describe LavinMQ::AMQP::Queue do
           segment = queue.@msg_store.@segments.first_value
           write_at(segment.path, unreadable_flags_pos(4, q_name), 0x0003u16)
           q.get(no_ack: true).should be_nil
-          queue.state.paused?.should be_true
+          queue.state.failed?.should be_true
           queue.pause!
           paused_file = File.join(queue.@data_dir, "paused")
           File.exists?(paused_file).should be_true
 
           queue.resume!
           File.exists?(paused_file).should be_false
-          queue.state.paused?.should be_true
+          queue.state.failed?.should be_true
         end
       end
     end
 
-    it "pauses a queue whose segment can't be loaded, refusing publishes and purges" do
+    it "fails a queue whose segment can't be loaded, refusing publishes and purges" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
@@ -478,7 +478,7 @@ describe LavinMQ::AMQP::Queue do
 
         queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
         queue.closed?.should be_false
-        queue.state.paused?.should be_true
+        queue.state.failed?.should be_true
         File.exists?(path).should be_true
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
@@ -487,13 +487,13 @@ describe LavinMQ::AMQP::Queue do
           # Other queues aren't affected
           ch.queue("other").publish_confirm("x").should be_true
           queue.resume!
-          queue.state.paused?.should be_true
+          queue.state.failed?.should be_true
           expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge }
         end
         # A restart loads the same data
         restart_server(s)
         queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-        queue.state.paused?.should be_true
+        queue.state.failed?.should be_true
         File.exists?(path).should be_true
       end
     end
@@ -508,7 +508,7 @@ describe LavinMQ::AMQP::Queue do
         data_dir = queue.@data_dir
         write_at(queue.@msg_store.@segments.first_value.path, unreadable_flags_pos(4, q_name), 0x0003u16)
         restart_server(s)
-        s.vhosts["/"].queue(q_name).state.paused?.should be_true
+        s.vhosts["/"].queue(q_name).state.failed?.should be_true
         with_channel(s) do |ch|
           ch.queue_delete(q_name)
           s.vhosts["/"].queue?(q_name).should be_nil
@@ -521,7 +521,7 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "pauses a queue with a segment of an unsupported schema version at load" do
+    it "fails a queue with a segment of an unsupported schema version at load" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
@@ -531,7 +531,7 @@ describe LavinMQ::AMQP::Queue do
         write_at(queue.@msg_store.@segments.first_value.path, 0, LavinMQ::Schema::VERSION + 1)
         restart_server(s)
         queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-        queue.state.paused?.should be_true
+        queue.state.failed?.should be_true
         expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge }
       end
     end

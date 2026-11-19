@@ -1117,7 +1117,7 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "starts with a stream whose segment is corrupt paused, refusing publishes and purges until it's deleted" do
+    it "starts with a stream whose segment is corrupt failed, refusing publishes and purges until it's deleted" do
       with_amqp_server do |s|
         args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
         with_channel(s) do |ch|
@@ -1129,7 +1129,7 @@ describe LavinMQ::AMQP::Stream do
         restart_server(s)
         stream = s.vhosts["/"].queue("corrupt-stream").as(LavinMQ::AMQP::Stream)
         stream.closed?.should be_false
-        stream.state.paused?.should be_true
+        stream.state.failed?.should be_true
         with_channel(s) do |ch|
           ch.queue("other").publish_confirm("x").should be_true
           ch.prefetch 1
@@ -1142,7 +1142,7 @@ describe LavinMQ::AMQP::Stream do
           # Nacked: it would be lost with the rest when the stream is deleted
           q.publish_confirm("while failed").should be_false
           stream.resume!
-          stream.state.paused?.should be_true
+          stream.state.failed?.should be_true
           select
           when msgs.receive then fail "delivered a message from a stream that can't be read"
           when timeout 100.milliseconds
@@ -1159,7 +1159,7 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "pauses a stream when a consumer reaches a message that can't be read, refusing publishes" do
+    it "fails a stream when a consumer reaches a message that can't be read, refusing publishes" do
       with_amqp_server do |s|
         args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
         with_channel(s) do |ch|
@@ -1175,7 +1175,7 @@ describe LavinMQ::AMQP::Stream do
             msgs.send msg
             msg.ack
           end
-          should_eventually(be_true) { stream.state.paused? }
+          should_eventually(be_true) { stream.state.failed? }
           stream.closed?.should be_false
           ch.closed?.should be_false
           q.publish_confirm("new").should be_false

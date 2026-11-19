@@ -360,7 +360,7 @@ describe "Delayed Message Exchange" do
     end
   end
 
-  it "pauses without hanging the publisher when the expire loop hits data it can't read" do
+  it "fails without hanging the publisher when the expire loop hits data it can't read" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         x = ch.exchange(x_name, "topic", args: x_args)
@@ -385,8 +385,8 @@ describe "Delayed Message Exchange" do
       queue.@message_ttl_change.send(nil)
 
       # The read error pauses the queue: the release fiber waits for a resume
-      wait_for { queue.state.paused? }
-      queue.paused_reason.should eq "unreadable"
+      wait_for { queue.state.failed? }
+      queue.state.should eq LavinMQ::QueueState::Failed
       queue.closed?.should be_false
       queue.message_expire_fiber_active?.should be_true
 
@@ -403,7 +403,7 @@ describe "Delayed Message Exchange" do
       queue.message_count.should eq 1
 
       queue.resume!
-      wait_for { queue.state.paused? } # the entry still can't be read
+      wait_for { queue.state.failed? } # the entry still can't be read
     end
   end
 

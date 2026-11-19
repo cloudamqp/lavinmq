@@ -354,8 +354,8 @@ module LavinMQ::AMQP
     private def start : Nil
       restore_paused
       if @msg_store.failed?
-        @log.error { "Paused, message data can't be loaded. Delete the queue to remove it, or fail over to a node with a good copy" }
-        @state_lock.synchronize { set_paused }
+        @log.error { "Failed, message data can't be loaded. Delete the queue to remove it, or fail over to a node with a good copy" }
+        @state_lock.synchronize { set_failed }
       end
       handle_arguments
       init_retry_queue if settings.delayed_retry_min
@@ -824,10 +824,10 @@ module LavinMQ::AMQP
     end
 
     # Kept over a restart of the broker, unlike a pause by a store error, so
-    # the file is written also when the queue is paused already
+    # the file is written also when the queue is paused or failed already
     def pause! : Nil
       @state_lock.synchronize do
-        return unless @state.running? || @state.paused?
+        return unless @state.running? || @state.paused? || @state.failed?
         # Not empty: a follower applies a replaced file of zero bytes as a delete
         File.write(paused_file, @name)
         @vhost.replicator.try &.replace_file(paused_file) if durable?
@@ -844,17 +844,27 @@ module LavinMQ::AMQP
       true
     end
 
+    # Under @state_lock. The store has data it can't read: nothing is
+    # delivered until the queue is deleted. Returns true if it wasn't failed.
+    private def set_failed : Bool
+      return false unless @state.running? || @state.paused?
+      @state = QueueState::Failed
+      @paused.set(true)
+      true
+    end
+
     # The queue is paused, not closed, when its message store fails: nothing
-    # more is delivered. Publishes are still stored, unless the store has data
-    # it can't read, see #publish_internal. This pause isn't kept over a
-    # restart of the broker, which loads the store again.
+    # more is delivered, publishes are still stored. This pause isn't kept over
+    # a restart of the broker, which loads the store again. If the store has
+    # data it can't read the queue is failed instead, see #set_failed.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
       return if @closed
-      paused = @state_lock.synchronize { set_paused }
-      if paused
+      failed = @msg_store.failed?
+      changed = @state_lock.synchronize { failed ? set_failed : set_paused }
+      if changed
         @log.error(ex) do
-          if @msg_store.failed?
-            "Paused, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy"
+          if failed
+            "Failed, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy"
           else
             "Paused due to a message store error, resume the queue to try again"
           end
@@ -871,12 +881,12 @@ module LavinMQ::AMQP
 
     def resume! : Nil
       @state_lock.synchronize do
-        return unless @state.paused?
+        return unless @state.paused? || @state.failed?
         if File.delete?(paused_file)
           @vhost.replicator.try &.delete_file(paused_file) if durable?
         end
-        if @msg_store.failed?
-          @log.error { "Still paused, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy" }
+        if @state.failed?
+          @log.error { "Still failed, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy" }
           return
         end
         @state = QueueState::Running
@@ -886,13 +896,10 @@ module LavinMQ::AMQP
       ensure_expire_fiber
     end
 
-    # Why the queue is paused, nil if it isn't: "unreadable" if its store has
-    # data it can't read, which only a delete gets it out of, else "operator"
-    # if it was paused through the API, else "store_error", which a resume
-    # tries again
+    # Why the queue is paused, nil if it isn't: "operator" if it was paused
+    # through the API, else "store_error", which a resume tries again
     def paused_reason : String?
       return unless @state.paused?
-      return "unreadable" if @msg_store.failed?
       File.exists?(paused_file) ? "operator" : "store_error"
     end
 
@@ -1312,6 +1319,7 @@ module LavinMQ::AMQP
 
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
+      return false if @state.failed? # nothing can be read
       @queue_expiration_ttl_change.try_send? nil
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
       get(no_ack) do |env|
@@ -1663,8 +1671,8 @@ module LavinMQ::AMQP
     # told from what can't, so the queue has to be deleted. Pauses the queue,
     # if the purge was the first to reach the data.
     private def raise_unreadable : NoReturn
-      if @state_lock.synchronize { set_paused }
-        @log.error { "Paused, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy" }
+      if @state_lock.synchronize { set_failed }
+        @log.error { "Failed, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy" }
       end
       raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read. Delete the queue to remove it, or fail over to a node with a good copy")
     end

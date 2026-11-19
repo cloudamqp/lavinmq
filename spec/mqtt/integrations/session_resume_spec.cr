@@ -329,16 +329,16 @@ module MqttSpecs
           session.closed?.should be_false
           session.message_count.should eq count
           # Shown as paused, so it doesn't look like a running session that is stuck
-          session.state.should eq LavinMQ::QueueState::Paused
-          session.state_match?([LavinMQ::QueueState::Paused]).should be_true
-          session.paused_reason.should eq "unreadable"
+          session.state.should eq LavinMQ::QueueState::Failed
+          session.state_match?([LavinMQ::QueueState::Failed]).should be_true
+          session.state.should eq LavinMQ::QueueState::Failed
           # Resuming doesn't help, the message still can't be read
           session.resume!
-          session.state.should eq LavinMQ::QueueState::Paused
+          session.state.should eq LavinMQ::QueueState::Failed
           read_packet(io).should be_nil
 
           expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { session.purge }
-          session.state.should eq LavinMQ::QueueState::Paused
+          session.state.should eq LavinMQ::QueueState::Failed
           disconnect(io)
         end
 
@@ -373,7 +373,7 @@ module MqttSpecs
         # The publisher gets its PUBACK, and isn't disconnected
         publish_from(server, "a/b", ["2"])
         session.closed?.should be_false
-        session.state.should eq LavinMQ::QueueState::Paused
+        session.state.should eq LavinMQ::QueueState::Failed
         session.message_count.should be > 0
       end
     end

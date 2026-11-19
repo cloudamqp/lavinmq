@@ -92,29 +92,30 @@ A queue can be in one of the following states:
 |-------|-------------|
 | `running` | Normal operation, delivering messages to consumers |
 | `paused` | Queue stops delivering messages but continues accepting publishes. Resume via the API. |
+| `failed` | Its message data can't be read. It delivers nothing and nacks publishes until it's deleted, see [Message store errors](#message-store-errors) |
 | `closed` | Queue is being shut down, with the broker or before it is deleted |
 | `deleted` | Queue has been deleted |
 
 Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`), the management UI and `lavinmqctl`. Both routes need `configure` permission on the queue, and are refused with 403 without it. A pause is kept when the broker restarts.
 
-The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=paused` or `?state=running,paused`.
+The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=failed` or `?state=paused,failed`.
 
 ### Message store errors
 
-A queue whose message store fails is paused, not closed. Consumers stay connected and get no messages, and `basic.get` returns empty. The queue's `paused_reason` in the HTTP API says which of the two cases below it is, `store_error` or `unreadable`, and so does an error in the log. A queue paused through the API has `operator`. This pause isn't stored: a restart of the broker loads the queue's data again.
+A queue whose message store fails isn't closed. Consumers stay connected and get no messages, and `basic.get` returns empty. Which of the two cases below it is shows in the queue's state, and in an error in the log. A queue paused after a store error has the `paused_reason` `store_error` in the HTTP API, one paused through the API has `operator`. Neither state is stored: a restart of the broker loads the queue's data again.
 
-| Cause | What to do |
-|-------|------------|
-| A file operation failed, for example an ack couldn't be written or the broker is out of file descriptors | Fix the cause and resume the queue. Publishes are still confirmed and stored meanwhile. |
-| Message data can't be read: a corrupt message, or a segment that can't be loaded when the broker starts | Delete the queue, and declare it again. In a cluster, a failover to a node with a good copy of the data also works. Resuming it doesn't help, and neither does a restart of the broker, which loads the same data. |
+| Cause | State | What to do |
+|-------|-------|------------|
+| A file operation failed, for example an ack couldn't be written or the broker is out of file descriptors | `paused` | Fix the cause and resume the queue. Publishes are still confirmed and stored meanwhile. |
+| Message data can't be read: a corrupt message, or a segment that can't be loaded when the broker starts | `failed` | Delete the queue, and declare it again. In a cluster, a failover to a node with a good copy of the data also works. Resuming it doesn't help, and neither does a restart of the broker, which loads the same data. |
 
 A queue with data it can't read nacks publishes, as they would be lost with the rest of its messages when it's deleted. Publishers without confirms lose them silently. Acks of messages delivered before are still taken. A purge is refused, with `PRECONDITION_FAILED` over AMQP and 400 in the HTTP API: what can still be read can't be told from what can't.
 
-A queue's retry queue and the queue of a delayed exchange are paused the same way. They can't be deleted on their own: a retry queue with data it can't read goes when its queue is deleted, the queue of a delayed exchange when the exchange is deleted. Meanwhile a rejected message is requeued at once instead of being delayed, and a publish to the delayed exchange is nacked.
+A queue's retry queue and the queue of a delayed exchange are paused or failed the same way. They can't be deleted on their own: a retry queue with data it can't read goes when its queue is deleted, the queue of a delayed exchange when the exchange is deleted. Meanwhile a rejected message is requeued at once instead of being delayed, and a publish to the delayed exchange is nacked.
 
 Streams follow the same rule: delete a stream with data it can't read. Its consumer offsets go with it, and a stream declared again starts from offset 1.
 
-MQTT sessions are paused the same way, with their client still connected, and are shown as `paused`: resume the session after a failed file operation, delete it if its data can't be read. Publishes to a session with data it can't read aren't stored for it. A client that connects after the delete gets a new session, without its subscriptions. Like a queue, a session can also be paused and resumed through the API and the management UI, and that pause is kept when the broker restarts.
+MQTT sessions are paused or failed the same way, with their client still connected: resume the session after a failed file operation, delete it if its data can't be read. Publishes to a session with data it can't read aren't stored for it. A client that connects after the delete gets a new session, without its subscriptions. Like a queue, a session can also be paused and resumed through the API and the management UI, and that pause is kept when the broker restarts.
 
 ## Reserved Queue Name Prefixes
 

@@ -85,18 +85,23 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
   updateQueue(true)
 })
 
-// What the API's paused_reason means, and what to do about it
+// Why a queue is paused (the API's paused_reason) or failed, and what to do about it
 const pausedReasons = {
   operator: 'It was paused through the API or the management UI.',
-  store_error: 'A message store error. Resume the queue to try again.',
-  unreadable: "Its message data can't be read. Delete the queue, or fail over to a node with a good copy."
+  store_error: 'A message store error. Resume the queue to try again.'
+}
+
+function stateReason (state, pausedReason) {
+  if (state === 'failed') return "Its message data can't be read. Delete the queue, or fail over to a node with a good copy."
+  if (state === 'paused' && pausedReason) return pausedReasons[pausedReason] || pausedReason
+  return null
 }
 
 function handleQueueState (state, pausedReason) {
   document.getElementById('q-state').textContent = state
-  const reason = state === 'paused' && pausedReason ? (pausedReasons[pausedReason] || pausedReason) : null
-  document.getElementById('q-paused-reason').textContent = reason || ''
-  document.getElementById('q-paused-reason-row').classList.toggle('hide', !reason)
+  const reason = stateReason(state, pausedReason)
+  document.getElementById('q-state-reason').textContent = reason || ''
+  document.getElementById('q-state-reason-row').classList.toggle('hide', !reason)
   switch (state) {
     case 'paused':
       pauseQueueForm.classList.add('hide')

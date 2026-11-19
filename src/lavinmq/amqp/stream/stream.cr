@@ -123,8 +123,8 @@ module LavinMQ::AMQP
       else
         restore_paused
         if @msg_store.failed?
-          @log.error { "Paused, message data can't be loaded. Delete the stream to remove it, or fail over to a node with a good copy" }
-          @state_lock.synchronize { set_paused }
+          @log.error { "Failed, message data can't be loaded. Delete the stream to remove it, or fail over to a node with a good copy" }
+          @state_lock.synchronize { set_failed }
         end
         handle_arguments
         true
@@ -173,8 +173,13 @@ module LavinMQ::AMQP
     end
 
     # Yields a message for StreamReader, see StreamMessageStore#read_with_lease?
+    # A store error pauses the stream, like a delivery's, and is raised for
+    # the reader to stop
     protected def read_with_lease?(segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
       stream_msg_store.read_with_lease?(@msg_store_lock, segment, position) { |env| yield env }
+    rescue ex : MessageStore::Error
+      pause_on_store_error(ex)
+      raise ex
     end
 
     protected def next_segment_offset(segment : UInt32) : Tuple(UInt32, Int64)?

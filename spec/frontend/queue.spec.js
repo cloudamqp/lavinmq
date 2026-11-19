@@ -72,7 +72,7 @@ test.describe('queue', _ => {
     })
   })
 
-  test.describe('paused reason', _ => {
+  test.describe('state reason', _ => {
     async function loadQueue (apimap, page, overrides) {
       const loaded = Promise.all([
         apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${queueName}`, Object.assign({}, queueResponse, overrides)),
@@ -85,19 +85,21 @@ test.describe('queue', _ => {
     test('is hidden for a running queue', async ({ apimap, page }) => {
       await loadQueue(apimap, page, {})
       await expect(page.locator('#q-state')).toHaveText('running')
-      await expect(page.locator('#q-paused-reason-row')).toBeHidden()
+      await expect(page.locator('#q-state-reason-row')).toBeHidden()
     })
 
-    test('says what to do with a queue whose data can\'t be read', async ({ apimap, page }) => {
-      await loadQueue(apimap, page, { state: 'paused', paused_reason: 'unreadable' })
-      await expect(page.locator('#q-state')).toHaveText('paused')
-      await expect(page.locator('#q-paused-reason-row')).toBeVisible()
-      await expect(page.locator('#q-paused-reason')).toContainText("can't be read. Delete the queue")
+    test('says what to do with a failed queue', async ({ apimap, page }) => {
+      await loadQueue(apimap, page, { state: 'failed' })
+      await expect(page.locator('#q-state')).toHaveText('failed')
+      await expect(page.locator('#q-state-reason-row')).toBeVisible()
+      await expect(page.locator('#q-state-reason')).toContainText("can't be read. Delete the queue")
+      await expect(page.locator('#pauseQueue')).toBeHidden()
+      await expect(page.locator('#resumeQueue')).toBeHidden()
     })
 
     test('says to resume a queue paused by a store error', async ({ apimap, page }) => {
       await loadQueue(apimap, page, { state: 'paused', paused_reason: 'store_error' })
-      await expect(page.locator('#q-paused-reason')).toContainText('Resume the queue to try again')
+      await expect(page.locator('#q-state-reason')).toContainText('Resume the queue to try again')
     })
   })
 

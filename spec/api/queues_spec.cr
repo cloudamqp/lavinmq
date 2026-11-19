@@ -61,9 +61,11 @@ describe LavinMQ::HTTP::QueuesController do
         segment = queue.@msg_store.@segments.first_value
         # The property flags of the message, with a bit that isn't defined
         write_at(segment.path, 4 + sizeof(Int64) + 1 + 1 + "q_reason".bytesize, 0x0003u16)
+        # Failed, not paused, when its data can't be read
         queue.basic_get(no_ack: true) { }
-        queue.state.paused?.should be_true
-        reason.call.should eq "unreadable"
+        queue.state.failed?.should be_true
+        JSON.parse(http.get("/api/queues/%2f/q_reason").body)["state"].should eq "failed"
+        reason.call.should be_nil
       end
     end
 
@@ -356,6 +358,29 @@ describe LavinMQ::HTTP::QueuesController do
         body = JSON.parse(http.get("/api/vhosts/%2f").body)
         body["message_stats"]["get_no_ack"].should eq 2
         body["message_stats"]["deliver_get"].should eq 2
+      end
+    end
+
+    it "refuses to read from a stream whose data can't be read, and fails the one a read finds it in" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("unreadable_stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          3.times { |i| q.publish_confirm "m#{i}" }
+        end
+        stream = s.vhosts["/"].queue("unreadable_stream").as(LavinMQ::AMQP::Stream)
+        segment = stream.@msg_store.@segments.first_value
+        record_size = (segment.size - 4) // 3
+        # The body size of the second message, published to the default exchange
+        write_at(segment.path, 4 + record_size + 8 + 1 + 1 + "unreadable_stream".bytesize + AMQ::Protocol::Properties.new.bytesize, UInt64::MAX)
+        body = %({ "count": 3, "offset": "first" })
+        # What was read before the data is returned, and the stream is paused
+        response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.size.should eq 1
+        stream.state.should eq LavinMQ::QueueState::Failed
+
+        response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
+        response.status_code.should eq 403
       end
     end
 

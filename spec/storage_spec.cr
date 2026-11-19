@@ -24,7 +24,7 @@ end
 describe LavinMQ::AMQP::DurableQueue do
   context "with corrupt segments" do
     context "when consumed" do
-      it "should be paused" do
+      it "should be failed" do
         with_amqp_server do |s|
           vhost = s.vhosts.create("corrupt_vhost")
           with_channel(s, vhost: vhost.name) do |ch|
@@ -43,7 +43,7 @@ describe LavinMQ::AMQP::DurableQueue do
 
             q.subscribe(tag: "tag", no_ack: false, &.ack)
 
-            should_eventually(be_true) { queue.state.paused? }
+            should_eventually(be_true) { queue.state.failed? }
             queue.closed?.should be_false
           end
 

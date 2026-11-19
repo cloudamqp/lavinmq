@@ -575,7 +575,7 @@ describe "Retry Queue" do
       end
     end
 
-    it "starts with a retry queue whose segment is corrupt, and pauses that queue until its queue is deleted" do
+    it "starts with a retry queue whose segment is corrupt, and fails that queue until its queue is deleted" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("corrupt-retry", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 60_000}))
@@ -589,7 +589,7 @@ describe "Retry Queue" do
         restart_server(s)
         retry_q = s.vhosts["/"].queue("amq.retry-corrupt-retry")
         retry_q.closed?.should be_false
-        wait_for { retry_q.state.paused? }
+        wait_for { retry_q.state.failed? }
         primary = s.vhosts["/"].queue("corrupt-retry")
         primary.state.running?.should be_true
         with_channel(s) do |ch|
@@ -601,7 +601,7 @@ describe "Retry Queue" do
           retry_q.message_count.should eq 0 # its messages weren't counted at load
           # A purge of its queue doesn't purge it, the queue's messages are purged
           primary.purge.should eq 1
-          retry_q.state.paused?.should be_true
+          retry_q.state.failed?.should be_true
 
           # Deleting its queue deletes it, and a new one is created with the queue
           ch.queue_delete("corrupt-retry")
@@ -629,11 +629,11 @@ describe "Retry Queue" do
           # The property flags of the next message, with a bit that isn't defined
           write_at(segment.path, segment.pos.to_i64 + sizeof(Int64) + 1 + 1 + "retry-unreadable".bytesize, 0x0003u16)
           q.get(no_ack: true).should be_nil
-          queue.state.paused?.should be_true
+          queue.state.failed?.should be_true
 
           expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge }
           expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge(1) }
-          queue.state.paused?.should be_true
+          queue.state.failed?.should be_true
           retry_q.message_count.should eq 2
         end
       end

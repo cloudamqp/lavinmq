@@ -35,6 +35,9 @@ module LavinMQ::AMQP
           segment = s
         end
       end
+    rescue ex : MessageStore::Error
+      # The stream is paused, see Stream#read_with_lease?. What was read is kept.
+      Log.debug(exception: ex) { "Stopped reading #{@stream.name}" }
     ensure
       @stream.unmap_if_unused(segment) if segment
     end
