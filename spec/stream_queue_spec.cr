@@ -1086,27 +1086,6 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "takes the offsets of a stream that failed to load from its meta files" do
-      with_datadir do |data_dir|
-        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        body = "x" * (LavinMQ::Config.instance.segment_size // 2)
-        4.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
-        store.@segments.size.should be > 2
-        store.close
-        # As when retention has dropped the segments with the offsets before it
-        write_at(File.join(data_dir, "meta.0000000002"), sizeof(UInt32), 10_000_000_i64)
-        write_at(File.join(data_dir, "msgs.0000000001"), 0, LavinMQ::Schema::VERSION + 1)
-
-        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        store.failed?.should be_true
-        store.last_offset.should be >= 10_000_000
-        store.wipe
-        store.push(LavinMQ::Message.new("ex", "rk", "new"))
-        store.last_offset.should be > 10_000_000
-        store.close
-      end
-    end
-
     it "loads as failed when a record in a segment can't be decoded" do
       with_datadir do |data_dir|
         io = IO::Memory.new
@@ -1138,15 +1117,15 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    it "starts with a stream whose segment is corrupt paused, and a purge makes it usable again" do
+    it "starts with a stream whose segment is corrupt paused, refusing publishes and purges until it's deleted" do
       with_amqp_server do |s|
         args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
         with_channel(s) do |ch|
           q = ch.queue("corrupt-stream", args: args)
           2.times { q.publish_confirm "x" }
         end
-        segment = File.join(s.vhosts["/"].queue("corrupt-stream").@data_dir, "msgs.0000000001")
-        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        data_dir = s.vhosts["/"].queue("corrupt-stream").@data_dir
+        File.open(File.join(data_dir, "msgs.0000000001"), "r+", &.write_bytes(9_u32)) # an unsupported schema version
         restart_server(s)
         stream = s.vhosts["/"].queue("corrupt-stream").as(LavinMQ::AMQP::Stream)
         stream.closed?.should be_false
@@ -1160,36 +1139,27 @@ describe LavinMQ::AMQP::Stream do
             msgs.send msg
             msg.ack
           end
-          q.publish_confirm("while failed").should be_true
+          # Nacked: it would be lost with the rest when the stream is deleted
+          q.publish_confirm("while failed").should be_false
           stream.resume!
           stream.state.paused?.should be_true
           select
           when msgs.receive then fail "delivered a message from a stream that can't be read"
           when timeout 100.milliseconds
           end
-
-          stream.purge
-          stream.state.running?.should be_true
-          stream.message_count.should eq 0
-          q.publish_confirm "new"
-          msg = msgs.receive
-          msg.body_io.to_s.should eq "new"
-          # Not an offset the stream has handed out before, which were 1 and 2
-          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should be > 3
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { stream.purge }
         end
-        wait_for { !File.exists?(segment) }
-        restart_server(s)
-        stream = s.vhosts["/"].queue("corrupt-stream").as(LavinMQ::AMQP::Stream)
-        stream.state.running?.should be_true
-        stream.message_count.should eq 1
-        # The offsets continue after a restart too, the one segment left has no meta file
-        first = AMQP::Client::Arguments.new({"x-stream-offset" => "first"})
-        msg = StreamSpecHelpers.consume_one(s, "corrupt-stream", "after-restart", first)
-        StreamSpecHelpers.offset_from_headers(msg.properties.headers).should be > 3
+        with_channel(s) do |ch|
+          ch.queue_delete("corrupt-stream")
+          Dir.exists?(data_dir).should be_false
+          q = ch.queue("corrupt-stream", args: args)
+          q.publish_confirm("new").should be_true
+          s.vhosts["/"].queue("corrupt-stream").state.running?.should be_true
+        end
       end
     end
 
-    it "pauses a stream when a consumer reaches a message that can't be read, until it's purged" do
+    it "pauses a stream when a consumer reaches a message that can't be read, refusing publishes" do
       with_amqp_server do |s|
         args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
         with_channel(s) do |ch|
@@ -1208,13 +1178,9 @@ describe LavinMQ::AMQP::Stream do
           should_eventually(be_true) { stream.state.paused? }
           stream.closed?.should be_false
           ch.closed?.should be_false
-
-          stream.purge.should eq 3
-          stream.state.running?.should be_true
-          q.publish_confirm "new"
-          msg = msgs.receive
-          msg.body_io.to_s.should eq "new"
-          StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 4
+          q.publish_confirm("new").should be_false
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { stream.purge }
+          stream.message_count.should eq 3
         end
       end
     end

@@ -101,20 +101,20 @@ The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept
 
 ### Message store errors
 
-A queue whose message store fails is paused, not closed. Consumers stay connected and get no messages, `basic.get` returns empty, and publishes are still confirmed and stored. The log has an error from the queue that says which of the two cases below it is. This pause isn't stored: a restart of the broker loads the queue's data again.
+A queue whose message store fails is paused, not closed. Consumers stay connected and get no messages, and `basic.get` returns empty. The log has an error from the queue that says which of the two cases below it is. This pause isn't stored: a restart of the broker loads the queue's data again.
 
 | Cause | What to do |
 |-------|------------|
-| A file operation failed, for example an ack couldn't be written or the broker is out of file descriptors | Fix the cause and resume the queue. |
-| Message data can't be read: a corrupt message, or a segment that can't be loaded when the broker starts | Purge the queue, or delete it. Resuming it doesn't help, it stays paused. In a cluster, a failover to a node with a good copy of the data also works. |
+| A file operation failed, for example an ack couldn't be written or the broker is out of file descriptors | Fix the cause and resume the queue. Publishes are still confirmed and stored meanwhile. |
+| Message data can't be read: a corrupt message, or a segment that can't be loaded when the broker starts | Delete the queue, and declare it again. In a cluster, a failover to a node with a good copy of the data also works. Resuming it doesn't help, and neither does a restart of the broker, which loads the same data. |
 
-A purge of a queue with data it can't read removes all of the queue's messages, whatever count is given, and resumes the queue unless it was also paused through the API. That includes the messages that can still be read and those that are delivered but not acked, whose acks and rejects are then ignored. While the queue waits for the purge, `max-length`, `max-length-bytes`, `delivery-limit` and message TTL aren't applied, so a queue with publishers keeps growing.
+A queue with data it can't read nacks publishes, as they would be lost with the rest of its messages when it's deleted. Publishers without confirms lose them silently. Acks of messages delivered before are still taken. A purge is refused, with `PRECONDITION_FAILED` over AMQP and 400 in the HTTP API: what can still be read can't be told from what can't.
 
-A queue's retry queue and the queue of a delayed exchange are paused the same way. Purging a queue also purges its retry queue.
+A queue's retry queue and the queue of a delayed exchange are paused the same way. They can't be deleted on their own: a retry queue with data it can't read goes when its queue is deleted, the queue of a delayed exchange when the exchange is deleted. Meanwhile a rejected message is requeued at once instead of being delayed, and a publish to the delayed exchange is nacked.
 
-Streams follow the same rule. A purge of a stream with data it can't read removes all its segments, and its consumers continue with what is published next. Offsets are never reused: if the last offset can't be read from the data, the new ones start well above it.
+Streams follow the same rule: delete a stream with data it can't read. Its consumer offsets go with it, and a stream declared again starts from offset 1.
 
-MQTT sessions are paused the same way, with their client still connected, and are shown as `paused`: resume the session after a failed file operation, purge it if its data can't be read. What the client has in flight when the purge removes it stays booked, so its acks aren't refused. Like a queue, a session can also be paused and resumed through the API and the management UI, and that pause is kept when the broker restarts.
+MQTT sessions are paused the same way, with their client still connected, and are shown as `paused`: resume the session after a failed file operation, delete it if its data can't be read. Publishes to a session with data it can't read aren't stored for it. A client that connects after the delete gets a new session, without its subscriptions. Like a queue, a session can also be paused and resumed through the API and the management UI, and that pause is kept when the broker restarts.
 
 ## Reserved Queue Name Prefixes
 

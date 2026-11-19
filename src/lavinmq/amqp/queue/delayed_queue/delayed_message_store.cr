@@ -26,7 +26,7 @@ module LavinMQ::AMQP
       def initialize(*args, **kwargs)
         super
         # Not indexed if a segment failed to load: nothing is read from the
-        # store until it's wiped
+        # store then
         close_on_error { build_index } unless failed?
       end
 

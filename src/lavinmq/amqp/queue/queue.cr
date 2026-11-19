@@ -354,7 +354,7 @@ module LavinMQ::AMQP
     private def start : Nil
       restore_paused
       if @msg_store.failed?
-        @log.error { "Paused, message data can't be loaded. Purge the queue to remove all its messages, or delete it" }
+        @log.error { "Paused, message data can't be loaded. Delete the queue to remove it, or fail over to a node with a good copy" }
         @state_lock.synchronize { set_paused }
       end
       handle_arguments
@@ -845,21 +845,16 @@ module LavinMQ::AMQP
     end
 
     # The queue is paused, not closed, when its message store fails: nothing
-    # more is delivered, publishes are still stored. This pause isn't kept over
-    # a restart of the broker, which loads the store again.
+    # more is delivered. Publishes are still stored, unless the store has data
+    # it can't read, see #publish_internal. This pause isn't kept over a
+    # restart of the broker, which loads the store again.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
       return if @closed
-      paused = @state_lock.synchronize do
-        # A purge has removed the data since the read failed. Checked under
-        # the lock: the purge clears the failure before it takes the lock to
-        # resume, so it either is seen here or undoes this pause.
-        next false if ex.is_a?(MessageStore::UnreadableError) && !@msg_store.failed?
-        set_paused
-      end
+      paused = @state_lock.synchronize { set_paused }
       if paused
         @log.error(ex) do
           if @msg_store.failed?
-            "Paused, message data can't be read. Purge the queue to remove all its messages, or delete it"
+            "Paused, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy"
           else
             "Paused due to a message store error, resume the queue to try again"
           end
@@ -881,25 +876,13 @@ module LavinMQ::AMQP
           @vhost.replicator.try &.delete_file(paused_file) if durable?
         end
         if @msg_store.failed?
-          @log.error { "Still paused, message data can't be read. Purge the queue to remove all its messages" }
+          @log.error { "Still paused, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy" }
           return
         end
         @state = QueueState::Running
         @paused.set(false)
       end
       @log.debug { "Resumed" }
-      ensure_expire_fiber
-    end
-
-    # The store can be read again. The queue stays paused if an operator
-    # paused it too.
-    private def resume_after_wipe : Nil
-      @state_lock.synchronize do
-        return if !@state.paused? || File.exists?(paused_file)
-        @state = QueueState::Running
-        @paused.set(false)
-      end
-      @log.info { "Resumed, its message data was removed by a purge" }
       ensure_expire_fiber
     end
 
@@ -1035,6 +1018,7 @@ module LavinMQ::AMQP
       Dropped  # message was a duplicate
       Overflow # rejected by max-length / max-length-bytes (overflow=reject-publish)
       Closed   # queue closed, the message wasn't stored
+      Failed   # the store has data it can't read, nothing more is stored in it
     end
 
     class Closed < Exception; end
@@ -1059,6 +1043,9 @@ module LavinMQ::AMQP
 
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks? = nil) : PublishResult
       return PublishResult::Closed if @closed
+      # Every message stored now would be lost, with the rest, when the queue
+      # is deleted. Before the deduplication, which would drop a retry.
+      return PublishResult::Failed if @msg_store.failed?
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -1073,6 +1060,8 @@ module LavinMQ::AMQP
         # this one waits for it, and a message pushed past the limit would
         # make drop_overflow drop the confirmed head
         return PublishResult::Overflow if reject_on_overflow?(msg)
+        # Again under the lock: a read can have failed the store meanwhile
+        return PublishResult::Failed if @msg_store.failed?
         was_empty = @msg_store.empty?
         @msg_store.push(msg)
         pushed = true
@@ -1483,9 +1472,6 @@ module LavinMQ::AMQP
     # read again once the queue is resumed
     private def keep_on_store_error(sp : SegmentPosition, &) : Nil
       yield
-    rescue MessageStore::MissingSegment
-      # A purge removed it with all of the store's messages
-      @msg_store_lock.synchronize { @deliveries.delete(sp) }
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
       requeue_unread(sp)
@@ -1628,70 +1614,57 @@ module LavinMQ::AMQP
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
       return 0_u32 if @closed
-      wiped = false
       delete_count = @msg_store_lock.synchronize do
         # A close that took the lock first closed the store after the check above
         next 0_u32 if @msg_store.closed
-        ready = @msg_store.size
-        count = @msg_store.failed? ? 0_u32 : purge_readable(max_count)
-        # Also when it was this purge that reached the data that can't be read
-        if @msg_store.failed?
-          # All of it goes, also what is delivered but not acked: what can be
-          # read can't be told from what can't
-          wiped = true
-          @deliveries.clear
-          @msg_store.wipe
-          count = ready # also what was purged before the data was reached
-        end
+        raise_unreadable if @msg_store.failed?
+        # Checked under the lock, so that a message published or shifted for
+        # delivery between the check and the purge isn't purged uncounted
+        count = if unacked_count == 0 && max_count >= @msg_store.size
+                  # If there's no unacked and we're purging all messages, we can purge faster by deleting files
+                  size = @msg_store.size
+                  @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
+                  size
+                else
+                  @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
+                end
+        # The purge reached data that can't be read, which #purge_all doesn't raise for
+        raise_unreadable if @msg_store.failed?
         count
       end
       @log.info { "Purged #{delete_count} messages" }
-      resume_after_wipe if wiped
       # Signal expire loop to recalculate wait time for next message, and
       # restart it if it had stopped while the (now purged) head message had no TTL
       if delete_count > 0
         @message_ttl_change.try_send? nil
         ensure_expire_fiber
       end
-      # All of the delayed ones too when the store was wiped, which can be
-      # more than max_count
-      delete_count += purge_delayed(wiped ? UInt32::MAX : max_count - delete_count)
+      delete_count += purge_delayed(max_count - delete_count)
       delete_count
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
+      # The purge reached data that can't be read
+      raise_unreadable if @msg_store.failed?
       raise ex
     end
 
-    # Under @msg_store_lock. A store error is left for the caller if the store
-    # hasn't failed, else the store is wiped.
-    private def purge_readable(max_count) : UInt32
-      # Checked under the lock, so that a message published or shifted for
-      # delivery between the check and the purge isn't purged uncounted
-      if unacked_count == 0 && max_count >= @msg_store.size
-        # If there's no unacked and we're purging all messages, we can purge faster by deleting files
-        count = @msg_store.size
-        @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
-        count
-      else
-        @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
+    # A store with data it can't read isn't purged: what can be read can't be
+    # told from what can't, so the queue has to be deleted. Pauses the queue,
+    # if the purge was the first to reach the data.
+    private def raise_unreadable : NoReturn
+      if @state_lock.synchronize { set_paused }
+        @log.error { "Paused, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy" }
       end
-    rescue ex : MessageStore::Error
-      raise ex unless @msg_store.failed?
-      0_u32
-    end
-
-    protected def store_failed? : Bool
-      @msg_store.failed?
+      raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read. Delete the queue to remove it, or fail over to a node with a good copy")
     end
 
     # Delayed messages would otherwise be republished after their backoff,
-    # resurrecting messages the user just purged. A retry queue with data it
-    # can't read is purged whatever is left of the count, to get it usable.
+    # resurrecting messages the user just purged
     private def purge_delayed(max_count) : UInt32
       retry_queue = @delayed_retry_queue
-      return 0_u32 unless retry_queue && (max_count > 0 || retry_queue.store_failed?)
+      return 0_u32 unless retry_queue && max_count > 0
       retry_queue.purge(max_count)
-    rescue ex : MessageStore::Error
+    rescue ex : MessageStore::Error | LavinMQ::Error::PreconditionFailed
       @log.error(ex) { "Failed to purge retry queue" }
       0_u32
     end
@@ -1746,7 +1719,7 @@ module LavinMQ::AMQP
     # mapped until the block returns, as the delivery can be suspended in a
     # socket write while the queue is closed or deleted.
     # Returns false, without yielding, if the message can't be read, which
-    # pauses the queue, or if a purge removed it.
+    # pauses the queue.
     def read(sp : SegmentPosition, & : Envelope -> _) : Bool
       env = @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true).lease }
       begin
@@ -1755,8 +1728,6 @@ module LavinMQ::AMQP
         env.release
       end
       true
-    rescue MessageStore::MissingSegment
-      false
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
       false

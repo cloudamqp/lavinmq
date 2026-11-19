@@ -25,27 +25,11 @@ module LavinMQ::AMQP
 
     def initialize(*args, **kwargs)
       super
-      # Nothing is dropped from a store that failed to load, it isn't counted
-      @last_offset = failed? ? last_offset_upper_bound : get_last_offset
+      # A store that failed to load isn't counted, so its last offset isn't
+      # known and nothing is dropped from it. Nothing is published to it either.
+      @last_offset = failed? ? 0i64 : get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
       drop_overflow unless failed?
-    end
-
-    # Starts from scratch, after the offsets it had. Consumers continue with
-    # what is published next.
-    def wipe : UInt32
-      count = super
-      seg = @wfile_id
-      @segment_first_offset.clear
-      @segment_first_ts.clear
-      @segment_last_ts.clear
-      @segment_first_offset[seg] = @last_offset + 1
-      @segment_first_ts[seg] = RoughTime.unix_ms
-      store_offset_base(seg, @last_offset + 1)
-      @offset_index.clear
-      @offset_cursor = {0u32, 0u32, 0i64}
-      @segment_readers.clear
-      count
     end
 
     def close : Nil
@@ -57,63 +41,6 @@ module LavinMQ::AMQP
     def delete
       super
       @consumer_offsets.delete
-      @replicator.try &.delete_file(offset_base_path)
-    end
-
-    # The first offset of a segment that has no segment before it to count
-    # from, written by #wipe: the segment written to has no meta file, so
-    # without it a restart would start the offsets over.
-    private def offset_base_path : String
-      File.join(@msg_dir, "offset_base")
-    end
-
-    private def store_offset_base(seg : UInt32, offset : Int64) : Nil
-      path = offset_base_path
-      File.open(path, "w") do |f|
-        f.write_bytes seg
-        f.write_bytes offset
-      end
-      @replicator.try &.replace_file(path)
-    end
-
-    # The first offset of *seg* when there's no segment before it
-    private def offset_base(seg : UInt32) : Int64
-      File.open(offset_base_path) do |f|
-        return f.read_bytes(Int64) if f.read_bytes(UInt32) == seg
-      end
-      1i64
-    rescue File::NotFoundError | IO::EOFError
-      1i64
-    end
-
-    # The last offset isn't known when a segment failed to load. Offsets must
-    # never be handed out twice, so the segments that aren't counted are taken
-    # to hold as many messages as could fit in them.
-    private def last_offset_upper_bound : Int64
-      offset = 0i64
-      @segments.each do |seg, mfile|
-        first = @segment_first_offset[seg]?
-        if first && @segment_msg_count.has_key?(seg)
-          offset = Math.max(offset, first + @segment_msg_count[seg] - 1)
-        elsif stored = stored_last_offset(mfile)
-          # Not loaded, but its meta file has the offsets it holds. What
-          # retention dropped before it is only known from there.
-          offset = Math.max(offset, stored)
-        else
-          offset += mfile.size // BytesMessage::MIN_BYTESIZE
-        end
-      end
-      offset
-    end
-
-    # The last offset of a segment, from its meta file if it has one
-    private def stored_last_offset(mfile : MFile) : Int64?
-      File.open(meta_file_name(mfile)) do |file|
-        count = file.read_bytes(UInt32)
-        file.read_bytes(Int64) + count - 1
-      end
-    rescue File::NotFoundError | IO::EOFError
-      nil
     end
 
     private def get_last_offset : Int64
@@ -133,7 +60,7 @@ module LavinMQ::AMQP
     # ameba:disable Metrics/CyclomaticComplexity
     def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
       raise ClosedError.new if @closed
-      return last_offset_seg_pos if failed? # nothing is read until it's wiped
+      return last_offset_seg_pos if failed? # nothing can be read
       if track_offset
         consumer_last_offset = last_offset_by_consumer_tag(tag)
         return find_offset_in_segments(consumer_last_offset) if consumer_last_offset
@@ -390,8 +317,6 @@ module LavinMQ::AMQP
     private def next_segment(consumer) : MFile?
       if seg_id = next_segment_id(consumer.segment)
         fast = @segments[consumer.segment]?.try { |prev| read_fast?(prev, consumer.segment_since) }
-        # Its segment is gone, so it continues from the first offset of this one
-        consumer.offset = @segment_first_offset[seg_id] unless @segments.has_key?(consumer.segment)
         release_segment(consumer)
         consumer.segment = seg_id
         consumer.pos = 4u32
@@ -533,13 +458,13 @@ module LavinMQ::AMQP
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
         # was written before shutdown — don't parse a msg out of an empty file.
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || offset_base(seg)
+        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
         previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || offset_base(seg)
+        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
         previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
         @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count

@@ -123,7 +123,7 @@ module LavinMQ::AMQP
       else
         restore_paused
         if @msg_store.failed?
-          @log.error { "Paused, message data can't be loaded. Purge the stream to remove all its messages, or delete it" }
+          @log.error { "Paused, message data can't be loaded. Delete the stream to remove it, or fail over to a node with a good copy" }
           @state_lock.synchronize { set_paused }
         end
         handle_arguments
@@ -148,6 +148,8 @@ module LavinMQ::AMQP
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
       return PublishResult::Closed if @state.closed?
       @msg_store_lock.synchronize do
+        # It would be lost with the rest when the stream is deleted
+        return PublishResult::Failed if @msg_store.failed?
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
       end
@@ -332,19 +334,19 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      wiped = false
       delete_count = @msg_store_lock.synchronize do
         # Closed by a close while the purge waited for the lock
         next 0_u32 if @msg_store.closed
-        # All of it goes if it has data that can't be read
-        next @msg_store.wipe if wiped = @msg_store.failed?
-        @msg_store.purge(max_count)
+        raise_unreadable if @msg_store.failed?
+        count = @msg_store.purge(max_count)
+        raise_unreadable if @msg_store.failed?
+        count
       end
       @log.info { "Purged #{delete_count} messages" }
-      resume_after_wipe if wiped
       delete_count
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
+      raise_unreadable if @msg_store.failed?
       raise ex
     end
 

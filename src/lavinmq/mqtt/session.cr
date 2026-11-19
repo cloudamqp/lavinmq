@@ -89,7 +89,7 @@ module LavinMQ
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         if @msg_store.failed?
-          @log.error { "Paused, message data can't be loaded. Purge the session to remove all its messages, or delete it" }
+          @log.error { "Paused, message data can't be loaded. Delete the session to remove it, or fail over to a node with a good copy" }
           @paused.set(true)
         end
         @metadata_file = File.join(data_dir, ".metadata")
@@ -213,23 +213,21 @@ module LavinMQ
         end
       end
 
-      # Nothing more is delivered when the message store fails, publishes are
-      # still stored. #resume! tries again, unless the store has data it can't
-      # read: then only a purge, which removes all of it, resumes the session.
-      # Like a queue's, this pause isn't kept over a restart of the broker.
+      # Nothing more is delivered when the message store fails. Publishes are
+      # still stored, unless the store has data it can't read, see #publish.
+      # #resume! tries again, unless the store has data it can't read: then the
+      # session has to be deleted. Like a queue's, this pause isn't kept over a
+      # restart of the broker.
       private def pause_on_store_error(ex : MessageStore::Error) : Nil
         paused = @msg_store_lock.synchronize do
           next false if closed?
-          # A purge has removed the data since the read failed. Decided under
-          # the lock a purge holds, so that it isn't undone.
-          next false if ex.is_a?(MessageStore::UnreadableError) && !@msg_store.failed?
           @paused.set(true)
           true
         end
         if paused
           @log.error(exception: ex) do
             if @msg_store.failed?
-              "Paused, message data can't be read. Purge the session to remove all its messages, or delete it"
+              "Paused, message data can't be read. Delete the session to remove it, or fail over to a node with a good copy"
             else
               "Paused due to a message store error, resume the session to try again"
             end
@@ -397,6 +395,8 @@ module LavinMQ
           # Again under the lock: the fiber that held it can close the session
           # before this one runs, and raising here would fail the whole fan-out
           return false if closed?
+          # It would be lost with the rest when the session is deleted
+          return false if @msg_store.failed?
           @msg_store.push(msg)
           drop_overflow
         end
@@ -563,7 +563,7 @@ module LavinMQ
 
       private def drop_overflow : Nil
         return unless (ml = @max_length) || (mlb = @max_length_bytes)
-        return if @paused.value # enforced again once resumed, or purged
+        return if @msg_store.failed? # nothing can be read
         if ml = @max_length
           @msg_store_lock.synchronize do
             while @msg_store.size > ml
@@ -608,7 +608,7 @@ module LavinMQ
 
       # Ends a pause by an operator, and one by a store error, which tries the
       # store again. A session with data it can't read stays paused until it's
-      # purged.
+      # deleted.
       def resume! : Nil
         resumed = @msg_store_lock.synchronize do
           next false unless @paused.value
@@ -616,7 +616,7 @@ module LavinMQ
             @replicator.try &.delete_file(@paused_file)
           end
           if @msg_store.failed?
-            @log.error { "Still paused, message data can't be read. Purge the session to remove all its messages" }
+            @log.error { "Still paused, message data can't be read. Delete the session to remove it, or fail over to a node with a good copy" }
             next false
           end
           @paused.set(false)
@@ -637,26 +637,26 @@ module LavinMQ
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
         count = @msg_store_lock.synchronize do
-          ready = @msg_store.size
-          purged = @msg_store.failed? ? 0_u32 : purge_readable(max_count)
-          # All of it goes if it has data that can't be read, also when it was
-          # this purge that reached it
-          next purged unless @msg_store.failed?
-          # What the client has in flight stays booked, its acks are ignored
-          @msg_store.wipe
-          # Stays paused if an operator paused it too
-          @paused.set(false) unless closed? || File.exists?(@paused_file)
-          ready
+          # What can be read can't be told from what can't, so the session has
+          # to be deleted
+          raise_unreadable if @msg_store.failed?
+          purged = @msg_store.purge(max_count)
+          raise_unreadable if @msg_store.failed?
+          purged
         end
         @log.info { "Purged #{count} messages" }
         count
+      rescue ex : MessageStore::Error
+        pause_on_store_error(ex)
+        # The purge reached data that can't be read
+        raise_unreadable if @msg_store.failed?
+        raise ex
       end
 
-      private def purge_readable(max_count) : UInt32
-        @msg_store.purge(max_count)
-      rescue ex : MessageStore::Error
-        raise ex unless @msg_store.failed?
-        0_u32
+      # Pauses the session, if the purge was the first to reach the data
+      private def raise_unreadable : NoReturn
+        @msg_store_lock.synchronize { @paused.set(true) unless closed? }
+        raise LavinMQ::Error::PreconditionFailed.new("Message data in session '#{@name}' can't be read. Delete the session to remove it, or fail over to a node with a good copy")
       end
 
       def in_use? : Bool

@@ -299,7 +299,7 @@ module MqttSpecs
       end
     end
 
-    it "delivers nothing from a session with a message that can't be read, until it's purged" do
+    it "delivers nothing from a session with a message that can't be read, until it's deleted" do
       with_server do |server|
         deliver_unacked(server, ["1"])
 
@@ -317,15 +317,17 @@ module MqttSpecs
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
           wait_for { session.@paused.value }
-          # A limit can't drop the message either, and doesn't fail the publish
+          # A limit can't drop the message either
           defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
           server.vhosts["/"].add_policy("ml", "^mqtt\\.", "queues", defs, 10_i8, apply: false)
           server.vhosts["/"].apply_policies
+          # Not stored, it would be lost with the rest when the session is deleted
+          count = session.message_count
           publish_from(server, "a/b", ["2"])
           read_packet(io).should be_nil
           session.client.should_not be_nil
           session.closed?.should be_false
-          session.message_count.should be > 0
+          session.message_count.should eq count
           # Shown as paused, so it doesn't look like a running session that is stuck
           session.state.should eq LavinMQ::QueueState::Paused
           session.state_match?([LavinMQ::QueueState::Paused]).should be_true
@@ -334,21 +336,19 @@ module MqttSpecs
           session.state.should eq LavinMQ::QueueState::Paused
           read_packet(io).should be_nil
 
-          # The purge removes all of it, with the message published after
-          segment = store.@segments[sp.segment].path
-          # A pause by an operator isn't undone by the purge
-          session.pause!
-          session.purge
-          session.message_count.should eq 0
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { session.purge }
           session.state.should eq LavinMQ::QueueState::Paused
-          session.resume!
-          session.state.should eq LavinMQ::QueueState::Running
-          store.@packet_ids.should be_empty
-          # The segment is unlinked after a sync of the whole filesystem, which
-          # the next publish would wait for longer than the client's read timeout
-          wait_for { !File.exists?(segment) }
+          disconnect(io)
+        end
+
+        # Deleted, the client starts over with a new session
+        session.delete
+        with_client_io(server) do |io|
+          connack = connect(io, client_id: "resumer")
+          connack.as(MQTT::Protocol::Connack).session_present?.should be_false
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
           publish_from(server, "a/b", ["3"])
-          read_publishes(io, 1).first.payload.should eq "3".to_slice
+          read_publish(io).payload.should eq "3".to_slice
           disconnect(io)
         end
       end
@@ -406,6 +406,19 @@ module MqttSpecs
       end
     ensure
       LavinMQ::MQTT::SessionMessageStore.fail_next_delete = false
+    end
+
+    it "applies max-length while paused by an operator" do
+      with_server do |server|
+        deliver_unacked(server, [] of String)
+        session = server.vhosts["/"].session("mqtt.resumer")
+        session.pause!
+        defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+        server.vhosts["/"].add_policy("ml", "^mqtt\\.", "queues", defs, 10_i8, apply: false)
+        server.vhosts["/"].apply_policies
+        publish_from(server, "a/b", ["1", "2", "3"])
+        session.message_count.should eq 1
+      end
     end
 
     it "keeps a pause by an operator over a restart of the broker" do
