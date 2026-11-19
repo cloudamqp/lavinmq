@@ -14,7 +14,7 @@ module LavinMQ
 
       # A lease etcd granted, kept alive until it's released or expires
       def self.grant(etcd : Etcd, id : Int64, ttl : Int32) : self
-        lease = new(etcd, id, ttl)
+        lease = new(etcd, id)
         @@keepalive_context.spawn(name: "Etcd::Lease #{id.to_s(16)} keepalive") do
           lease.keepalive_loop(ttl)
         end
@@ -22,7 +22,7 @@ module LavinMQ
       end
 
       # Without a keepalive, see .grant
-      def initialize(@etcd : Etcd, @id : Int64, ttl : Int32)
+      def initialize(@etcd : Etcd, @id : Int64)
         @expired = Channel(Exception?).new
       end
 
@@ -45,6 +45,7 @@ module LavinMQ
         end
       end
 
+      # *ttl* is what etcd last said the lease has left
       protected def keepalive_loop(ttl : Int32)
         loop do
           select
