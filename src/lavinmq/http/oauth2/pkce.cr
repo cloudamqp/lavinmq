@@ -1,4 +1,5 @@
 require "openssl"
+require "../../../stdlib/openssl_digest_free"
 require "base64"
 require "random/secure"
 
@@ -11,7 +12,7 @@ module LavinMQ
         def self.generate : {String, String}
           verifier = Random::Secure.urlsafe_base64(32)
           challenge = Base64.urlsafe_encode(
-            OpenSSL::Digest.new("SHA256").update(verifier).final,
+            OpenSSL::Digest.digest("SHA256", &.update(verifier)),
             padding: false
           )
           {verifier, challenge}

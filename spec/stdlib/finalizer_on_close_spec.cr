@@ -1,5 +1,6 @@
 require "spec"
 require "socket"
+require "digest/sha1"
 require "../../src/stdlib/*"
 
 # Whether the GC still has a finalizer registered for the object
@@ -35,5 +36,29 @@ describe "finalizers on close" do
     finalizer_registered?(client).should be_false
     server.close
     finalizer_registered?(server).should be_false
+  end
+
+  it "frees a digest made by a class method without a finalizer" do
+    digest = nil
+    hex = Digest::SHA1.hexdigest do |ctx|
+      digest = ctx
+      ctx.update("amq.gen-1")
+    end
+    hex.should eq OpenSSL::Digest.new("SHA1").update("amq.gen-1").final.hexstring
+    finalizer_registered?(digest.should_not be_nil).should be_false
+  end
+
+  it "frees a named digest computed in a block" do
+    digest = nil
+    hash = OpenSSL::Digest.digest("SHA256") do |ctx|
+      digest = ctx
+      ctx.update("salt").update("password")
+    end
+    hash.should eq OpenSSL::Digest.new("SHA256").update("saltpassword").final
+    freed = digest.should_not be_nil
+    finalizer_registered?(freed).should be_false
+    expect_raises(Digest::FinalizedError) { freed.update("more") }
+    expect_raises(Digest::FinalizedError) { freed.reset }
+    freed.free # freeing twice is fine
   end
 end
