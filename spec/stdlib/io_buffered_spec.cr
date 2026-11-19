@@ -482,6 +482,26 @@ describe IO::Buffered do
       writer.try &.close
     end
 
+    it "lets the GC finalize a closed socket whose reader fiber captured it" do
+      pool = IO::BufferPool.new(1024)
+      cycles = FinalizationCycles.count do
+        1000.times do
+          reader, writer = UNIXSocket.pair
+          reader.buffer_pool = pool
+          FinalizationCycles.tracked << reader.object_id
+          done = Channel(Nil).new
+          spawn do
+            reader.read_byte
+            reader.close
+            done.send nil
+          end
+          writer.close
+          done.receive
+        end
+      end
+      cycles.should eq 0
+    end
+
     it "releases the read buffer at end of stream of a non-socket IO" do
       pool = IO::BufferPool.new(1024)
       io = ScriptedIO.new { 0 }
@@ -571,6 +591,31 @@ class RecordingIO < IO
   end
 
   def unbuffered_rewind
+  end
+end
+
+lib LibGC
+  fun get_warn_proc = GC_get_warn_proc : WarnProc
+end
+
+module FinalizationCycles
+  class_getter tracked = Array(UInt64).new
+  @@count = 0
+
+  def self.count(&) : Int32
+    @@count = 0
+    previous = LibGC.get_warn_proc
+    LibGC.set_warn_proc ->(_msg : LibC::Char*, arg : LibGC::Word) do
+      @@count += 1 if @@tracked.includes?(arg.to_u64)
+    end
+    yield
+    3.times do
+      GC.collect
+      Fiber.yield
+    end
+    @@count
+  ensure
+    LibGC.set_warn_proc previous if previous
   end
 end
 
