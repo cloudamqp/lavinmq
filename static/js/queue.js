@@ -141,6 +141,7 @@ function renderPrimaryQueue (item) {
   document.getElementById('q-primary-queue').replaceChildren(queueLink(item.vhost, item.primary_queue))
 }
 
+const msgChart = Chart.render('msgChart', 'msgs', true)
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 let detailsRendered = false
@@ -151,6 +152,10 @@ function updateQueue (all, signal) {
       if (qType === 'stream') {
         window.location.href = `/stream#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
       }
+      Chart.update(msgChart, [
+        { key: 'ready', label: 'Ready', desc: 'Messages waiting to be delivered', value: item.messages_ready, log: item.messages_ready_details.log },
+        { key: 'unacked', label: 'Unacknowledged', desc: 'Messages delivered but not yet acknowledged', value: item.messages_unacknowledged, log: item.messages_unacknowledged_details.log }
+      ])
       Chart.update(chart, item.message_stats)
       handleQueueState(item.state, item.paused_reason)
       document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged

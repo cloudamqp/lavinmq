@@ -94,12 +94,16 @@ function handleQueueState (state, pausedReason) {
   }
 }
 
+const msgChart = Chart.render('msgChart', 'msgs', true)
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 let detailsRendered = false
 function updateQueue (all, signal) {
   return HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength, { signal })
     .then(item => {
+      Chart.update(msgChart, [
+        { key: 'messages', label: 'Total', desc: 'Messages currently stored', value: item.messages_ready, log: item.messages_ready_details.log }
+      ])
       Chart.update(chart, item.message_stats)
       handleQueueState(item.state, item.paused_reason)
       document.getElementById('q-total').textContent = Helpers.formatNumber(item.messages)
