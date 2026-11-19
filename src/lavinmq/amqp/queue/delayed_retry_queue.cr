@@ -32,7 +32,7 @@ module LavinMQ::AMQP
     # Never closes or deletes the queue, which would take the definitions lock
     # while the rejecting channel holds its own lock
     def delay(msg : Message) : Bool
-      return false if @closed
+      return false if closed?
       @msg_store_lock.synchronize do
         # The store has data it can't read, the message is requeued instantly
         return false if @msg_store.failed?

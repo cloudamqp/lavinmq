@@ -156,7 +156,7 @@ module LavinMQ::AMQP
 
     # save message id / segment position
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
-      return PublishResult::Closed if @state.closed?
+      return PublishResult::Closed if closed?
       @msg_store_lock.synchronize do
         return PublishResult::Failed if @msg_store.failed?
         @msg_store.push(msg)
@@ -166,7 +166,7 @@ module LavinMQ::AMQP
       notify_all_stream_consumers
       PublishResult::Ok
     rescue MessageStore::ClosedError
-      # Closed/deleted concurrently after the @state.closed? check; treat as
+      # Closed/deleted concurrently after the closed? check; treat as
       # closed instead of surfacing the race as an error (see Queue#publish_internal).
       # push is the only call here that can raise it, so nothing was stored.
       PublishResult::Closed
@@ -218,7 +218,7 @@ module LavinMQ::AMQP
     # delivered. A store error pauses the stream, or fails it if the data
     # can't be read, and is then raised.
     private def read_next(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
+      raise ClosedError.new if closed?
       # Retention can drop the segment while the delivery is suspended in a
       # socket write
       stream_msg_store.shift_with_lease?(@msg_store_lock, cursor) do |env|

@@ -39,7 +39,7 @@ module LavinMQ::AMQP
     end
 
     def delay(msg : Message) : Bool
-      return false if @closed
+      return false if closed?
       @msg_store_lock.synchronize do
         # The store has data it can't read, the message is nacked
         return false if @msg_store.failed?
