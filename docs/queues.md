@@ -101,7 +101,7 @@ The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept
 
 ### Message store errors
 
-A queue whose message store fails is paused, not closed. Consumers stay connected and get no messages, and `basic.get` returns empty. The log has an error from the queue that says which of the two cases below it is. This pause isn't stored: a restart of the broker loads the queue's data again.
+A queue whose message store fails is paused, not closed. Consumers stay connected and get no messages, and `basic.get` returns empty. The queue's `paused_reason` in the HTTP API says which of the two cases below it is, `store_error` or `unreadable`, and so does an error in the log. A queue paused through the API has `operator`. This pause isn't stored: a restart of the broker loads the queue's data again.
 
 | Cause | What to do |
 |-------|------------|

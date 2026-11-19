@@ -886,6 +886,16 @@ module LavinMQ::AMQP
       ensure_expire_fiber
     end
 
+    # Why the queue is paused, nil if it isn't: "unreadable" if its store has
+    # data it can't read, which only a delete gets it out of, else "operator"
+    # if it was paused through the API, else "store_error", which a resume
+    # tries again
+    def paused_reason : String?
+      return unless @state.paused?
+      return "unreadable" if @msg_store.failed?
+      File.exists?(paused_file) ? "operator" : "store_error"
+    end
+
     private def paused_file : String
       File.join(@data_dir, "paused")
     end
@@ -980,6 +990,7 @@ module LavinMQ::AMQP
         exclusive_consumer_tag:       exclusive_consumer_tag,
         single_active_consumer_tag:   @single_active_consumer.try &.tag,
         state:                        @state,
+        paused_reason:                paused_reason,
         effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
         message_stats:                current_stats_details,
         effective_arguments:          settings.effective_args,

@@ -331,6 +331,7 @@ module MqttSpecs
           # Shown as paused, so it doesn't look like a running session that is stuck
           session.state.should eq LavinMQ::QueueState::Paused
           session.state_match?([LavinMQ::QueueState::Paused]).should be_true
+          session.paused_reason.should eq "unreadable"
           # Resuming doesn't help, the message still can't be read
           session.resume!
           session.state.should eq LavinMQ::QueueState::Paused
@@ -388,6 +389,7 @@ module MqttSpecs
           LavinMQ::MQTT::SessionMessageStore.fail_next_delete = true
           puback(io, first.packet_id)
           wait_for { session.state.paused? }
+          session.paused_reason.should eq "store_error"
           session.closed?.should be_false
           session.client.should_not be_nil
 
@@ -429,6 +431,7 @@ module MqttSpecs
           session = server.vhosts["/"].session("mqtt.resumer")
           session.pause!
           session.state.should eq LavinMQ::QueueState::Paused
+          session.paused_reason.should eq "operator"
           publish_from(server, "a/b", ["1"])
           read_packet(io).should be_nil
           session.message_count.should eq 1
@@ -443,6 +446,7 @@ module MqttSpecs
           read_packet(io).should be_nil
           session.resume!
           session.state.should eq LavinMQ::QueueState::Running
+          session.paused_reason.should be_nil
           File.exists?(session.@paused_file).should be_false
           read_publish(io).payload.should eq "1".to_slice
           disconnect(io)

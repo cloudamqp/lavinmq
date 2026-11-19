@@ -631,6 +631,13 @@ module LavinMQ
         @paused.value ? QueueState::Paused : QueueState::Running
       end
 
+      # Why the session is paused, like Queue#paused_reason
+      def paused_reason : String?
+        return unless @paused.value && !closed?
+        return "unreadable" if @msg_store.failed?
+        File.exists?(@paused_file) ? "operator" : "store_error"
+      end
+
       def state_match?(states : Array(QueueState)) : Bool
         states.includes?(state)
       end
@@ -707,6 +714,7 @@ module LavinMQ
           exclusive_consumer_tag:       nil,
           single_active_consumer_tag:   nil,
           state:                        state,
+          paused_reason:                paused_reason,
           effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
           message_stats:                current_stats_details,
           effective_arguments:          EFFECTIVE_ARGS,

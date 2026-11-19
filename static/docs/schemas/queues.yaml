@@ -62,6 +62,19 @@ queue:
       - flow
       - closed
       - deleted
+    paused_reason:
+      type: string
+      nullable: true
+      description: |
+        Why the queue is paused, null if it isn't.
+
+        * `operator`: paused through the API or the management UI. Resume it to continue.
+        * `store_error`: a message store error, such as a failed file operation. Resume it to try again.
+        * `unreadable`: its message data can't be read. Delete it, or fail over to a node with a good copy.
+      enum:
+      - operator
+      - store_error
+      - unreadable
     effective_policy_definition:
         "$ref": "../openapi.yaml#/components/schemas/policy"
     message_stats:

@@ -44,6 +44,28 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "says why a queue is paused" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_reason", true, false)
+        queue = vhost.queue("q_reason")
+        reason = -> { JSON.parse(http.get("/api/queues/%2f/q_reason").body)["paused_reason"] }
+        reason.call.raw.should be_nil
+        queue.pause!
+        reason.call.should eq "operator"
+        queue.resume!
+        reason.call.raw.should be_nil
+
+        queue.publish(LavinMQ::Message.new("", "q_reason", "first"))
+        segment = queue.@msg_store.@segments.first_value
+        # The property flags of the message, with a bit that isn't defined
+        write_at(segment.path, 4 + sizeof(Int64) + 1 + 1 + "q_reason".bytesize, 0x0003u16)
+        queue.basic_get(no_ack: true) { }
+        queue.state.paused?.should be_true
+        reason.call.should eq "unreadable"
+      end
+    end
+
     it "should filter on multiple states" do
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
