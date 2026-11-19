@@ -1,5 +1,3 @@
-require "../../stdlib/isolated_wait_for"
-
 module LavinMQ
   class Etcd
     # Represents holding a Lease
@@ -7,9 +5,22 @@ module LavinMQ
     class Lease
       getter id, expired
 
+      # Where every lease's keepalive runs, for the life of the process: on a
+      # thread of its own, so busy client fibers can't hold a keepalive up past
+      # the TTL. An isolated context per lease did that too, but leaked its
+      # event loop's file descriptors when it ended, three per lease.
+      @@keepalive_context : Fiber::ExecutionContext::Concurrent? = nil
+      @@keepalive_context_lock = Mutex.new
+
+      protected def self.keepalive_context : Fiber::ExecutionContext::Concurrent
+        @@keepalive_context_lock.synchronize do
+          @@keepalive_context ||= Fiber::ExecutionContext::Concurrent.new("Etcd::Lease")
+        end
+      end
+
       def initialize(@etcd : Etcd, @id : Int64, ttl : Int32)
         @expired = Channel(Exception?).new
-        Fiber::ExecutionContext::Isolated.new("Etcd::Lease") do
+        self.class.keepalive_context.spawn(name: "Etcd::Lease #{@id.to_s(16)} keepalive") do
           keepalive_loop(ttl)
         end
       end
