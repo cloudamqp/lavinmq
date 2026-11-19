@@ -108,7 +108,7 @@ module LavinMQ::AMQP
     # Guards @state, the paused flag and the "paused" file. Taken last: a store
     # error pauses the queue under @msg_store_lock.
     @state_lock = Mutex.new
-    # Counts the store errors that paused the queue, see #enforce_limits
+    # Counts the store errors that paused the queue, see #resume!
     @store_errors = Atomic(UInt32).new(0)
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
@@ -907,7 +907,7 @@ module LavinMQ::AMQP
     # Refused for a failed queue, which can only be deleted. An operator's
     # pause of it is removed all the same.
     def resume! : Nil
-      @state_lock.synchronize do
+      errors = @state_lock.synchronize do
         return unless state.paused? || state.failed?
         if File.delete?(paused_file)
           @vhost.replicator.try &.delete_file(paused_file) if durable?
@@ -915,13 +915,19 @@ module LavinMQ::AMQP
         if state.failed?
           raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read, it can't be resumed. #{unreadable_advice}")
         end
+        @store_errors.get(:acquire)
       end
       # The limits first, which a store error can have stopped: nothing is
-      # delivered that they would drop. A new error keeps it paused.
-      return unless enforce_limits
+      # delivered that they would drop
+      @msg_store_lock.synchronize do
+        drop_overflow
+        drop_redelivered
+      end
       resumed = @state_lock.synchronize do
-        # Not if an operator paused it meanwhile, or it failed or closed
+        # Not if a store error came meanwhile, from the limits or another
+        # path, an operator paused it, or it failed or closed
         next false if !state.paused? || File.exists?(paused_file)
+        next false unless @store_errors.get(:acquire) == errors
         @state.set(QueueState::Running, :release)
         @paused.set(false)
         true
@@ -929,16 +935,6 @@ module LavinMQ::AMQP
       return unless resumed
       @log.debug { "Resumed" }
       ensure_expire_fiber
-    end
-
-    # Runs a pass of the limits, returns false if it hit a store error
-    private def enforce_limits : Bool
-      errors = @store_errors.get(:acquire)
-      @msg_store_lock.synchronize do
-        drop_overflow
-        drop_redelivered
-      end
-      @store_errors.get(:acquire) == errors
     end
 
     # Why the queue is paused, nil if it isn't: "operator" if it was paused
