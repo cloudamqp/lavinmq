@@ -1,3 +1,4 @@
+require "file_utils"
 require "./logger"
 require "./filesystem"
 require "./schema"
@@ -131,6 +132,10 @@ module LavinMQ
       end
     end
 
+    def synchronize(&)
+      @definitions_lock.synchronize { yield }
+    end
+
     def queues_clear : Nil
       @queues.clear
     end
@@ -207,6 +212,7 @@ module LavinMQ
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key?(f.queue_name) || @sessions.has_key?(f.queue_name)
+          remove_leftover_queue_dir(f.queue_name) if !loading && f.durable
           q = QueueFactory.make(@vhost, f)
           if q.is_a?(MQTT::Session)
             @sessions[f.queue_name] = q
@@ -219,10 +225,17 @@ module LavinMQ
         when AMQP::Frame::Queue::Delete
           if q = (@queues.delete(f.queue_name) || @sessions.delete(f.queue_name))
             unless @vhost.closed?
-              @exchanges.each_value do |ex|
-                ex.bindings_details.each do |binding|
-                  next unless binding.destination == q
-                  ex.unbind(q, binding.routing_key, binding.arguments)
+              if q.is_a?(MQTT::Session)
+                # Only the MQTT exchange binds a session, and the session
+                # knows its filters, so a session delete, which every clean
+                # disconnect does, doesn't walk every binding in the vhost
+                @mqtt_exchange.unbind_all(q)
+              else
+                @exchanges.each_value do |ex|
+                  ex.bindings_details.each do |binding|
+                    next unless binding.destination == q
+                    ex.unbind(q, binding.routing_key, binding.arguments)
+                  end
                 end
               end
             end
@@ -257,6 +270,16 @@ module LavinMQ
 
     def queue_bindings(queue : Queue)
       default_binding = AMQP::BindingDetails.new("", @vhost.name, AMQP::BindingKey.new(queue.name), queue)
+      if queue.is_a?(MQTT::Session)
+        bindings = [default_binding] of AMQP::BindingDetails | MQTT::SubscriptionDetails
+        # The MQTT exchange changes the session's filters under this lock
+        @definitions_lock.synchronize do
+          queue.each_subscription do |filter, qos|
+            bindings << MQTT::SubscriptionDetails.new(@mqtt_exchange.name, @vhost.name, MQTT::SubscriptionKey.new(filter, qos), queue)
+          end
+        end
+        return bindings
+      end
       bindings = @exchanges.values.flat_map do |ex|
         ex.bindings_details.select { |binding| binding.destination == queue }
       end
@@ -269,6 +292,10 @@ module LavinMQ
       queues = Hash(String, AMQP::Frame::Queue::Declare).new
       queue_bindings = Hash(String, Array(AMQP::Frame::Queue::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Queue::Bind).new }
       exchange_bindings = Hash(String, Array(AMQP::Frame::Exchange::Bind)).new { |h, k| h[k] = Array(AMQP::Frame::Exchange::Bind).new }
+      # Destinations each source exchange has bindings to. Deleting an
+      # exchange stores no unbinds, so its bindings are dropped through these.
+      queues_bound_from = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
+      exchanges_bound_from = Hash(String, Set(String)).new { |h, k| h[k] = Set(String).new }
       should_compact = false
       io = @definitions_file
       if io.size.zero?
@@ -289,11 +316,19 @@ module LavinMQ
           when AMQP::Frame::Exchange::Declare
             exchanges[f.exchange_name] = f
           when AMQP::Frame::Exchange::Delete
-            exchanges.delete f.exchange_name
-            exchange_bindings.delete f.exchange_name
+            name = f.exchange_name
+            exchanges.delete name
+            exchange_bindings.delete name
+            queues_bound_from.delete(name).try &.each do |queue_name|
+              queue_bindings[queue_name]?.try &.reject! { |b| b.exchange_name == name }
+            end
+            exchanges_bound_from.delete(name).try &.each do |destination|
+              exchange_bindings[destination]?.try &.reject! { |b| b.source == name }
+            end
             should_compact = true
           when AMQP::Frame::Exchange::Bind
             exchange_bindings[f.destination] << f
+            exchanges_bound_from[f.source] << f.destination
           when AMQP::Frame::Exchange::Unbind
             exchange_bindings[f.destination].reject! do |b|
               b.source == f.source &&
@@ -309,6 +344,7 @@ module LavinMQ
             should_compact = true
           when AMQP::Frame::Queue::Bind
             queue_bindings[f.queue_name] << f
+            queues_bound_from[f.exchange_name] << f.queue_name
           when AMQP::Frame::Queue::Unbind
             queue_bindings[f.queue_name].reject! do |b|
               b.exchange_name == f.exchange_name &&
@@ -410,6 +446,19 @@ module LavinMQ
         @definitions_file.close
         @definitions_file = io
       end
+    end
+
+    # A queue that is declared, not loaded from the definitions, has no
+    # messages. A directory with its name is what a crash left of a deleted
+    # queue, whose messages must not come back.
+    private def remove_leftover_queue_dir(name : String) : Nil
+      dir = AMQP::Queue.data_dir(@vhost, name, durable: true)
+      return unless Dir.exists?(dir)
+      @log.info { "Removing the directory left by a deleted queue named #{name}" }
+      # Segments the deleted queue emptied can still be about to be unlinked,
+      # by their paths
+      @vhost.persister.flush_unlinks(dir)
+      FileUtils.rm_rf dir
     end
 
     private def store_definition(frame, dirty = false, fsync = true)

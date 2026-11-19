@@ -32,11 +32,13 @@ Operator policies (see below) are evaluated independently and can layer on top o
 | `dead-letter-exchange` | Queues | Dead letter exchange name |
 | `dead-letter-routing-key` | Queues | Dead letter routing key |
 | `delivery-limit` | Queues | Max redelivery attempts |
+| `delayed-retry-min` | Queues | Initial retry delay (ms) for queues with [automatic retries](automatic-retries.md) |
+| `delayed-retry-multiplier` | Queues | Retry backoff multiplier for queues with automatic retries |
+| `delayed-retry-max` | Queues | Cap on a single retry delay (ms) for queues with automatic retries |
 | `max-age` | Streams | Retention period (e.g., `7D`, `1h`) |
 | `alternate-exchange` | Exchanges | Alternate exchange for unroutable messages |
 | `federation-upstream` | Both | Federation upstream name |
 | `federation-upstream-set` | Both | Federation upstream set name |
-| `delayed-message` | Exchanges | Enable delayed message behavior |
 
 ## Policy vs Queue Arguments
 

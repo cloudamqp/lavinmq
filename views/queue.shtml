@@ -29,6 +29,10 @@
               <th>State</th>
               <td id="q-state"></td>
             </tr>
+            <tr id="q-primary-queue-row" class="hide">
+              <th>Retry queue of</th>
+              <td id="q-primary-queue"></td>
+            </tr>
             <tr>
               <th>Consumers</th>
               <td id="q-consumers"></td>
@@ -84,6 +88,35 @@
         <section class="card cols-3">
           <h3>Arguments</h3>
           <pre class="arguments" id="q-arguments"></pre>
+        </section>
+        <section class="card cols-12 hide" id="q-delayed-retry">
+          <h3>Automatic retries</h3>
+          <table class="details-table">
+            <tr>
+              <th>Initial delay</th>
+              <td id="q-retry-min"></td>
+            </tr>
+            <tr>
+              <th>Backoff</th>
+              <td id="q-retry-backoff"></td>
+            </tr>
+            <tr>
+              <th>Max delay</th>
+              <td id="q-retry-max"></td>
+            </tr>
+            <tr>
+              <th>Delivery limit</th>
+              <td id="q-retry-delivery-limit"></td>
+            </tr>
+            <tr>
+              <th>Messages delayed</th>
+              <td id="q-retry-messages-delayed"></td>
+            </tr>
+            <tr>
+              <th>Retry queue</th>
+              <td id="q-retry-queue"></td>
+            </tr>
+          </table>
         </section>
         <section class="card cols-12 align-start">
           <h3>Rates</h3>
@@ -156,6 +189,9 @@
               Bindings
               <small class="tiny-badge counter-pill" id="bindings-count"></small>
             </h2>
+            <div class="btn-holder">
+              <button type="button" class="btn btn-green" command="show-modal" commandfor="add-binding-dialog">+ Add binding</button>
+            </div>
           </div>
           <div class="table-wrapper">
             <div id="bindings-table-error"></div>
@@ -172,8 +208,12 @@
             </table>
           </div>
         </section>
-        <form method="post" id="addBinding" class="form card cols-6">
-          <h3>Add a binding to this queue</h3>
+        <dialog id="add-binding-dialog" class="dialog" closedby="any">
+          <div class="dialog-header">
+            <h3>Add a binding to this queue</h3>
+            <button type="button" class="dialog-close" command="close" commandfor="add-binding-dialog" aria-label="Close">&#x2715;</button>
+          </div>
+          <form method="post" id="addBinding" class="form">
           <label>
             <span>From exchange</span>
             <input name="source" type="text" required list="exchange-list">
@@ -187,8 +227,11 @@
             <span>Arguments</span>
             <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           </label>
-          <button type="submit" class="btn btn-outlined">Bind</button>
-        </form>
+          <div class="dialog-footer">
+            <button type="submit" class="btn btn-outlined btn-inline">Bind</button>
+          </div>
+          </form>
+        </dialog>
       </div>
       <div data-tab-bar="tab" data-tab-content="messages">
         <form method="post" id="publishMessage" class="form card cols-6">

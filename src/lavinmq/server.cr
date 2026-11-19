@@ -47,7 +47,7 @@ module LavinMQ
 
       @data_dir = @config.data_dir
       FileSystem.mkdir_p @data_dir
-      Schema.migrate(@data_dir, @replicator)
+      Schema.verify(@data_dir, @replicator)
       @persister = Persister.new(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator, @persister)
@@ -152,21 +152,11 @@ module LavinMQ
       end
     end
 
-    def update_stats_rates
-      @vhosts.each_value do |vhost|
-        vhost.each_queue(&.update_rates)
-        vhost.each_exchange(&.update_rates)
-        vhost.each_session(&.update_rates)
-        vhost.each_connection do |connection|
-          connection.update_rates
-          connection.each_channel(&.update_rates)
-        end
-        vhost.update_rates
-      end
+    def update_stats_rates(interval : Float64 = @config.stats_interval / 1000.0)
+      @vhosts.each_value &.update_rates(interval)
     end
 
-    def update_system_metrics(statm)
-      interval = @config.stats_interval / 1000.0
+    def update_system_metrics(statm, interval : Float64 = @config.stats_interval / 1000.0)
       log_size = @config.stats_log_size
       rusage = System.resource_usage
 
@@ -223,14 +213,19 @@ module LavinMQ
       if File.exists?("/proc/self/statm")
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
+      # Rates span the time since the previous tick, not an interval a reload set meanwhile
+      last = Time.instant - @config.stats_interval.milliseconds
       until closed?
+        now = Time.instant
+        interval = (now - last).total_seconds
+        last = now
         begin
           @stats_collection_duration_seconds_total = Time.measure do
             @stats_rates_collection_duration_seconds = Time.measure do
-              update_stats_rates
+              update_stats_rates(interval)
             end
             @stats_system_collection_duration_seconds = Time.measure do
-              update_system_metrics(statm)
+              update_system_metrics(statm, interval)
             end
           end
           @gc_stats = GC.prof_stats
@@ -241,7 +236,11 @@ module LavinMQ
         end
 
         control_flow!
-        sleep @config.stats_interval.milliseconds
+        @stats_ticks += 1
+        select # until the next round, or until closed
+        when @closed.when_true.receive
+        when timeout(@config.stats_interval.milliseconds)
+        end
       end
     ensure
       statm.try &.close
@@ -305,6 +304,7 @@ module LavinMQ
     getter disk_free = 0_i64
     getter disk_free_log = Deque(Int64).new(Config.instance.stats_log_size)
     getter stats_collection_duration_seconds_total = Time::Span.new
+    getter stats_ticks = 0_u64
     getter stats_rates_collection_duration_seconds = Time::Span.new
     getter stats_system_collection_duration_seconds = Time::Span.new
     getter gc_stats = GC.prof_stats
