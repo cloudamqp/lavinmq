@@ -25,7 +25,7 @@ class LavinMQCtl
               "Policies", "Connections", "Definitions", "Shovels",
               "Federation", "Server"}
 
-  def initialize(@io : IO = STDOUT, @err_io : IO = STDERR)
+  def initialize(@io : IO = STDOUT, @err_io : IO = STDERR, @input : IO = STDIN)
     self.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
     if host = ENV["LAVINMQCTL_HOST"]?
       @options["host"] = host
@@ -341,13 +341,26 @@ class LavinMQCtl
     output uu
   end
 
-  @[Cmd("Creates a new user", "<username> <password>", section: "User Management")]
+  @[Cmd("Creates a new user (password is read from stdin if omitted)", "<username> [password]", section: "User Management")]
   private def add_user
     username = ARGV.shift?
-    password = ARGV.shift?
+    password = ARGV.shift? || read_password
     abort @banner unless username && password
     resp = http.put "/api/users/#{username}", @headers, {password: password}.to_json
     handle_response(resp, 201, 204)
+  end
+
+  private def read_password : String?
+    input = @input
+    password = if input.is_a?(IO::FileDescriptor) && input.tty?
+                 @err_io.print "Password: "
+                 line = input.noecho &.gets(chomp: true)
+                 @err_io.puts
+                 line
+               else
+                 input.gets(chomp: true)
+               end
+    password unless password.nil? || password.empty?
   end
 
   @[Cmd("Delete a user", "<username>", section: "User Management")]
@@ -367,10 +380,10 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
-  @[Cmd("Change the user password", "<username> <new_password>", section: "User Management")]
+  @[Cmd("Change the user password (read from stdin if omitted)", "<username> [new_password]", section: "User Management")]
   private def change_password
     username = ARGV.shift?
-    pwd = ARGV.shift?
+    pwd = ARGV.shift? || read_password
     abort @banner unless username && pwd
     resp = http.put "/api/users/#{username}", @headers, {password: pwd}.to_json
     handle_response(resp, 204)
@@ -730,9 +743,9 @@ class LavinMQCtl
     DefinitionsGenerator.new(data_dir).generate(@io)
   end
 
-  @[Cmd("Hash a password", "<password>", section: "User Management")]
+  @[Cmd("Hash a password (read from stdin if omitted)", "[password]", section: "User Management")]
   private def hash_password
-    password = ARGV.shift?
+    password = ARGV.shift? || read_password
     abort @banner unless password
     output LavinMQ::Auth::User.hash_password(password, "SHA256")
   end

@@ -2,7 +2,7 @@ require "./spec_helper"
 require "../src/lavinmqctl/cli"
 
 # Helper to run lavinmqctl commands against test server
-def run_lavinmqctl(http_addr : String, argv : Array(String))
+def run_lavinmqctl(http_addr : String, argv : Array(String), stdin : String = "")
   stdout_capture = IO::Memory.new
   stderr_capture = IO::Memory.new
   stderr = ""
@@ -13,7 +13,7 @@ def run_lavinmqctl(http_addr : String, argv : Array(String))
     ARGV.clear
     ARGV.concat(["--uri", "http://#{http_addr}", "--user", "guest", "--password", "guest"]).concat(argv)
 
-    cli = LavinMQCtl.new(stdout_capture, stderr_capture)
+    cli = LavinMQCtl.new(stdout_capture, stderr_capture, IO::Memory.new(stdin))
     cli.run_cmd
   rescue ex
     stderr = ex.message.to_s
@@ -161,6 +161,32 @@ describe "LavinMQCtl" do
       end
     end
 
+    it "should read the password from stdin when changing it" do
+      with_http_server do |(http, s)|
+        s.users.create("testuser", "oldpass", [LavinMQ::Tag::Management])
+        result = run_lavinmqctl(http.addr.to_s, ["change_password", "testuser"], stdin: "newpass\n")
+        result[:exit].should eq(0)
+        s.users["testuser"].password.try(&.verify("newpass")).should be_true
+      end
+    end
+
+    it "should fail when changing password without a password" do
+      with_http_server do |(http, s)|
+        s.users.create("testuser", "oldpass", [LavinMQ::Tag::Management])
+        result = run_lavinmqctl(http.addr.to_s, ["change_password", "testuser"])
+        result[:exit].should eq(1)
+        s.users["testuser"].password.try(&.verify("oldpass")).should be_true
+      end
+    end
+
+    it "should read the password from stdin when adding a user" do
+      with_http_server do |(http, s)|
+        result = run_lavinmqctl(http.addr.to_s, ["add_user", "newuser"], stdin: "password123\n")
+        result[:exit].should eq(0)
+        s.users["newuser"].password.try(&.verify("password123")).should be_true
+      end
+    end
+
     it "should set user tags" do
       with_http_server do |(http, s)|
         s.users.create("testuser", "password", [] of LavinMQ::Tag)
@@ -303,6 +329,14 @@ describe "LavinMQCtl" do
     it "should hash password" do
       with_http_server do |(http, s)|
         result = run_lavinmqctl(http.addr.to_s, ["hash_password", "testpassword"])
+        result[:exit].should eq(0)
+        result[:stdout].should_not be_empty
+      end
+    end
+
+    it "should hash a password read from stdin" do
+      with_http_server do |(http, _s)|
+        result = run_lavinmqctl(http.addr.to_s, ["hash_password"], stdin: "testpassword\n")
         result[:exit].should eq(0)
         result[:stdout].should_not be_empty
       end
