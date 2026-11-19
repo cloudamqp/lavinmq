@@ -94,7 +94,7 @@ module LavinMQ
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         if @msg_store.failed?
-          @log.error { "Failed, message data can't be loaded. Delete the session to remove it, or fail over to a node with a good copy" }
+          @log.error { "Failed, message data can't be loaded. #{unreadable_advice}" }
           @paused.set(true)
         end
         @metadata_file = File.join(data_dir, ".metadata")
@@ -232,7 +232,7 @@ module LavinMQ
         if paused
           @log.error(exception: ex) do
             if @msg_store.failed?
-              "Failed, message data can't be read. Delete the session to remove it, or fail over to a node with a good copy"
+              "Failed, message data can't be read. #{unreadable_advice}"
             else
               "Paused due to a message store error, resume the session to try again"
             end
@@ -624,7 +624,7 @@ module LavinMQ
             @replicator.try &.delete_file(@paused_file)
           end
           if @msg_store.failed?
-            raise LavinMQ::Error::PreconditionFailed.new("Message data in session '#{@name}' can't be read, it can't be resumed. Delete the session to remove it, or fail over to a node with a good copy")
+            raise LavinMQ::Error::PreconditionFailed.new("Message data in session '#{@name}' can't be read, it can't be resumed. #{unreadable_advice}")
           end
           true
         end
@@ -649,7 +649,7 @@ module LavinMQ
 
       # Why the session is paused, like Queue#paused_reason
       def paused_reason : String?
-        return if closed? || !@paused.value || @msg_store.failed?
+        return unless state.paused?
         File.exists?(@paused_file) ? "operator" : "store_error"
       end
 
@@ -676,9 +676,13 @@ module LavinMQ
       end
 
       # Pauses the session, if the purge was the first to reach the data
+      private def unreadable_advice : String
+        MessageStore::UnreadableError.advice("session")
+      end
+
       private def raise_unreadable : NoReturn
         @state_lock.synchronize { @paused.set(true) unless closed? }
-        raise LavinMQ::Error::PreconditionFailed.new("Message data in session '#{@name}' can't be read. Delete the session to remove it, or fail over to a node with a good copy")
+        raise LavinMQ::Error::PreconditionFailed.new("Message data in session '#{@name}' can't be read. #{unreadable_advice}")
       end
 
       def in_use? : Bool

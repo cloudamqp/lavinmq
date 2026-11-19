@@ -61,7 +61,7 @@ module LavinMQ::AMQP
             # field type that isn't known, see MessageStore#produce_metadata.
             # A segment with a meta file isn't read record by record at load.
             @log.error { "Could not index segment #{seg_id} at pos #{pos}: #{ex}" }
-            load_failed
+            mark_failed
             return
           end
         end
@@ -75,8 +75,7 @@ module LavinMQ::AMQP
       end
 
       def first_delayed? : Envelope?
-        raise ClosedError.new if @closed
-        raise MessageStore::UnreadableError.new(@rfile) if failed?
+        check_readable
         sp = @requeued.first? || return
         seg = @segments[sp.segment]
         begin
@@ -88,8 +87,7 @@ module LavinMQ::AMQP
       end
 
       def shift_delayed?(consumer = nil) : Envelope?
-        raise ClosedError.new if @closed
-        raise MessageStore::UnreadableError.new(@rfile) if failed?
+        check_readable
         sp = @requeued.shift? || return
         segment = @segments[sp.segment]
         begin

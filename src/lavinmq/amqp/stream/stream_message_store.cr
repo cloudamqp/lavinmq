@@ -30,7 +30,7 @@ module LavinMQ::AMQP
       # known and nothing is dropped from it. Nothing is published to it either.
       @last_offset = failed? ? 0i64 : get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
-      drop_overflow unless failed?
+      drop_overflow
     end
 
     def close : Nil
@@ -58,8 +58,7 @@ module LavinMQ::AMQP
     # Resolves `offset` to the {offset, segment, position} to start reading at
     def find_offset(offset : StreamOffset::Any) : Tuple(Int64, UInt32, UInt32)
       raise ClosedError.new if @closed
-      return last_offset_seg_pos if failed? # nothing can be read
-      return last_offset_seg_pos if @size.zero?
+      return last_offset_seg_pos if failed? || @size.zero? # nothing can be read
       case offset
       in StreamOffset::First     then offset_at(@segments.first_key, 4u32)
       in StreamOffset::Last      then offset_at(@segments.last_key, 4u32)
@@ -230,16 +229,10 @@ module LavinMQ::AMQP
       offset_at(@segments.first_key, 4u32).first
     end
 
-    # Nothing is read from a closed store, or one with data it can't read
-    private def check_readable : Nil
-      raise ClosedError.new if @closed
-      raise UnreadableError.new(@wfile) if failed?
-    end
-
     # The next message for `cursor`, requeued messages first. Steps one message
     # at a time, nil if it didn't match the cursor's filter.
     def shift?(cursor : StreamCursor) : Envelope?
-      check_readable
+      check_readable(@wfile)
       return if cursor.closed?
 
       if env = shift_requeued(cursor)

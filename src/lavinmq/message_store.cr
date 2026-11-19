@@ -75,10 +75,16 @@ module LavinMQ
       @failed.get(:relaxed)
     end
 
-    # A segment can't be loaded. The store stays open with its files as they
-    # are, so that what is delivered can still be acked.
-    private def load_failed : Nil
+    # Data can't be loaded or read. The store stays open with its files as
+    # they are, so that what is delivered can still be acked.
+    private def mark_failed : Nil
       @failed.set(true, :relaxed)
+    end
+
+    # Nothing is read from a closed store, or one with data it can't read
+    private def check_readable(mfile : MFile = @rfile) : Nil
+      raise ClosedError.new if @closed
+      raise UnreadableError.new(mfile) if failed?
     end
 
     # The error for a read that failed. The store is only failed if it was on
@@ -86,7 +92,7 @@ module LavinMQ
     # recount of a restart, and mustn't need a delete of all the messages.
     private def read_failed(mfile : MFile, cause : Exception) : Error
       return Error.new(mfile, cause: cause) unless undecodable?(cause)
-      @failed.set(true, :relaxed)
+      mark_failed
       UnreadableError.new(mfile, cause: cause)
     end
 
@@ -130,9 +136,8 @@ module LavinMQ
       @empty.set false if was_empty
     end
 
-    def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
-      raise ClosedError.new if @closed
-      raise UnreadableError.new(@rfile) if failed?
+    def first? : Envelope?
+      check_readable
       if sp = @requeued.first?
         seg = @segments[sp.segment]
         begin
@@ -191,8 +196,7 @@ module LavinMQ
     # The envelope points into the segment, so it's only valid while the lock
     # guarding the store is held, see #shift_with_lease? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
-      raise ClosedError.new if @closed
-      raise UnreadableError.new(@rfile) if failed?
+      check_readable
       if sp = @requeued.shift?
         begin
           segment = @segments[sp.segment]
@@ -772,7 +776,7 @@ module LavinMQ
           rescue ex
             @log.error { "Could not initialize segment #{seg}: #{ex.message}" }
             @segments[seg] = file
-            load_failed
+            mark_failed
           end
         end
         file.pos = 4
@@ -968,7 +972,7 @@ module LavinMQ
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
         @log.error { "Could not initialize segment: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-        load_failed
+        mark_failed
         return count
       end
       mfile.pos = 4
@@ -1067,6 +1071,11 @@ module LavinMQ
     end
 
     # From a store with data it can't read, which stays failed until it's deleted
-    class UnreadableError < Error; end
+    class UnreadableError < Error
+      # What an operator can do about it, for a `kind` such as "queue"
+      def self.advice(kind : String) : String
+        "Delete the #{kind} to remove it, or fail over to a node with a good copy"
+      end
+    end
   end
 end

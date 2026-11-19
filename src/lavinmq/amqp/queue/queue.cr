@@ -366,15 +366,23 @@ module LavinMQ::AMQP
     end
 
     private def start : Nil
-      restore_paused
-      if @msg_store.failed?
-        @log.error { "Failed, message data can't be loaded. Delete the queue to remove it, or fail over to a node with a good copy" }
-        @state_lock.synchronize { set_failed }
-      end
+      restore_state
       handle_arguments
       init_retry_queue if settings.delayed_retry_min
       ensure_queue_expire_fiber
       start_message_expire_loop if should_start_expire_fiber?
+    end
+
+    private def restore_state : Nil
+      restore_paused
+      if @msg_store.failed?
+        @log.error { "Failed, message data can't be loaded. #{unreadable_advice}" }
+        @state_lock.synchronize { set_failed }
+      end
+    end
+
+    private def unreadable_advice : String
+      MessageStore::UnreadableError.advice("queue")
     end
 
     # A pause by an operator is kept over a restart of the broker
@@ -880,7 +888,7 @@ module LavinMQ::AMQP
       if changed
         @log.error(ex) do
           if failed
-            "Failed, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy"
+            "Failed, message data can't be read. #{unreadable_advice}"
           else
             "Paused due to a message store error, resume the queue to try again"
           end
@@ -904,7 +912,7 @@ module LavinMQ::AMQP
           @vhost.replicator.try &.delete_file(paused_file) if durable?
         end
         if state.failed?
-          raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read, it can't be resumed. Delete the queue to remove it, or fail over to a node with a good copy")
+          raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read, it can't be resumed. #{unreadable_advice}")
         end
       end
       # The limits first, which a store error can have stopped: nothing is
@@ -1540,14 +1548,10 @@ module LavinMQ::AMQP
       yield
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
-      requeue_unread(sp)
-    end
-
-    # A message that can't be read when it's rejected or requeued goes back
-    # in the store as it is, see #keep_on_store_error
-    private def requeue_unread(sp : SegmentPosition) : Nil
-      @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-    rescue MessageStore::ClosedError
+      begin
+        @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+      rescue MessageStore::ClosedError
+      end
     end
 
     # Broker-initiated requeue (channel close, basic.recover): always instant, never via the retry queue
@@ -1682,23 +1686,17 @@ module LavinMQ::AMQP
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
       return 0_u32 if closed?
-      delete_count = @msg_store_lock.synchronize do
-        # A close that took the lock first closed the store after the check above
-        next 0_u32 if @msg_store.closed
-        raise_unreadable if @msg_store.failed?
+      delete_count = purge_store do
         # Checked under the lock, so that a message published or shifted for
         # delivery between the check and the purge isn't purged uncounted
-        count = if unacked_count == 0 && max_count >= @msg_store.size
-                  # If there's no unacked and we're purging all messages, we can purge faster by deleting files
-                  size = @msg_store.size
-                  @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
-                  size
-                else
-                  @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
-                end
-        # The purge reached data that can't be read, which #purge_all doesn't raise for
-        raise_unreadable if @msg_store.failed?
-        count
+        if unacked_count == 0 && max_count >= @msg_store.size
+          # If there's no unacked and we're purging all messages, we can purge faster by deleting files
+          size = @msg_store.size
+          @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
+          size
+        else
+          @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? }
+        end
       end
       @log.info { "Purged #{delete_count} messages" }
       # Signal expire loop to recalculate wait time for next message, and
@@ -1716,14 +1714,27 @@ module LavinMQ::AMQP
       raise ex
     end
 
+    # Purges under @msg_store_lock, 0 if a close took the lock first. Raises
+    # if the store has, or the purge reached, data it can't read, which
+    # #purge_all doesn't raise for, see #raise_unreadable.
+    private def purge_store(& : -> UInt32) : UInt32
+      @msg_store_lock.synchronize do
+        next 0_u32 if @msg_store.closed
+        raise_unreadable if @msg_store.failed?
+        count = yield
+        raise_unreadable if @msg_store.failed?
+        count
+      end
+    end
+
     # A store with data it can't read isn't purged: what can be read can't be
     # told from what can't, so the queue has to be deleted. Pauses the queue,
     # if the purge was the first to reach the data.
     private def raise_unreadable : NoReturn
       if @state_lock.synchronize { set_failed }
-        @log.error { "Failed, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy" }
+        @log.error { "Failed, message data can't be read. #{unreadable_advice}" }
       end
-      raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read. Delete the queue to remove it, or fail over to a node with a good copy")
+      raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read. #{unreadable_advice}")
     end
 
     # Delayed messages would otherwise be republished after their backoff,
