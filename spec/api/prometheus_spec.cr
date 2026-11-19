@@ -392,6 +392,25 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should expose the head message timestamp of non-empty queues" do
+      with_metrics_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("head_ts_empty")
+          ch.queue("head_ts_stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"})).publish_confirm "m1"
+          ch.queue("head_ts_full").publish_confirm "m1"
+        end
+        ts = s.vhosts["/"].queue("head_ts_full").as(LavinMQ::AMQP::Queue).head_message_timestamp.should_not be_nil
+
+        raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
+        heads = PrometheusSpecHelper.parse_prometheus(raw).select do |m|
+          m[:key] == "lavinmq_detailed_queue_head_message_timestamp_seconds"
+        end
+        heads.map(&.[:attrs]["queue"]).should eq ["head_ts_full"]
+        heads.first[:attrs]["vhost"].should eq "/"
+        heads.first[:value].should eq ts / 1000
+      end
+    end
+
     it "should expose per-queue delivered and acked counters" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|

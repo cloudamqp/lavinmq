@@ -174,6 +174,10 @@ function updateQueue (all, signal) {
       document.getElementById('q-message-bytes-ready').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
+      const headTs = item.head_message_timestamp
+      document.getElementById('q-head-message').textContent = headTs
+        ? `${new Date(headTs).toLocaleString()} (${Helpers.duration(Math.max(0, (Date.now() - headTs) / 1000))} ago)`
+        : ''
       document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
       renderDelayedRetry(item)
       document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`
@@ -348,6 +352,7 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
         msgNode.querySelector('.message-exchange').textContent = exchange
         msgNode.querySelector('.message-routing-key').textContent = message.routing_key
         msgNode.querySelector('.message-redelivered').textContent = message.redelivered
+        msgNode.querySelector('.message-published').textContent = new Date(message.published_at).toLocaleString()
         msgNode.querySelector('.message-properties').textContent = JSON.stringify(message.properties)
         msgNode.querySelector('.message-size').textContent = message.payload_bytes
         msgNode.querySelector('.message-encoding').textContent = message.payload_encoding

@@ -137,6 +137,11 @@ module LavinMQ
       end
     end
 
+    # Timestamp (unix ms) of the message at the head of the store
+    def first_timestamp? : Int64?
+      first?.try &.message.timestamp
+    end
+
     # Shifts the next message, under `lock`, and yields it outside the lock with
     # its segment kept mapped until the block returns, even if the segment is
     # deleted or the store closed meanwhile. For deliveries, which can be

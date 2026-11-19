@@ -408,6 +408,18 @@ describe LavinMQ::HTTP::QueuesController do
         body["messages_persistent"].should eq 1
       end
     end
+
+    it "should return head_message_timestamp only for a non-empty queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("head_ts_empty")
+          ch.queue("head_ts_full").publish_confirm "m1"
+        end
+        JSON.parse(http.get("/api/queues/%2f/head_ts_empty").body)["head_message_timestamp"]?.should be_nil
+        ts = JSON.parse(http.get("/api/queues/%2f/head_ts_full").body)["head_message_timestamp"].as_i64
+        ts.should eq s.vhosts["/"].queue("head_ts_full").as(LavinMQ::AMQP::Queue).head_message_timestamp
+      end
+    end
   end
 
   describe "GET /api/queues/vhost/name/unacked" do
@@ -718,6 +730,18 @@ describe LavinMQ::HTTP::QueuesController do
     end
   end
   describe "POST /api/queues/vhost/name/get" do
+    it "should return published_at equal to the head message timestamp" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("q_published_at").publish_confirm "m1"
+        end
+        head_ts = s.vhosts["/"].queue("q_published_at").as(LavinMQ::AMQP::Queue).head_message_timestamp
+        body = %({ "count": 1, "ack_mode": "get", "encoding": "auto" })
+        response = http.post("/api/queues/%2f/q_published_at/get", body: body)
+        JSON.parse(response.body)[0]["published_at"].as_i64.should eq head_ts
+      end
+    end
+
     it "should get plain text messages" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

@@ -704,6 +704,16 @@ module LavinMQ
           end
         end
 
+        writer.write_header("detailed_queue_head_message_timestamp_seconds", "gauge",
+          "Timestamp of the message at the head of the queue, in unix seconds")
+        vhosts.each do |vhost|
+          vhost.each_queue do |q|
+            ts = q.as?(AMQP::Queue).try(&.head_message_timestamp) || next # MQTT sessions are skipped
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_head_message_timestamp_seconds", ts / 1000, labels)
+          end
+        end
+
         writer.write_header("detailed_queue_deduplication", "counter",
           "Number of deduplicated messages for this queue")
         vhosts.each do |vhost|

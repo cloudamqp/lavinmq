@@ -218,6 +218,7 @@ module LavinMQ
                       payload_encoding = "string"
                       j.field("payload_bytes", env.message.bodysize)
                       j.field("redelivered", env.redelivered)
+                      j.field("published_at", env.message.timestamp)
                       j.field("exchange", env.message.exchange_name)
                       j.field("routing_key", env.message.routing_key)
                       j.field("message_count", q.message_count)

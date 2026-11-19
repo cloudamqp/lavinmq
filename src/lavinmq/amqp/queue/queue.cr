@@ -831,6 +831,16 @@ module LavinMQ::AMQP
       @msg_store.empty?
     end
 
+    # Timestamp (unix ms) of the message at the head of the queue, nil if empty.
+    # The broker sets it on publish. Messages from a delayed exchange or a
+    # delayed retry keep it, dead-lettered messages get a new one.
+    def head_message_timestamp : Int64?
+      return if empty?
+      @msg_store_lock.synchronize { @msg_store.first_timestamp? }
+    rescue MessageStore::ClosedError | MessageStore::Error
+      nil # closed or deleted meanwhile; the delivery path handles store errors
+    end
+
     def consumer_count
       consumers_size.to_u32
     end
@@ -1635,6 +1645,8 @@ module LavinMQ::AMQP
           next if k == :message_stats # rewritten below with the rate-history log
           json.field(k, v) unless v.nil?
         end
+        # Not in details_tuple: queue lists build that for every queue
+        head_message_timestamp.try { |ts| json.field("head_message_timestamp", ts) }
         json.field("message_stats") do
           json.object do
             stats_details.each do |k, v|

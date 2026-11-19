@@ -117,6 +117,11 @@ module LavinMQ::AMQP
       false
     end
 
+    # Streams keep messages after consume, so they have no head to age.
+    # Also avoids the inherited MessageStore#first?, see above.
+    def head_message_timestamp : Int64?
+    end
+
     private def start : Bool
       if @msg_store.closed
         !close

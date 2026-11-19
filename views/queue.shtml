@@ -38,6 +38,10 @@
               <td id="q-consumers"></td>
             </tr>
             <tr>
+              <th>Head message timestamp</th>
+              <td id="q-head-message"></td>
+            </tr>
+            <tr>
               <th>Policy</th>
               <td id="q-policy"></td>
             </tr>
@@ -358,6 +362,10 @@
             <tr>
               <th>Redelivered</th>
               <td class="message-redelivered"></td>
+            </tr>
+            <tr>
+              <th>Published</th>
+              <td class="message-published"></td>
             </tr>
             <tr>
               <th>Properties</th>
