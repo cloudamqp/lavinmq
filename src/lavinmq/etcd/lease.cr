@@ -8,20 +8,14 @@ module LavinMQ
       # Where every lease's keepalive runs, for the life of the process: on a
       # thread of its own, so busy client fibers can't hold a keepalive up past
       # the TTL. An isolated context per lease did that too, but leaked its
-      # event loop's file descriptors when it ended, three per lease.
-      @@keepalive_context : Fiber::ExecutionContext::Concurrent? = nil
-      @@keepalive_context_lock = Mutex.new
-
-      private def self.keepalive_context : Fiber::ExecutionContext::Concurrent
-        @@keepalive_context_lock.synchronize do
-          @@keepalive_context ||= Fiber::ExecutionContext::Concurrent.new("Etcd::Lease")
-        end
-      end
+      # event loop's file descriptors when it ended, three per lease. Created
+      # at startup, also in a process that never grants a lease.
+      @@keepalive_context = Fiber::ExecutionContext::Concurrent.new("Etcd::Lease")
 
       # A lease etcd granted, kept alive until it's released or expires
       def self.grant(etcd : Etcd, id : Int64, ttl : Int32) : self
         lease = new(etcd, id, ttl)
-        keepalive_context.spawn(name: "Etcd::Lease #{id.to_s(16)} keepalive") do
+        @@keepalive_context.spawn(name: "Etcd::Lease #{id.to_s(16)} keepalive") do
           lease.keepalive_loop(ttl)
         end
         lease
