@@ -12,17 +12,24 @@ module LavinMQ
       @@keepalive_context : Fiber::ExecutionContext::Concurrent? = nil
       @@keepalive_context_lock = Mutex.new
 
-      protected def self.keepalive_context : Fiber::ExecutionContext::Concurrent
+      private def self.keepalive_context : Fiber::ExecutionContext::Concurrent
         @@keepalive_context_lock.synchronize do
           @@keepalive_context ||= Fiber::ExecutionContext::Concurrent.new("Etcd::Lease")
         end
       end
 
+      # A lease etcd granted, kept alive until it's released or expires
+      def self.grant(etcd : Etcd, id : Int64, ttl : Int32) : self
+        lease = new(etcd, id, ttl)
+        keepalive_context.spawn(name: "Etcd::Lease #{id.to_s(16)} keepalive") do
+          lease.keepalive_loop(ttl)
+        end
+        lease
+      end
+
+      # Without a keepalive, see .grant
       def initialize(@etcd : Etcd, @id : Int64, ttl : Int32)
         @expired = Channel(Exception?).new
-        self.class.keepalive_context.spawn(name: "Etcd::Lease #{@id.to_s(16)} keepalive") do
-          keepalive_loop(ttl)
-        end
       end
 
       # Force release of lease (and leadership). The lease is revoked before
@@ -44,7 +51,7 @@ module LavinMQ
         end
       end
 
-      private def keepalive_loop(ttl : Int32)
+      protected def keepalive_loop(ttl : Int32)
         loop do
           select
           when @expired.receive? # closed by #release
