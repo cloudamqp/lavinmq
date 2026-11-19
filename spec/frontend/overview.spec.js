@@ -179,6 +179,18 @@ test.describe('overview', _ => {
     await expect(collecting).toBeHidden()
   })
 
+  test('a paused chart does not say it is collecting data', async ({ page }) => {
+    await routeOverviewSamples(page, () => 1)
+    await page.goto('/')
+    const collecting = page.locator('#rateChart').getByText('Collecting data')
+    await expect(collecting).toBeVisible()
+
+    await page.locator('#refresh-toggle').click()
+    await expect(collecting).toBeHidden()
+    await page.locator('#refresh-toggle').click()
+    await expect(collecting).toBeVisible()
+  })
+
   test('chart timestamp shows the latest sample and the pause state', async ({ page }) => {
     await page.goto('/')
     const legendTime = page.locator('.u-legend-time').first()

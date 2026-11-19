@@ -23,8 +23,19 @@ function refreshLegend (handle) {
   updateLegend(handle, handle.uplot ? handle.uplot.legend.idx : null)
 }
 
+const COLLECTING_INTERVALS = 3
+
+function refreshCollecting (handle) {
+  if (!handle.collectingEl) return
+  handle.collectingEl.hidden = Poller.isPaused() || handle.samples >= 2 ||
+    Date.now() - handle.renderedAt >= COLLECTING_INTERVALS * statsInterval()
+}
+
 Poller.events.addEventListener('change', () => {
-  for (const h of handles) refreshLegend(h)
+  for (const h of handles) {
+    refreshLegend(h)
+    refreshCollecting(h)
+  }
 })
 
 // On an uncached load the legends can be measured before Inter has loaded.
@@ -329,8 +340,6 @@ function initChartObservers (handle) {
   ro.observe(el)
 }
 
-const COLLECTING_INTERVALS = 3
-
 function render (id, unit, fill = false) {
   const el = document.getElementById(id)
   const graphContainer = document.createElement('div')
@@ -408,8 +417,7 @@ function update (handle, data) {
     }
   }
   handle.uplot.setData(handle.data)
-  handle.collectingEl.hidden = handle.samples >= 2 ||
-    Date.now() - handle.renderedAt >= COLLECTING_INTERVALS * statsInterval()
+  refreshCollecting(handle)
   refreshLegend(handle)
 }
 
