@@ -633,7 +633,7 @@ module LavinMQ
 
       # Why the session is paused, like Queue#paused_reason
       def paused_reason : String?
-        return unless @paused.value && !closed?
+        return if closed? || !@paused.value
         return "unreadable" if @msg_store.failed?
         File.exists?(@paused_file) ? "operator" : "store_error"
       end
