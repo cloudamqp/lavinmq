@@ -49,12 +49,13 @@ describe LavinMQ::HTTP::QueuesController do
         vhost = s.vhosts["/"]
         vhost.declare_queue("q_reason", true, false)
         queue = vhost.queue("q_reason")
-        reason = -> { JSON.parse(http.get("/api/queues/%2f/q_reason").body)["paused_reason"] }
-        reason.call.raw.should be_nil
+        # Left out when it isn't paused, like other fields without a value
+        reason = -> { JSON.parse(http.get("/api/queues/%2f/q_reason").body)["paused_reason"]? }
+        reason.call.should be_nil
         queue.pause!
         reason.call.should eq "operator"
         queue.resume!
-        reason.call.raw.should be_nil
+        reason.call.should be_nil
 
         queue.publish(LavinMQ::Message.new("", "q_reason", "first"))
         segment = queue.@msg_store.@segments.first_value

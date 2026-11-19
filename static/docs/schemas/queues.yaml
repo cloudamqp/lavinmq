@@ -66,7 +66,7 @@ queue:
       type: string
       nullable: true
       description: |
-        Why the queue is paused, null if it isn't.
+        Why the queue is paused. Null or absent when it isn't paused.
 
         * `operator`: paused through the API or the management UI. Resume it to continue.
         * `store_error`: a message store error, such as a failed file operation. Resume it to try again.
