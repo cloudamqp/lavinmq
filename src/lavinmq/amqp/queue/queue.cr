@@ -908,6 +908,10 @@ module LavinMQ::AMQP
       end
       @log.debug { "Resumed" }
       ensure_expire_fiber
+      # A store error can have stopped a pass of the limits, whose request is
+      # already taken, see #apply_policy_limits
+      @policy_limits_pending.set(true, :release)
+      ensure_policy_limits_fiber
     end
 
     # Why the queue is paused, nil if it isn't: "operator" if it was paused
@@ -1767,9 +1771,14 @@ module LavinMQ::AMQP
     # mapped until the block returns, as the delivery can be suspended in a
     # socket write while the queue is closed or deleted.
     # Returns false, without yielding, if the message can't be read, which
-    # pauses the queue.
+    # pauses the queue, or if the queue is failed.
     def read(sp : SegmentPosition, & : Envelope -> _) : Bool
-      env = @msg_store_lock.synchronize { @msg_store.envelope(sp, redelivered: true).lease }
+      env = @msg_store_lock.synchronize do
+        # Nothing is delivered from a failed store, also not a message that
+        # can still be read: the channel requeues it instead
+        return false if @msg_store.failed?
+        @msg_store.envelope(sp, redelivered: true).lease
+      end
       begin
         yield env
       ensure

@@ -94,7 +94,7 @@ module LavinMQ
       case ex
       when NoMessage
         false
-      when OverflowError, IndexError, ArgumentError, IO::EOFError, AMQ::Protocol::Error::FrameDecode
+      when OverflowError, IndexError, ArgumentError, IO::EOFError, AMQ::Protocol::Error
         true
       else
         false
@@ -161,7 +161,9 @@ module LavinMQ
         raise NoMessage.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         return Envelope.new(sp, msg, redelivered: false, segment: rfile)
-      rescue ex : IndexError
+      rescue ex : NoMessage
+        # Only a zero timestamp moves on: a record that can't be decoded fails
+        # the store below, instead of skipping the rest of its segment
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
         return if @size.zero?
@@ -233,7 +235,8 @@ module LavinMQ
         @size -= 1
         @empty.set true if @size.zero?
         return Envelope.new(sp, msg, redelivered: false, segment: rfile)
-      rescue ex : IndexError
+      rescue ex : NoMessage
+        # See #first?
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
         return if @size.zero?
@@ -270,9 +273,11 @@ module LavinMQ
       raise ClosedError.new if @closed
       # A message routed outside the lock can have its segment purged meanwhile,
       # and @acks would otherwise create an ack file for the deleted segment
-      return unless @segments.has_key?(sp.segment)
-      afile = @acks[sp.segment]
+      segment = @segments[sp.segment]? || return
+      afile = nil
       begin
+        # The first ack of a segment opens its ack file, which can fail too
+        afile = @acks[sp.segment]
         ack_offset = afile.size.to_i64
         afile.write_bytes sp.position
         @replicator.try &.append_value(afile.path, sp.position, ack_offset)
@@ -289,7 +294,7 @@ module LavinMQ
           @deleted.delete(sp.segment)
         end
       rescue ex
-        raise Error.new(afile, cause: ex)
+        raise Error.new(afile || segment, cause: ex)
       end
     end
 
@@ -352,13 +357,17 @@ module LavinMQ
 
       # Purge @rfile and @wfile. Swallow any inconsistency between @size and the
       # on-disk segments — purge_all's postcondition is an empty store, so we
-      # force the counters to zero below regardless of how the loop exits.
-      begin
-        while env = shift?
-          delete(env.segment_position)
+      # force the counters to zero below regardless of how the read stops. An
+      # ack that can't be written is raised: the message would come back.
+      loop do
+        env = begin
+          shift?
+        rescue ex : IO::EOFError | Error
+          @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
+          nil
         end
-      rescue ex : IO::EOFError | Error
-        @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
+        break unless env
+        delete(env.segment_position)
       end
 
       # The msgs are gone, so their counts in the meta files are too

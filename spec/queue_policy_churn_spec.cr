@@ -60,6 +60,20 @@ class GatedPolicyExpireQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# Its next pass of the limits stops on a store error, as a transient one would
+class FailingDropQueue < LavinMQ::AMQP::DurableQueue
+  property? fail_drop = false
+
+  private def drop_overflow(dlx_tasks : LavinMQ::AMQP::Argument::DeadLettering::Tasks? = nil) : Nil
+    if fail_drop?
+      @fail_drop = false
+      pause_on_store_error(LavinMQ::MessageStore::Error.new(@msg_store.@wfile))
+      return
+    end
+    super
+  end
+end
+
 private def churn_policy(definition)
   LavinMQ::Policy.new("churn", "/", /.*/, LavinMQ::Policy::Target::Queues,
     JSON.parse(definition.to_json).as_h, 0i8)
@@ -223,6 +237,46 @@ describe "Queue policy churn" do
       queue.@policy_limits_pending.get.should be_false
     ensure
       queue.try &.delete
+    end
+  end
+
+  it "enforces the limits again when a queue a store error paused is resumed" do
+    with_amqp_server do |s|
+      queue = FailingDropQueue.create(s.vhosts["/"], "limits_resume")
+      s.vhosts["/"].register_queue(queue)
+      4.times { queue.publish(LavinMQ::Message.new("", queue.name, "body")) }
+      queue.fail_drop = true
+      queue.apply_policy(churn_policy({"max-length" => 1}), nil)
+      should_eventually(be_true) { queue.state.paused? }
+      queue.message_count.should eq 4
+      queue.resume!
+      should_eventually(eq 1) { queue.message_count }
+    ensure
+      queue.try &.delete
+    end
+  end
+
+  {false, true}.each do |fail_expiry|
+    it "preserves expiration reapplied during teardown (failure: #{fail_expiry})" do
+      with_amqp_server do |s|
+        queue = GatedPolicyExpireQueue.create(s.vhosts["/"], "expiry_teardown")
+        s.vhosts["/"].register_queue(queue)
+        queue.apply_policy(churn_policy({"expires" => 60_000}), nil)
+        Fiber.yield
+        queue.pause_expiry = true
+        queue.fail_expiry = fail_expiry
+        queue.clear_policy
+        queue.expiry_exited.receive
+        queue.apply_policy(churn_policy({"expires" => 100}), nil)
+        queue.@queue_expire_fiber_active.get.should be_true
+        queue_expire_fibers(queue).should eq 1
+        queue.continue_expiry.send(nil)
+        should_eventually(be_true) { queue.closed? }
+        should_eventually(eq 0) { queue_expire_fibers(queue) }
+      ensure
+        queue.try &.continue_expiry.try_send?(nil)
+        queue.try &.delete
+      end
     end
   end
 end

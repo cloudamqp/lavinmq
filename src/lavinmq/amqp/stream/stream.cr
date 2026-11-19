@@ -94,9 +94,14 @@ module LavinMQ::AMQP
 
     delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
 
+    # A seek that reaches data it can't read fails the stream, see
+    # #read_next, and the error is raised
     def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil,
                stored_offset_tag : String? = nil) : StreamCursor
       @msg_store_lock.synchronize { stream_msg_store.cursor(start, filter, stored_offset_tag) }
+    rescue ex : MessageStore::Error
+      pause_on_store_error(ex)
+      raise ex
     end
 
     # The deliver path shifts from the cursor's requeued messages under
@@ -153,7 +158,6 @@ module LavinMQ::AMQP
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
       return PublishResult::Closed if closed?
       @msg_store_lock.synchronize do
-        # It would be lost with the rest when the stream is deleted
         return PublishResult::Failed if @msg_store.failed?
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
@@ -188,8 +192,11 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize { cursor.close } if cursor
     end
 
+    # Yields the next message for the cursor, returns true if one was delivered.
+    # A store error pauses the stream, or fails it if the data can't be read,
+    # and returns false: the consumer waits for the stream to be resumed.
     def consume_get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
-      get(cursor) do |env|
+      read_next(cursor) do |env|
         yield env
         if env.redelivered
           @redeliver_count.add(1, :relaxed)
@@ -197,6 +204,8 @@ module LavinMQ::AMQP
           @deliver_count.add(1, :relaxed)
         end
       end
+    rescue MessageStore::Error
+      false
     end
 
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
@@ -205,18 +214,9 @@ module LavinMQ::AMQP
       end
     end
 
-    # yield the next message in the ready queue
-    # returns true if a message was deliviered, false otherwise
-    # if we encouncer an unrecoverable ReadError, close queue
-    # A store error pauses the stream, or fails it if the data can't be
-    # read, and the consumer waits for it to be resumed
-    private def get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
-      read_next(cursor) { |env| yield env }
-    rescue MessageStore::Error
-      false
-    end
-
-    # Like #get, but raises the store error after it has paused or failed the stream
+    # Yields the next message for the cursor, returns true if one was
+    # delivered. A store error pauses the stream, or fails it if the data
+    # can't be read, and is then raised.
     private def read_next(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
       raise ClosedError.new if closed?
       # Retention can drop the segment while the delivery is suspended in a

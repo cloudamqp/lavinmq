@@ -410,6 +410,30 @@ module MqttSpecs
       LavinMQ::MQTT::SessionMessageStore.fail_next_delete = false
     end
 
+    it "pauses on an ack whose ack file can't be opened, without disconnecting the client" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          session = server.vhosts["/"].session("mqtt.resumer")
+          publish_from(server, "a/b", ["1"])
+          first = read_publish(io)
+          # As when the broker is out of file descriptors
+          acks = File.join(session.@msg_store.@msg_dir, "acks.0000000001")
+          Dir.mkdir(acks)
+          puback(io, first.packet_id)
+          wait_for { session.state.paused? }
+          session.paused_reason.should eq "store_error"
+          session.client.should_not be_nil
+          Dir.delete(acks)
+          session.resume!
+          publish_from(server, "a/b", ["2"])
+          read_publish(io).payload.should eq "2".to_slice
+          disconnect(io)
+        end
+      end
+    end
+
     it "applies max-length while paused by an operator" do
       with_server do |server|
         deliver_unacked(server, [] of String)

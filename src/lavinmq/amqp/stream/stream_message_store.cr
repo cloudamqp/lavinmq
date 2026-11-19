@@ -189,7 +189,7 @@ module LavinMQ::AMQP
         msg_offset += 1
         pos += msg.bytesize.to_u32
       rescue ex
-        raise rfile ? Error.new(rfile, cause: ex) : ex
+        raise rfile ? read_failed(rfile, ex) : ex
       end
       {msg_offset, segment, pos}
     end
@@ -347,6 +347,7 @@ module LavinMQ::AMQP
     # When the oldest segment expires, nil if no segment can be dropped
     # (no max-age, or only the write segment is left)
     def next_expiry : Time?
+      return if failed? # nothing is dropped from it, see #drop_expired
       max_age = @max_age || return
       @segments.each do |seg_id, mfile|
         return if mfile == @wfile
