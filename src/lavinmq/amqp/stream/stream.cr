@@ -127,18 +127,13 @@ module LavinMQ::AMQP
       false
     end
 
-    private def start : Bool
-      if @msg_store.closed
-        !close
-      else
-        restore_paused
-        if @msg_store.failed?
-          @log.error { "Failed, message data can't be loaded. Delete the stream to remove it, or fail over to a node with a good copy" }
-          @state_lock.synchronize { set_failed }
-        end
-        handle_arguments
-        true
-      end
+    private def start : Nil
+      restore_state
+      handle_arguments
+    end
+
+    private def unreadable_advice : String
+      MessageStore::UnreadableError.advice("stream")
     end
 
     private def init_msg_store(data_dir)
@@ -339,14 +334,7 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      delete_count = @msg_store_lock.synchronize do
-        # Closed by a close while the purge waited for the lock
-        next 0_u32 if @msg_store.closed
-        raise_unreadable if @msg_store.failed?
-        count = @msg_store.purge(max_count)
-        raise_unreadable if @msg_store.failed?
-        count
-      end
+      delete_count = purge_store { @msg_store.purge(max_count) }
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     rescue ex : MessageStore::Error

@@ -295,6 +295,15 @@ function stateReason (state, pausedReason) {
   return null
 }
 
+// Shows the state's reason on a queue or stream page. A failed one can only
+// be deleted, so it can't be paused or resumed.
+function showStateReason (state, pausedReason) {
+  const reason = stateReason(state, pausedReason)
+  document.getElementById('q-state-reason').textContent = reason || ''
+  document.getElementById('q-state-reason-row').classList.toggle('hide', !reason)
+  document.getElementById('pause-queue-card').classList.toggle('hide', state === 'failed')
+}
+
 export {
   addVhostOptions,
   formatNumber,
@@ -309,5 +318,5 @@ export {
   formatTimestamp,
   disableUserMenuVhost,
   stateClasses,
-  stateReason
+  showStateReason
 }

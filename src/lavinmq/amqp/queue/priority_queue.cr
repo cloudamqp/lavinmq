@@ -60,7 +60,7 @@ module LavinMQ::AMQP
         end
 
         @empty = BoolChannel.new(empty?)
-        @failed.set(true, :relaxed) if @stores.any?(&.failed?)
+        sync_failed
       end
 
       private def init_sub_stores(stores)
@@ -171,8 +171,12 @@ module LavinMQ::AMQP
       private def note_failure(&)
         yield
       rescue ex : Error
-        @failed.set(true, :relaxed) if @stores.any?(&.failed?)
+        sync_failed
         raise ex
+      end
+
+      private def sync_failed : Nil
+        mark_failed if @stores.any?(&.failed?)
       end
 
       def first? : Envelope?
@@ -242,7 +246,7 @@ module LavinMQ::AMQP
         @stores.each(&.purge_all(&on_requeued))
         @empty.set true
         # A sub store's purge can have reached data it can't read
-        @failed.set(true, :relaxed) if @stores.any?(&.failed?)
+        sync_failed
       end
 
       def delete
