@@ -1124,6 +1124,33 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "closes only the channel of a consumer whose seek reaches data it can't read" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("seek-consume", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          3.times { |i| q.publish_confirm "m#{i}" }
+        end
+        stream = s.vhosts["/"].queue("seek-consume").as(LavinMQ::AMQP::Stream)
+        mfile = stream.stream_msg_store.@segments.first_value
+        # The body size of the first message, past the end of the segment
+        write_at(mfile.path, 4 + 8 + 1 + 1 + "seek-consume".bytesize + AMQ::Protocol::Properties.new.bytesize, 10_000_000_u64)
+        conn = AMQP::Client.new(port: amqp_port(s)).connect
+        begin
+          ch = conn.channel
+          ch.prefetch 1
+          # No offset given: the default start seeks from the first message
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
+            ch.queue("seek-consume", passive: true).subscribe(no_ack: false) { }
+          end
+          stream.state.failed?.should be_true
+          conn.closed?.should be_false
+          conn.channel.queue("other").publish_confirm("x").should be_true
+        ensure
+          conn.close
+        end
+      end
+    end
+
     it "schedules no retention for a stream that failed to load" do
       with_datadir do |data_dir|
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
