@@ -90,6 +90,9 @@ function handleQueueState (state, pausedReason) {
   const reason = Helpers.stateReason(state, pausedReason)
   document.getElementById('q-state-reason').textContent = reason || ''
   document.getElementById('q-state-reason-row').classList.toggle('hide', !reason)
+  // A failed queue can only be deleted: it can't be paused, resumed or purged
+  document.getElementById('pause-queue-card').classList.toggle('hide', state === 'failed')
+  document.getElementById('purgeQueue').classList.toggle('hide', state === 'failed')
   switch (state) {
     case 'paused':
       pauseQueueForm.classList.add('hide')

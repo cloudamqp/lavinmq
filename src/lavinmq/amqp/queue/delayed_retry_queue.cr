@@ -49,6 +49,23 @@ module LavinMQ::AMQP
       false
     end
 
+    # A failed primary queue refuses every message released to it, and is only
+    # ever deleted, which deletes this queue too. Nothing is released until
+    # then, instead of delaying each message again every backoff.
+    private def next_expired_message : Envelope?
+      if @primary_queue.state.failed?
+        @log.info { "Primary queue #{@primary_queue.name} failed, nothing is released until it's deleted" }
+        wait_for_close
+      end
+      super
+    end
+
+    # Raises ::Channel::ClosedError once the queue is closed, which ends the
+    # release loop
+    private def wait_for_close : NoReturn
+      loop { @message_ttl_change.receive }
+    end
+
     # Publishes an expired message back to the primary queue. The message kept
     # its original timestamp while delayed, so x-message-ttl keeps applying to
     # the message's total age; a message that outlived it is dead-lettered by

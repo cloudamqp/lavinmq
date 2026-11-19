@@ -58,8 +58,13 @@ module LavinMQ
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
       # True while the deliveries are paused: by an operator, see #pause!, or by
-      # a store error, see #pause_on_store_error. Set under @msg_store_lock.
+      # a store error, see #pause_on_store_error. Set under @state_lock.
       @paused = BoolChannel.new(false)
+      # Guards @paused and the paused file. Taken last: a store error pauses
+      # the session under @msg_store_lock. Not @msg_store_lock itself, which
+      # every publish to the session takes, as the paused file is written
+      # and replicated under it.
+      @state_lock = Mutex.new
       @has_capacity = BoolChannel.new(true)
       # This session's topic filters and their QoS, kept by the MQTT exchange
       # as it binds and unbinds them, so finding a session's subscriptions
@@ -152,7 +157,7 @@ module LavinMQ
             r.delete_file(@metadata_file)
             # Under the lock, so a concurrent #pause! can't replicate the file
             # after this delete. Removed locally with the store's directory.
-            @msg_store_lock.synchronize { r.delete_file(@paused_file) }
+            @state_lock.synchronize { r.delete_file(@paused_file) }
           end
           @vhost.delete_queue(@name)
         ensure
@@ -219,7 +224,7 @@ module LavinMQ
       # session has to be deleted. Like a queue's, this pause isn't kept over a
       # restart of the broker.
       private def pause_on_store_error(ex : MessageStore::Error) : Nil
-        paused = @msg_store_lock.synchronize do
+        paused = @state_lock.synchronize do
           next false if closed?
           @paused.set(true)
           true
@@ -596,7 +601,7 @@ module LavinMQ
       # Kept over a restart of the broker, unlike a pause by a store error, so
       # the file is written also when the session is paused already
       def pause! : Nil
-        @msg_store_lock.synchronize do
+        @state_lock.synchronize do
           return if closed?
           # Not empty: a follower applies a replaced file of zero bytes as a delete
           File.write(@paused_file, @name)
@@ -607,17 +612,16 @@ module LavinMQ
       end
 
       # Ends a pause by an operator, and one by a store error, which tries the
-      # store again. A session with data it can't read stays failed until it's
-      # deleted.
+      # store again. Refused for a session with data it can't read, which can
+      # only be deleted, though an operator's pause of it is removed.
       def resume! : Nil
-        resumed = @msg_store_lock.synchronize do
+        resumed = @state_lock.synchronize do
           next false unless @paused.value
           if File.delete?(@paused_file)
             @replicator.try &.delete_file(@paused_file)
           end
           if @msg_store.failed?
-            @log.error { "Still failed, message data can't be read. Delete the session to remove it, or fail over to a node with a good copy" }
-            next false
+            raise LavinMQ::Error::PreconditionFailed.new("Message data in session '#{@name}' can't be read, it can't be resumed. Delete the session to remove it, or fail over to a node with a good copy")
           end
           @paused.set(false)
           true
@@ -662,7 +666,7 @@ module LavinMQ
 
       # Pauses the session, if the purge was the first to reach the data
       private def raise_unreadable : NoReturn
-        @msg_store_lock.synchronize { @paused.set(true) unless closed? }
+        @state_lock.synchronize { @paused.set(true) unless closed? }
         raise LavinMQ::Error::PreconditionFailed.new("Message data in session '#{@name}' can't be read. Delete the session to remove it, or fail over to a node with a good copy")
       end
 

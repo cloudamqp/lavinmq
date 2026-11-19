@@ -107,7 +107,7 @@ A queue whose message store fails isn't closed. Consumers stay connected and get
 | Cause | State | What to do |
 |-------|-------|------------|
 | A file operation failed, for example an ack couldn't be written or the broker is out of file descriptors | `paused` | Fix the cause and resume the queue. Publishes are still confirmed and stored meanwhile. |
-| Message data can't be read: a corrupt message, or a segment that can't be loaded when the broker starts | `failed` | Delete the queue, and declare it again. In a cluster, a failover to a node with a good copy of the data also works. Resuming it doesn't help, and neither does a restart of the broker, which loads the same data. |
+| Message data can't be read: a corrupt message, or a segment that can't be loaded when the broker starts | `failed` | Delete the queue, and declare it again. In a cluster, a failover to a node with a good copy of the data also works. A resume is refused, with 400 in the HTTP API, and a restart of the broker doesn't help either, it loads the same data. |
 
 A queue with data it can't read nacks publishes, as they would be lost with the rest of its messages when it's deleted. Publishers without confirms lose them silently. Acks of messages delivered before are still taken. A purge is refused, with `PRECONDITION_FAILED` over AMQP and 400 in the HTTP API: what can still be read can't be told from what can't.
 

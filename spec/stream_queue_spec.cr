@@ -1141,7 +1141,7 @@ describe LavinMQ::AMQP::Stream do
           end
           # Nacked: it would be lost with the rest when the stream is deleted
           q.publish_confirm("while failed").should be_false
-          stream.resume!
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { stream.resume! }
           stream.state.failed?.should be_true
           select
           when msgs.receive then fail "delivered a message from a stream that can't be read"

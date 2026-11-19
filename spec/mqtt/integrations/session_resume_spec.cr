@@ -332,8 +332,8 @@ module MqttSpecs
           session.state.should eq LavinMQ::QueueState::Failed
           session.state_match?([LavinMQ::QueueState::Failed]).should be_true
           session.state.should eq LavinMQ::QueueState::Failed
-          # Resuming doesn't help, the message still can't be read
-          session.resume!
+          # Resuming is refused, the message still can't be read
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { session.resume! }
           session.state.should eq LavinMQ::QueueState::Failed
           read_packet(io).should be_nil
 

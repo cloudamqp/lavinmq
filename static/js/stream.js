@@ -79,6 +79,8 @@ function handleQueueState (state, pausedReason) {
   const reason = Helpers.stateReason(state, pausedReason)
   document.getElementById('q-state-reason').textContent = reason || ''
   document.getElementById('q-state-reason-row').classList.toggle('hide', !reason)
+  // A failed stream can only be deleted: it can't be paused or resumed
+  document.getElementById('pause-queue-card').classList.toggle('hide', state === 'failed')
   switch (state) {
     case 'paused':
       pauseQueueForm.classList.add('hide')
