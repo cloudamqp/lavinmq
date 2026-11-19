@@ -336,8 +336,12 @@ module MqttSpecs
 
           # The purge removes all of it, with the message published after
           segment = store.@segments[sp.segment].path
+          # A pause by an operator isn't undone by the purge
+          session.pause!
           session.purge
           session.message_count.should eq 0
+          session.state.should eq LavinMQ::QueueState::Paused
+          session.resume!
           session.state.should eq LavinMQ::QueueState::Running
           store.@packet_ids.should be_empty
           # The segment is unlinked after a sync of the whole filesystem, which
@@ -402,6 +406,35 @@ module MqttSpecs
       end
     ensure
       LavinMQ::MQTT::SessionMessageStore.fail_next_delete = false
+    end
+
+    it "keeps a pause by an operator over a restart of the broker" do
+      with_server(clean_dir: false) do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          session = server.vhosts["/"].session("mqtt.resumer")
+          session.pause!
+          session.state.should eq LavinMQ::QueueState::Paused
+          publish_from(server, "a/b", ["1"])
+          read_packet(io).should be_nil
+          session.message_count.should eq 1
+          disconnect(io)
+        end
+      end
+      with_server do |server|
+        session = server.vhosts["/"].session("mqtt.resumer")
+        session.state.should eq LavinMQ::QueueState::Paused
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer")
+          read_packet(io).should be_nil
+          session.resume!
+          session.state.should eq LavinMQ::QueueState::Running
+          File.exists?(session.@paused_file).should be_false
+          read_publish(io).payload.should eq "1".to_slice
+          disconnect(io)
+        end
+      end
     end
 
     it "forgets an owed id when a max-length policy drops its message" do

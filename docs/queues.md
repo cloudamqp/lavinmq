@@ -114,7 +114,7 @@ A queue's retry queue and the queue of a delayed exchange are paused the same wa
 
 Streams follow the same rule. A purge of a stream with data it can't read removes all its segments, and its consumers continue with what is published next. Offsets are never reused: if the last offset can't be read from the data, the new ones start well above it.
 
-MQTT sessions are paused the same way, with their client still connected, and are shown as `paused`: resume the session after a failed file operation, purge it if its data can't be read. What the client has in flight when the purge removes it stays booked, so its acks aren't refused. A session can't be paused through the API.
+MQTT sessions are paused the same way, with their client still connected, and are shown as `paused`: resume the session after a failed file operation, purge it if its data can't be read. What the client has in flight when the purge removes it stays booked, so its acks aren't refused. Like a queue, a session can also be paused and resumed through the API and the management UI, and that pause is kept when the broker restarts.
 
 ## Reserved Queue Name Prefixes
 
