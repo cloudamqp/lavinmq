@@ -145,6 +145,30 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
+  # A frozen (or partitioned) etcd leader accepts packets but never answers, so
+  # the local member holds a forwarded keepalive until etcd's request timeout
+  # (~7 s), longer than the lease has left. The other members elect a new
+  # leader within ~2 s, which extends every lease.
+  it "keeps the lease when the etcd leader stops answering", tags: "slow" do
+    cluster = EtcdCluster.new
+    cluster.run do |etcds|
+      victim = cluster.leader_index
+      member = (victim + 1) % etcds.size
+      # Only the local member, like a LavinMQ node
+      etcd = LavinMQ::Etcd.new(cluster.endpoint(member))
+      lease = etcd.elect("foo/#{rand}", "bar", ttl: 5)
+      # The first keepalive goes out at TTL/3 (1.67 s); stop the leader just
+      # before, so it lands in the ~1 s before the others notice
+      sleep 1.4.seconds
+      etcds[victim].signal(Signal::STOP)
+      begin
+        lease.wait(10.seconds) # twice the TTL, so the lease must have been renewed
+      ensure
+        etcds[victim].signal(Signal::CONT)
+      end
+    end
+  end
+
   it "waits for etcd to come back once it has been connected", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do |etcds|
@@ -359,6 +383,26 @@ describe LavinMQ::Etcd::Lease do
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(6.seconds) }
   end
 
+  # Like a keepalive the local etcd member forwards to an etcd leader that
+  # stopped answering: the request is retried before the TTL runs out.
+  it "keeps the lease through a keepalive that gets no answer" do
+    keepalives = Atomic(Int32).new(0)
+    server = HTTP::Server.new do |ctx|
+      ctx.response.content_type = "application/json"
+      sleep 1.hour if keepalives.add(1) == 0
+      ctx.response.print %({"result":{"ID":"1","TTL":"3"}})
+    end
+    address = server.bind_tcp("127.0.0.1", 0)
+    spawn(name: "fake etcd") { server.listen }
+    etcd = LavinMQ::Etcd.new("127.0.0.1:#{address.port}")
+    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+    lease.wait(5.seconds) # longer than the 3 s TTL
+    keepalives.get.should be > 1
+  ensure
+    lease.try &.release
+    server.try &.close
+  end
+
   it "expires when etcd reports the lease gone" do
     etcd = RecordingEtcd.new("127.0.0.1:1")
     lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
@@ -377,6 +421,10 @@ class EtcdCluster
 
   def endpoints
     @ports.map { |p| "127.0.0.1:23#{p}" }.join(",")
+  end
+
+  def endpoint(i)
+    "127.0.0.1:23#{@ports[i]}"
   end
 
   # The current etcd leader, as an index into the processes that #run yields
@@ -474,7 +522,7 @@ private class RecordingEtcd < LavinMQ::Etcd
     @revoke_error.try { |ex| raise ex }
   end
 
-  def lease_keepalive(id) : Int32
+  def lease_keepalive(id, timeout : Time::Span? = nil) : Int32
     if keepalive = @keepalive
       return keepalive.call(id.to_i64)
     end
