@@ -45,6 +45,7 @@ private def nack_multiple_on_store_error(s, tx = false)
     ch.tx_commit if tx
     queue = s.vhosts["/"].queue("nack-store-error")
     should_eventually(be_true) { queue.state.paused? }
+    queue.paused_reason.should eq "store_error"
     queue.closed?.should be_false
     ch.closed?.should be_false
     # A deliver loop can have taken a message before the pause

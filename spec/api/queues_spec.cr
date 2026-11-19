@@ -44,6 +44,31 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "says why a queue is paused" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_reason", true, false)
+        queue = vhost.queue("q_reason")
+        # Left out when it isn't paused, like other fields without a value
+        reason = -> { JSON.parse(http.get("/api/queues/%2f/q_reason").body)["paused_reason"]? }
+        reason.call.should be_nil
+        queue.pause!
+        reason.call.should eq "operator"
+        queue.resume!
+        reason.call.should be_nil
+
+        queue.publish(LavinMQ::Message.new("", "q_reason", "first"))
+        segment = queue.@msg_store.@segments.first_value
+        # The property flags of the message, with a bit that isn't defined
+        write_at(segment.path, 4 + sizeof(Int64) + 1 + 1 + "q_reason".bytesize, 0x0003u16)
+        # Failed, not paused, when its data can't be read
+        queue.basic_get(no_ack: true) { }
+        queue.state.failed?.should be_true
+        JSON.parse(http.get("/api/queues/%2f/q_reason").body)["state"].should eq "failed"
+        reason.call.should be_nil
+      end
+    end
+
     it "should filter on multiple states" do
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
@@ -110,6 +135,19 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
   end
+  describe "GET /api/queues" do
+    it "does not include count history logs in list rows" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("list_q", false, false)
+        response = http.get("/api/queues")
+        body = JSON.parse(response.body)
+        body.as_a.each do |q|
+          q.as_h.has_key?("messages_ready_details").should be_false
+        end
+      end
+    end
+  end
+
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
       with_http_server do |http, s|
@@ -270,6 +308,30 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should expose queued message logs" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("log_q", false, false)
+        response = http.get("/api/queues/%2f/log_q")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["messages_ready_details"]["log"].as_a?.should_not be_nil
+        body["messages_unacknowledged_details"]["log"].as_a?.should_not be_nil
+      end
+    end
+
+    it "should expose queued message logs for mqtt sessions" do
+      with_http_server do |http, s|
+        mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+        s.vhosts["/"].declare_queue("mqtt.log_q", true, false, mqtt_args)
+        response = http.get("/api/queues/%2f/mqtt.log_q")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["messages_ready_details"]["log"].as_a?.should_not be_nil
+        body["messages_unacknowledged_details"]["log"].as_a?.should_not be_nil
+        body["message_stats"]["publish_details"]["log"].as_a?.should_not be_nil
+      end
+    end
+
     it "should return message stats" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
@@ -333,6 +395,29 @@ describe LavinMQ::HTTP::QueuesController do
         body = JSON.parse(http.get("/api/vhosts/%2f").body)
         body["message_stats"]["get_no_ack"].should eq 2
         body["message_stats"]["deliver_get"].should eq 2
+      end
+    end
+
+    it "refuses to read from a stream whose data can't be read, and fails the one a read finds it in" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("unreadable_stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          3.times { |i| q.publish_confirm "m#{i}" }
+        end
+        stream = s.vhosts["/"].queue("unreadable_stream").as(LavinMQ::AMQP::Stream)
+        segment = stream.@msg_store.@segments.first_value
+        record_size = (segment.size - 4) // 3
+        # The body size of the second message, published to the default exchange
+        write_at(segment.path, 4 + record_size + 8 + 1 + 1 + "unreadable_stream".bytesize + AMQ::Protocol::Properties.new.bytesize, UInt64::MAX)
+        body = %({ "count": 3, "offset": "first" })
+        # What was read before the data is returned, and the stream is paused
+        response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.size.should eq 1
+        stream.state.should eq LavinMQ::QueueState::Failed
+
+        response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
+        response.status_code.should eq 403
       end
     end
 

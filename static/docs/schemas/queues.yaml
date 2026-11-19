@@ -30,6 +30,22 @@ queue:
     ready:
       type: integer
       description: Number of ready messages in the queue.
+    messages_ready_details:
+      type: object
+      description: History of the ready message count, sampled every stats interval.
+      properties:
+        log:
+          type: array
+          items:
+            type: integer
+    messages_unacknowledged_details:
+      type: object
+      description: History of the unacknowledged message count, sampled every stats interval.
+      properties:
+        log:
+          type: array
+          items:
+            type: integer
     ready_bytes:
       type: integer
       description: Total size of ready messages in the queue.
@@ -59,9 +75,23 @@ queue:
       enum:
       - running
       - paused
+      - failed
       - flow
       - closed
       - deleted
+    paused_reason:
+      type: string
+      nullable: true
+      description: |
+        Why the queue is paused. Null or absent when it isn't paused.
+
+        * `operator`: paused through the API or the management UI. Resume it to continue.
+        * `store_error`: a message store error, such as a failed file operation. Resume it to try again.
+
+        A queue whose message data can't be read has the state `failed` instead.
+      enum:
+      - operator
+      - store_error
     effective_policy_definition:
         "$ref": "../openapi.yaml#/components/schemas/policy"
     message_stats:

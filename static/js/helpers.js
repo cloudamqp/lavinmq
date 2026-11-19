@@ -282,6 +282,19 @@ const stateClasses = new class {
     this.#persist()
   }
 }()
+// Why a queue or stream is paused (the API's paused_reason) or failed, and
+// what to do about it. Null when it's neither.
+const pausedReasons = {
+  operator: 'It was paused through the API or the management UI.',
+  store_error: 'A message store error. Resume it to try again.'
+}
+
+function stateReason (state, pausedReason) {
+  if (state === 'failed') return "Its message data can't be read. Delete it, or fail over to a node with a good copy."
+  if (state === 'paused' && pausedReason) return pausedReasons[pausedReason] || pausedReason
+  return null
+}
+
 export {
   addVhostOptions,
   formatNumber,
@@ -295,5 +308,6 @@ export {
   autoCompleteDatalist,
   formatTimestamp,
   disableUserMenuVhost,
-  stateClasses
+  stateClasses,
+  stateReason
 }

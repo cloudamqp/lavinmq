@@ -24,10 +24,6 @@ module LavinMQ
         super
         forget_packet_id(sp)
       end
-
-      def wipe : UInt32
-        super.tap { @packet_ids.clear }
-      end
     end
   end
 end

@@ -29,6 +29,10 @@
               <th>State</th>
               <td id="q-state"></td>
             </tr>
+            <tr id="q-state-reason-row" class="hide">
+              <th>Reason</th>
+              <td id="q-state-reason"></td>
+            </tr>
             <tr id="q-primary-queue-row" class="hide">
               <th>Retry queue of</th>
               <td id="q-primary-queue"></td>
@@ -112,6 +116,10 @@
               <td id="q-retry-queue"></td>
             </tr>
           </table>
+        </section>
+        <section class="card cols-12 align-start">
+          <h3>Queued messages</h3>
+          <div class="chart-container" id="msgChart"></div>
         </section>
         <section class="card cols-12 align-start">
           <h3>Rates</h3>

@@ -157,12 +157,11 @@ module LavinMQ::AMQP
         raise ClosedError.new if @closed
         was_empty = size.zero?
         store_for sp, &.requeue(sp)
-        # Not requeued if a wipe removed it
-        @empty.set false if was_empty && !size.zero?
+        @empty.set false if was_empty
       end
 
       # Raises the error of the sub store that can't be read: none of them
-      # is read until all are wiped
+      # is read then
       private def raise_if_failed : Nil
         @stores.each { |s| s.first? if s.failed? } if failed?
       end
@@ -244,14 +243,6 @@ module LavinMQ::AMQP
         @empty.set true
         # A sub store's purge can have reached data it can't read
         @failed.set(true, :relaxed) if @stores.any?(&.failed?)
-      end
-
-      def wipe : UInt32
-        raise ClosedError.new if @closed
-        count = @stores.sum(0u32, &.wipe)
-        @empty.set true
-        @failed.set(false, :relaxed)
-        count
       end
 
       def delete

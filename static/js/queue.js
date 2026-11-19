@@ -85,8 +85,11 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
   updateQueue(true)
 })
 
-function handleQueueState (state) {
+function handleQueueState (state, pausedReason) {
   document.getElementById('q-state').textContent = state
+  const reason = Helpers.stateReason(state, pausedReason)
+  document.getElementById('q-state-reason').textContent = reason || ''
+  document.getElementById('q-state-reason-row').classList.toggle('hide', !reason)
   switch (state) {
     case 'paused':
       pauseQueueForm.classList.add('hide')
@@ -138,6 +141,7 @@ function renderPrimaryQueue (item) {
   document.getElementById('q-primary-queue').replaceChildren(queueLink(item.vhost, item.primary_queue))
 }
 
+const msgChart = Chart.render('msgChart', 'msgs', true)
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 let detailsRendered = false
@@ -148,8 +152,12 @@ function updateQueue (all, signal) {
       if (qType === 'stream') {
         window.location.href = `/stream#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
       }
+      Chart.update(msgChart, [
+        { key: 'ready', label: 'Ready', desc: 'Messages waiting to be delivered', value: item.messages_ready, log: item.messages_ready_details.log },
+        { key: 'unacked', label: 'Unacknowledged', desc: 'Messages delivered but not yet acknowledged', value: item.messages_unacknowledged, log: item.messages_unacknowledged_details.log }
+      ])
       Chart.update(chart, item.message_stats)
-      handleQueueState(item.state)
+      handleQueueState(item.state, item.paused_reason)
       document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged
       document.getElementById('q-message-bytes-unacknowledged').textContent = Helpers.nFormatter(item.message_bytes_unacknowledged) + 'B'
       document.getElementById('q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
@@ -414,7 +422,7 @@ pauseQueueForm.addEventListener('submit', function (evt) {
     HTTP.request('PUT', url)
       .then(() => {
         DOM.toast('Queue paused!')
-        handleQueueState('paused')
+        handleQueueState('paused', 'operator')
       })
       .catch(() => {})
   }

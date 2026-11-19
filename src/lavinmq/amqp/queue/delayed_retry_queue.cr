@@ -34,6 +34,8 @@ module LavinMQ::AMQP
     def delay(msg : Message) : Bool
       return false if closed?
       @msg_store_lock.synchronize do
+        # The store has data it can't read, the message is requeued instantly
+        return false if @msg_store.failed?
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
