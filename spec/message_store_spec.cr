@@ -385,15 +385,16 @@ describe LavinMQ::MessageStore do
       end
     end
 
-    it "fails at a record it can't decode in a segment another follows, instead of skipping to it" do
+    it "skips a half written message to the next segment, without failing the store" do
       with_store do |store|
         body = "x" * (LavinMQ::Config.instance.segment_size // 2)
-        3.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+        3.times { |i| store.push(LavinMQ::Message.new("ex", "rk#{i}", body)) }
         store.@segments.size.should be > 1
-        # A body size past the end of the segment
-        write_at(store.@segments.first_value.path, bodysize_pos.call(4), 10_000_000_u64)
-        expect_raises(LavinMQ::MessageStore::UnreadableError) { store.shift? }
-        store.failed?.should be_true
+        # A body size past the end of the segment, as when it wasn't all written
+        write_at(store.@segments.first_value.path, 4 + 8 + 1 + "ex".bytesize + 1 + "rk0".bytesize + AMQ::Protocol::Properties.new.bytesize, 10_000_000_u64)
+        env = store.shift?.should_not be_nil
+        env.message.routing_key.should eq "rk1"
+        store.failed?.should be_false
       end
     end
 

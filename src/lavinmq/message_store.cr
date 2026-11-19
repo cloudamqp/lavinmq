@@ -162,10 +162,8 @@ module LavinMQ
         sp = SegmentPosition.make(seg, pos, msg)
         return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
-        # Only a zero timestamp, or a tail too short to hold a message, moves
-        # on to the next segment. A record that can't be decoded fails the
-        # store, instead of skipping the rest of its segment.
-        raise read_failed(@rfile, ex) unless ex.is_a?(NoMessage) || short_tail?(@rfile)
+        # A message that runs past the end of its segment was half written,
+        # the rest of the segment is skipped
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
         return if @size.zero?
@@ -239,7 +237,6 @@ module LavinMQ
         return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
         # See #first?
-        raise read_failed(@rfile, ex) unless ex.is_a?(NoMessage) || short_tail?(@rfile)
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
         return if @size.zero?
@@ -248,11 +245,6 @@ module LavinMQ
         @log.error(exception: ex) { "shift? failed: #{state_snapshot}" }
         raise read_failed(@rfile, ex)
       end
-    end
-
-    # Fewer bytes left in the segment than the smallest message takes
-    private def short_tail?(mfile : MFile) : Bool
-      mfile.size - mfile.pos < BytesMessage::MIN_BYTESIZE
     end
 
     def [](sp : SegmentPosition) : BytesMessage
