@@ -259,16 +259,16 @@ module MqttSpecs
       end
     end
 
-    it "does not resend under packet id 0 [MQTT-2.3.1-5]" do
+    it "does not resend under packet id 0 [MQTT-2.3.1-1]" do
       with_server do |server|
         deliver_unacked(server, ["1"])
 
         session = server.vhosts["/"].session("mqtt.resumer")
         wait_for { session.client.nil? }
 
-        # `next_id` hands out 0 once the sequence wraps, so a real session can put
-        # one in here. Reissued from memory, the client rejects the illegal id and
-        # gets it again on every reconnect.
+        # Planted, as `next_id` never hands out 0. Guards the zero check in
+        # `delivery_id`: reissued from memory, the client would reject the
+        # illegal id and get it again on every reconnect.
         sp = session.@msg_store.@packet_ids.keys.first
         session.@msg_store.@packet_ids[sp] = 0u16
 
