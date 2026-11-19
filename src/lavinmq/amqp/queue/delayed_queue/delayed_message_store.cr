@@ -75,7 +75,7 @@ module LavinMQ::AMQP
 
       def first_delayed? : Envelope?
         raise ClosedError.new if @closed
-        raise MessageStore::Error.new(@rfile) if failed?
+        raise MessageStore::UnreadableError.new(@rfile) if failed?
         sp = @requeued.first? || return
         seg = @segments[sp.segment]
         begin
@@ -88,7 +88,7 @@ module LavinMQ::AMQP
 
       def shift_delayed?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
-        raise MessageStore::Error.new(@rfile) if failed?
+        raise MessageStore::UnreadableError.new(@rfile) if failed?
         sp = @requeued.shift? || return
         segment = @segments[sp.segment]
         begin

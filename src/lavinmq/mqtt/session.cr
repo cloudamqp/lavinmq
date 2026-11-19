@@ -554,6 +554,10 @@ module LavinMQ
             end
           end
         end
+      rescue ex : MessageStore::Error
+        # The publish is stored. If it was the limit that reached data that
+        # can't be read, the deliveries stop until a purge.
+        raise ex unless stop_deliveries(ex)
       end
 
       private def clear_policy_arguments
@@ -578,12 +582,15 @@ module LavinMQ
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
         count = @msg_store_lock.synchronize do
+          ready = @msg_store.size
           purged = @msg_store.failed? ? 0_u32 : purge_readable(max_count)
           # All of it goes if it has data that can't be read, also when it was
           # this purge that reached it
           next purged unless @msg_store.failed?
           # What the client has in flight stays booked, its acks are ignored
-          purged + @msg_store.wipe.tap { @store_readable.set(true) unless closed? }
+          @msg_store.wipe
+          @store_readable.set(true) unless closed?
+          ready
         end
         @log.info { "Purged #{count} messages" }
         count

@@ -1182,6 +1182,10 @@ describe LavinMQ::AMQP::Stream do
         stream = s.vhosts["/"].queue("corrupt-stream").as(LavinMQ::AMQP::Stream)
         stream.state.running?.should be_true
         stream.message_count.should eq 1
+        # The offsets continue after a restart too, the one segment left has no meta file
+        first = AMQP::Client::Arguments.new({"x-stream-offset" => "first"})
+        msg = StreamSpecHelpers.consume_one(s, "corrupt-stream", "after-restart", first)
+        StreamSpecHelpers.offset_from_headers(msg.properties.headers).should be > 3
       end
     end
 

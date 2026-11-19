@@ -4,6 +4,14 @@ require "./../src/lavinmq/policy"
 
 alias Policy = LavinMQ::Policy
 
+class LavinMQ::AMQP::Queue
+  # Spec access to the handler of a store error, which runs after the store's
+  # lock is released
+  def handle_store_error(ex : LavinMQ::MessageStore::Error)
+    pause_on_store_error(ex)
+  end
+end
+
 # A queue whose post-push expire-fiber bookkeeping raises ClosedError, as if a
 # delete closed the store right after the message was pushed.
 class StoreClosedAfterPushQueue < LavinMQ::AMQP::Queue
@@ -469,6 +477,44 @@ describe LavinMQ::AMQP::Queue do
             end
           end
           queue.unacked_count.should eq 0
+          queue.message_count.should eq 0
+          queue.state.running?.should be_true
+        end
+      end
+    end
+
+    it "isn't paused by a read error that a purge has dealt with meanwhile" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "first"
+          segment = queue.@msg_store.@segments.first_value
+          write_at(segment.path, unreadable_flags_pos(4, q_name), 0x0003u16)
+          error = expect_raises(LavinMQ::MessageStore::Error) do
+            queue.@msg_store_lock.synchronize { queue.@msg_store.shift? }
+          end
+          # The purge wins the race for the lock against the read's error handler
+          queue.purge
+          queue.state.running?.should be_true
+          queue.handle_store_error(error)
+          queue.state.running?.should be_true
+        end
+      end
+    end
+
+    it "reports every message a purge removed when it reached the data after some of them" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "m0"
+          segment = queue.@msg_store.@segments.first_value
+          record_size = segment.size - 4
+          3.times { |i| q.publish_confirm "m#{i + 1}" }
+          q.get(no_ack: false).should_not be_nil # the purge takes the path that reads
+          write_at(segment.path, unreadable_flags_pos(4 + 2 * record_size, q_name), 0x0003u16)
+          queue.purge(5).should eq 3
           queue.message_count.should eq 0
           queue.state.running?.should be_true
         end

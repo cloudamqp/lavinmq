@@ -41,6 +41,7 @@ module LavinMQ::AMQP
       @segment_last_ts.clear
       @segment_first_offset[seg] = @last_offset + 1
       @segment_first_ts[seg] = RoughTime.unix_ms
+      store_offset_base(seg, @last_offset + 1)
       @offset_index.clear
       @offset_cursor = {0u32, 0u32, 0i64}
       @segment_readers.clear
@@ -56,6 +57,33 @@ module LavinMQ::AMQP
     def delete
       super
       @consumer_offsets.delete
+      @replicator.try &.delete_file(offset_base_path)
+    end
+
+    # The first offset of a segment that has no segment before it to count
+    # from, written by #wipe: the segment written to has no meta file, so
+    # without it a restart would start the offsets over.
+    private def offset_base_path : String
+      File.join(@msg_dir, "offset_base")
+    end
+
+    private def store_offset_base(seg : UInt32, offset : Int64) : Nil
+      path = offset_base_path
+      File.open(path, "w") do |f|
+        f.write_bytes seg
+        f.write_bytes offset
+      end
+      @replicator.try &.replace_file(path)
+    end
+
+    # The first offset of *seg* when there's no segment before it
+    private def offset_base(seg : UInt32) : Int64
+      File.open(offset_base_path) do |f|
+        return f.read_bytes(Int64) if f.read_bytes(UInt32) == seg
+      end
+      1i64
+    rescue File::NotFoundError | IO::EOFError
+      1i64
     end
 
     # The last offset isn't known when a segment failed to load. Offsets must
@@ -293,7 +321,7 @@ module LavinMQ::AMQP
 
     def read(segment : UInt32, position : UInt32) : Envelope?
       return if @closed
-      raise Error.new(@wfile) if failed?
+      raise UnreadableError.new(@wfile) if failed?
       rfile = @segments[segment]? || return # dropped by retention
       return if position == rfile.size
       begin
@@ -307,7 +335,7 @@ module LavinMQ::AMQP
 
     def shift?(consumer : AMQP::StreamConsumer) : Envelope?
       raise ClosedError.new if @closed
-      raise Error.new(@wfile) if failed?
+      raise UnreadableError.new(@wfile) if failed?
 
       if env = shift_requeued(consumer)
         return env
@@ -505,13 +533,13 @@ module LavinMQ::AMQP
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
         # was written before shutdown — don't parse a msg out of an empty file.
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
+        previous_segment_first_offset = @segment_first_offset[seg - 1]? || offset_base(seg)
         previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
+        previous_segment_first_offset = @segment_first_offset[seg - 1]? || offset_base(seg)
         previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
         @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
