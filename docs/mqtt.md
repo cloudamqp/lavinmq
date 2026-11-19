@@ -26,7 +26,7 @@ Waiting for disk synchronization makes QoS 1 throughput depend on disk latency a
 
 A PUBACK acknowledges the broker's handling of a publish, not delivery to a subscriber. Session lifetime and subscriptions still determine whether messages are retained for later delivery; a publish denied by topic permissions is acknowledged and dropped as described below.
 
-A QoS 1 PUBLISH, a SUBSCRIBE or an UNSUBSCRIBE must carry a non-zero packet ID. One with packet ID 0 closes the connection, and the Will is published.
+A PUBLISH with QoS 1 or 2, a SUBSCRIBE or an UNSUBSCRIBE must carry a non-zero packet ID. One with packet ID 0 closes the connection, and the Will is published.
 
 ## Sessions
 
