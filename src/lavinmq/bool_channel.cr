@@ -86,13 +86,14 @@ class BoolChannel
   # Blocks until the value is *target* and this fiber is first in line. Only
   # the first is woken, and it wakes the next as it leaves. All waiters on
   # one BoolChannel must wait for the same value, or one can block the line.
-  # Returns false when aborted or after *timeout* without a turn.
+  # Returns false when aborted or after *timeout* without a turn. Takes no
+  # block: a waiter that blocks while in line, e.g. on a client's socket,
+  # would hold the turn for everyone behind it.
   def wait_until(target : Bool, turn : ::Channel(Nil), abort : ::Channel,
-                 timeout : Time::Span? = nil, & : ->) : Bool
+                 timeout : Time::Span? = nil) : Bool
     @lock.synchronize { @line.push turn }
     loop do
       return true if @lock.synchronize { value == target && @line.first? == turn }
-      yield
       if timeout
         select
         when turn.receive
