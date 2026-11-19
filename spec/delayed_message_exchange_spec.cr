@@ -426,6 +426,25 @@ describe "Delayed Message Exchange" do
     end
   end
 
+  it "releases nothing that was already due to be released when its queue is paused" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        ch.queue("delayed-armed-target").bind(x.name, "#")
+        target = s.vhosts["/"].queue("delayed-armed-target")
+        queue = s.vhosts["/"].queue(delay_q_name)
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 300})
+        x.publish_confirm "m", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+        sleep 50.milliseconds # the release loop waits for the delay
+        queue.pause!
+        sleep 500.milliseconds
+        target.message_count.should eq 0
+        queue.resume!
+        should_eventually(eq 1) { target.message_count }
+      end
+    end
+  end
+
   it "nacks a delayed publish when the internal queue is closed" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

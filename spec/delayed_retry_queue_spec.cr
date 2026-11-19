@@ -561,6 +561,25 @@ describe "Retry Queue" do
       end
     end
 
+    it "loads as failed with stored headers of a field type it doesn't know" do
+      with_datadir do |dir|
+        store = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(dir, nil)
+        headers = AMQ::Protocol::Table.new({"x-delay" => 1000, "k" => "v"})
+        store.push(LavinMQ::Message.new("ex", "rk", "body", AMQ::Protocol::Properties.new(headers: headers)))
+        path = store.@segments.first_value.path
+        store.close
+        bytes = File.read(path).to_slice
+        type_pos = bytes.to_a.each_cons(3).index!(&.==([1u8, 'k'.ord.to_u8, 'S'.ord.to_u8])) + 2
+        write_at(path, type_pos, '!'.ord.to_u8)
+
+        # The index is built from the headers, and doesn't raise on them
+        store = LavinMQ::AMQP::DelayedQueue::DelayedMessageStore.new(dir, nil)
+        store.closed.should be_false
+        store.failed?.should be_true
+        store.close
+      end
+    end
+
     it "loads as failed with a record that can't be decoded in a segment with a meta file" do
       with_datadir do |dir|
         # With a meta file the load trusts its count and doesn't read the records

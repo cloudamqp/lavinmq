@@ -434,6 +434,32 @@ module MqttSpecs
       end
     end
 
+    it "enforces max-length before it resumes, and stays paused if that fails again" do
+      with_server do |server|
+        deliver_unacked(server, [] of String)
+        session = server.vhosts["/"].session("mqtt.resumer")
+        publish_from(server, "a/b", ["1", "2", "3", "4"])
+        LavinMQ::MQTT::SessionMessageStore.fail_next_delete = true
+        defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+        server.vhosts["/"].add_policy("ml", "^mqtt\\.", "queues", defs, 10_i8, apply: false)
+        server.vhosts["/"].apply_policies
+        session.paused_reason.should eq "store_error"
+        session.message_count.should be > 1
+
+        # The limit fails again: still paused, nothing is delivered that it would drop
+        LavinMQ::MQTT::SessionMessageStore.fail_next_delete = true
+        session.resume!
+        session.paused_reason.should eq "store_error"
+        session.message_count.should be > 1
+
+        session.resume!
+        session.state.should eq LavinMQ::QueueState::Running
+        session.message_count.should eq 1
+      end
+    ensure
+      LavinMQ::MQTT::SessionMessageStore.fail_next_delete = false
+    end
+
     it "applies max-length while paused by an operator" do
       with_server do |server|
         deliver_unacked(server, [] of String)

@@ -566,9 +566,10 @@ module LavinMQ
         end
       end
 
-      private def drop_overflow : Nil
-        return unless (ml = @max_length) || (mlb = @max_length_bytes)
-        return if @msg_store.failed? # nothing can be read
+      # Returns false if a store error stopped it
+      private def drop_overflow : Bool
+        return true unless (ml = @max_length) || (mlb = @max_length_bytes)
+        return true if @msg_store.failed? # nothing can be read
         if ml = @max_length
           @msg_store_lock.synchronize do
             while @msg_store.size > ml
@@ -585,9 +586,11 @@ module LavinMQ
             end
           end
         end
+        true
       rescue ex : MessageStore::Error
         # The publish is stored, the limit is enforced again once resumed
         pause_on_store_error(ex)
+        false
       end
 
       private def clear_policy_arguments
@@ -615,7 +618,7 @@ module LavinMQ
       # store again. Refused for a session with data it can't read, which can
       # only be deleted, though an operator's pause of it is removed.
       def resume! : Nil
-        resumed = @state_lock.synchronize do
+        resume = @state_lock.synchronize do
           next false unless @paused.value
           if File.delete?(@paused_file)
             @replicator.try &.delete_file(@paused_file)
@@ -623,11 +626,19 @@ module LavinMQ
           if @msg_store.failed?
             raise LavinMQ::Error::PreconditionFailed.new("Message data in session '#{@name}' can't be read, it can't be resumed. Delete the session to remove it, or fail over to a node with a good copy")
           end
+          true
+        end
+        return unless resume
+        # The limits first, which a store error can have stopped: nothing is
+        # delivered that they would drop. A new error keeps it paused.
+        return unless drop_overflow
+        resumed = @state_lock.synchronize do
+          # An operator can have paused it meanwhile
+          next false if closed? || File.exists?(@paused_file)
           @paused.set(false)
           true
         end
         @log.info { "Resumed" } if resumed
-        drop_overflow if resumed
       end
 
       def state : QueueState

@@ -56,8 +56,9 @@ module LavinMQ::AMQP
           rescue ex : IO::EOFError | IndexError
             @log.warn(exception: ex) { "Corrupt data at segment #{seg_id} pos #{pos}, skipping rest of segment" }
             break
-          rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            # Like a record the load can't decode, see MessageStore#produce_metadata.
+          rescue ex : OverflowError | AMQ::Protocol::Error
+            # Like a record the load can't decode, also stored headers with a
+            # field type that isn't known, see MessageStore#produce_metadata.
             # A segment with a meta file isn't read record by record at load.
             @log.error { "Could not index segment #{seg_id} at pos #{pos}: #{ex}" }
             load_failed

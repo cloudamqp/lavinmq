@@ -76,7 +76,10 @@ module LavinMQ::AMQP
 
     # Shifts the next message whose delay has passed, leased before the lock
     # is released
+    # A release that was due when the queue was paused, or one in a batch it
+    # was paused during, waits for the resume
     private def next_expired_message : Envelope?
+      wait_for_resume if @paused.value
       @msg_store_lock.synchronize do
         if (env = delayed_msg_store.first_delayed?) && has_expired?(env)
           delayed_msg_store.shift_delayed?.try &.lease
