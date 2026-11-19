@@ -572,8 +572,11 @@ module LavinMQ
 
       def resume!; end
 
+      # Paused while the store has data it can't read. A session can't be
+      # paused by an operator, #pause! and #resume! do nothing.
       def state : QueueState
-        closed? ? QueueState::Closed : QueueState::Running
+        return QueueState::Closed if closed?
+        @store_readable.value ? QueueState::Running : QueueState::Paused
       end
 
       def state_match?(states : Array(QueueState)) : Bool

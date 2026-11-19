@@ -313,11 +313,15 @@ module MqttSpecs
           session.client.should_not be_nil
           session.closed?.should be_false
           session.message_count.should be > 0
+          # Shown as paused, so it doesn't look like a running session that is stuck
+          session.state.should eq LavinMQ::QueueState::Paused
+          session.state_match?([LavinMQ::QueueState::Paused]).should be_true
 
           # The purge removes all of it, with the message published after
           segment = store.@segments[sp.segment].path
           session.purge
           session.message_count.should eq 0
+          session.state.should eq LavinMQ::QueueState::Running
           store.@packet_ids.should be_empty
           # The segment is unlinked after a sync of the whole filesystem, which
           # the next publish would wait for longer than the client's read timeout
