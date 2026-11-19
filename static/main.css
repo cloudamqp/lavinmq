@@ -1731,6 +1731,40 @@ th.group.last {
   }
 }
 
+/* Below 1520px the three columns get cramped: one row per field, label left
+   and value right */
+@media (max-width: 1519.98px) {
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .details-cell {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border-separator);
+
+    &:nth-last-child(-n + 3) {
+      border-bottom: 1px solid var(--color-border-separator);
+    }
+
+    &:last-child {
+      border-bottom: 0;
+    }
+  }
+
+  .details-label {
+    flex-shrink: 0;
+    margin-bottom: 0;
+  }
+
+  .details-value {
+    text-align: right;
+  }
+}
+
 .state-badge {
   display: inline-block;
   padding: 0 0.5rem;
