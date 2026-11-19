@@ -861,9 +861,14 @@ module LavinMQ::AMQP
     # a restart of the broker, which loads the store again.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
       return if closed?
-      # A purge has removed the data since the read failed, and resumed the queue
-      return if ex.is_a?(MessageStore::UnreadableError) && !@msg_store.failed?
-      if @state_lock.synchronize { set_paused }
+      paused = @state_lock.synchronize do
+        # A purge has removed the data since the read failed. Checked under
+        # the lock: the purge clears the failure before it takes the lock to
+        # resume, so it either is seen here or undoes this pause.
+        next false if ex.is_a?(MessageStore::UnreadableError) && !@msg_store.failed?
+        set_paused
+      end
+      if paused
         @log.error(ex) do
           if @msg_store.failed?
             "Paused, message data can't be read. Purge the queue to remove all its messages, or delete it"
