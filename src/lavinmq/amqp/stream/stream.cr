@@ -174,8 +174,10 @@ module LavinMQ::AMQP
     def each_from(start : StreamOffset::Any, limit : Int32 = Int32::MAX, & : Envelope -> _) : Nil
       cursor = self.cursor(start)
       limit.times do
-        break unless get(cursor) { |env| yield env }
-        @deliver_get_count.add(1, :relaxed)
+        break unless get(cursor) do |env|
+                       @get_no_ack_count.add(1, :relaxed)
+                       yield env
+                     end
       end
     ensure
       @msg_store_lock.synchronize { cursor.close } if cursor
