@@ -16,6 +16,9 @@ gc-$(VERSION).tar.gz:
 	curl --fail --retry 5 -sLo $@ https://github.com/cloudamqp/bdwgc/releases/download/v$(VERSION)/$@
 	[ "$(SHA256) *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
+.PHONY: fetch
+fetch: gc-$(VERSION).tar.gz
+
 .PHONY: clean
 clean:
 	$(RM) -r bdwgc gc-*.tar.gz

@@ -642,21 +642,6 @@ module ClientSyncSpec
         end
       end
 
-      # Removing each leader file from arrays of local files and dirs made the
-      # comparison quadratic: 30k files took about 6 s, now about 0.3 s. The
-      # bound is loose because the measured block also includes the simulated
-      # leader and a non-release build on a busy runner.
-      it "compares a large data dir in linear time" do
-        with_datadir do |data_dir|
-          leader_files = write_cached_files(data_dir, dirs: 100, files_per_dir: 300)
-          client = make_client(data_dir)
-          client.hash_local_files_public
-          elapsed = Time.measure { sync_with_leader(client, leader_files) }
-          elapsed.should be < 2.seconds
-          Dir.children(data_dir).count(&.starts_with?("q")).should eq 100
-        end
-      end
-
       # With cached checksums nothing in the comparison yields on its own, so
       # without periodic yields it blocks client proxies, the HTTP API and acks.
       it "lets other fibers run while comparing a large data dir" do

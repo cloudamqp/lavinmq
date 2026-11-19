@@ -61,4 +61,13 @@ async function pollerSettled (page, { hung = 0 } = {}) {
   await expect.poll(inFlight).toBeLessThanOrEqual(hung)
 }
 
-export { waitForPathRequest, trackCspViolations, pollerSettled }
+// Opens a <dialog> via its declarative "+ Add ..." trigger button, identified by
+// the dialog's own id rather than button text — several dialogs now have a
+// trigger button whose accessible name is a substring of their own submit
+// button's name (e.g. "+ Add operator policy" vs "Add operator policy"), so
+// matching by text would be ambiguous once both are in the DOM.
+async function openDialog (page, dialogId) {
+  await page.locator(`[command="show-modal"][commandfor="${dialogId}"]`).click()
+}
+
+export { waitForPathRequest, trackCspViolations, pollerSettled, openDialog }

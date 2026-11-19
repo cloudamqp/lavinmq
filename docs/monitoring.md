@@ -38,6 +38,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | Metric | Type | Description |
 |--------|------|-------------|
 | `connections` | gauge | Connections currently open |
+| `mqtt_connections` | gauge | MQTT connections currently open, also counted in `connections`. Exported once an MQTT client has connected since startup |
 | `channels` | gauge | Channels currently open |
 | `consumers` | gauge | Consumers currently connected |
 | `queues` | gauge | Queues available |
@@ -55,6 +56,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `global_messages_acknowledged_total` | counter | Total messages acknowledged by consumers |
 | `global_messages_confirmed_total` | counter | Total messages confirmed to publishers |
 | `global_messages_unroutable_returned_total` | counter | Total unroutable messages returned to publishers |
+| `global_mqtt_messages_published_total` | counter | Total messages published by MQTT clients, will messages included (labeled by `qos`: `0`, `1` or `2`; QoS 2 is acknowledged like QoS 1). Exported once an MQTT client has connected since startup |
 | `global_messages_dead_lettered_delivery_limit_total` | counter | Total messages dead-lettered because the queue's delivery limit was exceeded (labeled by `dead_letter_strategy`) |
 | `global_messages_dead_lettered_expired_total` | counter | Total messages dead-lettered because their TTL expired (labeled by `dead_letter_strategy`) |
 | `global_messages_dead_lettered_maxlen_total` | counter | Total messages dead-lettered by `max-length` or `max-length-bytes` with `drop-head` overflow (labeled by `dead_letter_strategy`) |
@@ -187,9 +189,9 @@ LavinMQ collects rate statistics at a configurable interval:
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
 | `stats_interval` | `[main]` | `5000` | Collection interval (ms) |
-| `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval) |
+| `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval), must be at least `1`. A stat only keeps a history buffer while its value changes, so idle queues and connections cost almost nothing |
 
-The HTTP API exposes the retained samples as `*_log` arrays and `*_details.log` arrays, one sample per interval with the most recent last and no timestamps. Every API response carries the `LavinMQ-Stats-Interval` header with the configured interval in milliseconds, so a client can place the samples on a time axis without knowing the server configuration. The management UI uses it to space its charts.
+The HTTP API exposes the retained samples as `*_log` arrays and `*_details.log` arrays, one sample per interval with the most recent last and no timestamps. An object's history starts with its second sample, as the first spans a partial interval. Every API response carries the `LavinMQ-Stats-Interval` header with the configured interval in milliseconds, so a client can place the samples on a time axis without knowing the server configuration. The management UI uses it to space its charts.
 
 `GET /api/queues/{vhost}/{name}` also carries the queue's message count history as `messages_ready_details.log` and `messages_unacknowledged_details.log`, which the queue and stream pages chart above the rates. List endpoints leave these logs out.
 

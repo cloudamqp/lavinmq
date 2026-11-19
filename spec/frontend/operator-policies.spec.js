@@ -1,5 +1,5 @@
 import * as helpers from './helpers.js'
-import { test, expect } from './fixtures.js';
+import { test, expect } from './fixtures.js'
 
 const helperLinks = [
   { tag: 'max-length', value: 0 },
@@ -10,7 +10,7 @@ const helperLinks = [
   { tag: 'max-age', value: '1M' }
 ]
 
-test.describe("operator-policies", _ => {
+test.describe('operator-policies', _ => {
   test('are loaded', async ({ page, baseURL }) => {
     const apiPoliciesRequest = helpers.waitForPathRequest(page, '/api/operator-policies')
     await page.goto('/operator-policies')
@@ -30,12 +30,13 @@ test.describe("operator-policies", _ => {
       }
     }
     await page.goto('/operator-policies')
+    await helpers.openDialog(page, 'add-policy-dialog')
 
     const apiAddPolicyRequest = helpers.waitForPathRequest(page,
       `/api/operator-policies/${vhost}/${policyName}`,
       {
-         method: 'PUT',
-         body: expectedBody
+        method: 'PUT',
+        body: expectedBody
       }
     )
     await page.getByLabel('Virtual host').selectOption(vhost)
@@ -44,13 +45,14 @@ test.describe("operator-policies", _ => {
     await page.getByLabel('Apply to').selectOption(expectedBody['apply-to'])
     await page.getByLabel('Priority').fill(String(expectedBody.priority))
     await page.getByLabel('Definition').fill(JSON.stringify(expectedBody.definition))
-    await page.getByRole('button', { name: /add operator policy/i }).click()
+    await page.locator('#createPolicy').getByRole('button', { name: /add operator policy/i }).click()
     await expect(apiAddPolicyRequest).toBeRequested()
   })
 
   test.describe('definition helper links', () => {
     test('correct number of definition helper links', async ({ page }) => {
       await page.goto('/operator-policies')
+      await helpers.openDialog(page, 'add-policy-dialog')
       const helperLinksInView = await page.locator('[data-helper-for="definition"] a[data-tag]').count()
       expect(helperLinksInView).toBe(helperLinks.length)
     })
@@ -58,6 +60,7 @@ test.describe("operator-policies", _ => {
     for (const helper of helperLinks) {
       test(`${helper.tag} works`, async ({ page }) => {
         await page.goto('/operator-policies')
+        await helpers.openDialog(page, 'add-policy-dialog')
         const definitionTextarea = page.getByLabel('Definition')
         await page.locator(`[data-helper-for="definition"] a[data-tag="${helper.tag}"]`).click()
         const currentValue = await definitionTextarea.inputValue()
@@ -68,6 +71,7 @@ test.describe("operator-policies", _ => {
 
     test('typing replaces the inserted value', async ({ page }) => {
       await page.goto('/operator-policies')
+      await helpers.openDialog(page, 'add-policy-dialog')
       const definitionTextarea = page.getByLabel('Definition')
       await page.locator('[data-helper-for="definition"] a[data-tag="max-length"]').click()
       await page.keyboard.type('5000')
@@ -76,6 +80,7 @@ test.describe("operator-policies", _ => {
 
     test('typing over a string value keeps its quotes', async ({ page }) => {
       await page.goto('/operator-policies')
+      await helpers.openDialog(page, 'add-policy-dialog')
       const definitionTextarea = page.getByLabel('Definition')
       await page.locator('[data-helper-for="definition"] a[data-tag="max-age"]').click()
       await page.keyboard.type('2D')
@@ -84,6 +89,7 @@ test.describe("operator-policies", _ => {
 
     test('selects the value of the inserted key, not a longer key with the same prefix', async ({ page }) => {
       await page.goto('/operator-policies')
+      await helpers.openDialog(page, 'add-policy-dialog')
       const definitionTextarea = page.getByLabel('Definition')
       await page.locator('[data-helper-for="definition"] a[data-tag="max-length-bytes"]').click()
       await page.locator('[data-helper-for="definition"] a[data-tag="max-length"]').click()

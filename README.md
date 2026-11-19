@@ -107,6 +107,9 @@ and links it statically. The fork grows the GC mark stack when thousands of
 connections and queues overflow it, which otherwise makes every collection
 several times slower. `make LIBGC=` links the system libgc instead.
 
+`make deps` downloads the shards, JS libraries and libgc source, so that a
+package build can run without network access.
+
 ## Using LavinMQ
 
 ### Getting Started
@@ -157,7 +160,7 @@ LavinMQ delivers exceptional throughput performance on commodity hardware. On a 
 **Memory Efficiency:**
 
 - **25 MB RAM** - For 100 million enqueued messages
-- **35 MB RAM** - For 1,000 declared queues
+- **23 MB RAM** - For 1,000 declared queues
 - **70 MB RAM** - For 1,000 concurrent connections
 
 **Binding Performance:**
