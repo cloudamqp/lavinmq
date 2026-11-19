@@ -402,8 +402,9 @@ describe "Delayed Message Exchange" do
       end
       queue.message_count.should eq 1
 
-      queue.resume!
-      wait_for { queue.state.failed? } # the entry still can't be read
+      # Refused, the entry still can't be read
+      expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { queue.resume! }
+      queue.state.failed?.should be_true
     end
   end
 

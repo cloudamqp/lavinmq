@@ -66,6 +66,10 @@ describe LavinMQ::HTTP::QueuesController do
         queue.state.failed?.should be_true
         JSON.parse(http.get("/api/queues/%2f/q_reason").body)["state"].should eq "failed"
         reason.call.should be_nil
+        # Can't be resumed, only deleted
+        response = http.put("/api/queues/%2f/q_reason/resume")
+        response.status_code.should eq 400
+        response.body.should contain "can't be resumed"
       end
     end
 

@@ -502,6 +502,42 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
+  it "loads a queue declared again after a delete only after the old store's emptied segments are unlinked" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        src = declare_dead_lettering(ch)
+        segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
+        declared = Channel(Nil).new
+        s.persister.sync
+        with_drain_held do
+          8.times { src.publish "x" * 100_000 }
+          wait_for { message_count(s, "dst") == 8 }
+          sleep 50.milliseconds # the sources are deleted right after their copies
+          File.exists?(segment).should be_true
+          # Deleted and declared again, as a failed queue is recovered. The new
+          # store reuses the directory, so it waits for the old one's unlinks.
+          ch.queue_delete("src")
+          spawn do
+            with_channel(s) { |ch2| declare_src(ch2, ttl: 60_000) }
+            declared.send nil
+          end
+          sleep 50.milliseconds
+          select
+          when declared.receive then fail "declared before the old store's segments were unlinked"
+          when timeout(0.seconds)
+          end
+        end
+        declared.receive
+        q = ch.queue("src", passive: true)
+        q.publish_confirm "new"
+        # The old unlink doesn't take the new store's first segment with it
+        s.persister.sync
+        File.exists?(segment).should be_true
+        q.get(no_ack: true).try(&.body_io.to_s).should eq "new"
+      end
+    end
+  end
+
   it "syncs nothing before the unlink when the dead-letter exchange routes nowhere" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

@@ -892,6 +892,8 @@ module LavinMQ::AMQP
       @paused.when_false.receive
     end
 
+    # Refused for a failed queue, which can only be deleted. An operator's
+    # pause of it is removed all the same.
     def resume! : Nil
       @state_lock.synchronize do
         return unless state.paused? || state.failed?
@@ -899,8 +901,7 @@ module LavinMQ::AMQP
           @vhost.replicator.try &.delete_file(paused_file) if durable?
         end
         if state.failed?
-          @log.error { "Still failed, message data can't be read. Delete the queue to remove it, or fail over to a node with a good copy" }
-          return
+          raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read, it can't be resumed. Delete the queue to remove it, or fail over to a node with a good copy")
         end
         @state.set(QueueState::Running, :release)
         @paused.set(false)
@@ -1164,7 +1165,7 @@ module LavinMQ::AMQP
       ml = settings.max_length
       mlb = settings.max_length_bytes
       return unless ml || mlb
-      # Nothing can be read, the limit applies again once the queue is purged
+      # Nothing can be read, and nothing more is stored, until the queue is deleted
       return if @msg_store.failed?
       # Special case when a limit is set to 0 and a consumer accepts, the messages
       # should be delivered instantly
@@ -1511,8 +1512,8 @@ module LavinMQ::AMQP
     end
 
     # For a message that is rejected or requeued: if it can't be read the
-    # queue is paused and the message goes back in the store as it is, to be
-    # read again once the queue is resumed
+    # queue is paused, or failed, and the message goes back in the store as it
+    # is. A paused queue reads it again once it's resumed, a failed one never.
     private def keep_on_store_error(sp : SegmentPosition, &) : Nil
       yield
     rescue ex : MessageStore::Error
@@ -1521,7 +1522,7 @@ module LavinMQ::AMQP
     end
 
     # A message that can't be read when it's rejected or requeued goes back
-    # in the store as it is, to be read again once the queue is resumed
+    # in the store as it is, see #keep_on_store_error
     private def requeue_unread(sp : SegmentPosition) : Nil
       @msg_store_lock.synchronize { @msg_store.requeue(sp) }
     rescue MessageStore::ClosedError

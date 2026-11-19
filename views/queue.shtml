@@ -125,7 +125,7 @@
           <h3>Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
-        <section class="card cols-4">
+        <section class="card cols-4" id="pause-queue-card">
           <h3>Pause Queue</h3>
           <form method="put" id="pauseQueue" class="form">
             <label>

@@ -244,7 +244,6 @@ test.describe('stream tabs', _ => {
     await loaded
     await expect(page.locator('#q-state')).toHaveText('failed')
     await expect(page.locator('#q-state-reason')).toContainText("can't be read. Delete it")
-    await expect(page.locator('#pauseQueue')).toBeHidden()
-    await expect(page.locator('#resumeQueue')).toBeHidden()
+    await expect(page.locator('#pause-queue-card')).toBeHidden()
   })
 })

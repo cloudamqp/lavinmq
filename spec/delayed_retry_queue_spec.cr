@@ -613,6 +613,35 @@ describe "Retry Queue" do
       end
     end
 
+    it "releases nothing to a failed queue, instead of delaying its messages again every backoff" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("retry-to-failed", durable: true, args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 50}))
+          queue = s.vhosts["/"].queue("retry-to-failed")
+          retry_q = s.vhosts["/"].queue("amq.retry-retry-to-failed")
+          q.publish_confirm "delayed"
+          q.publish_confirm "corrupt"
+          wait_for { q.get(no_ack: false) }.reject(requeue: true)
+          wait_for { retry_q.message_count == 1 }
+          segment = queue.@msg_store.@segments.first_value
+          # The property flags of the second message, with a bit that isn't defined
+          write_at(segment.path, segment.pos.to_i64 + sizeof(Int64) + 1 + 1 + "retry-to-failed".bytesize, 0x0003u16)
+          q.get(no_ack: true).should be_nil
+          queue.state.failed?.should be_true
+
+          published = retry_q.@publish_count.get
+          sleep 300.milliseconds # several backoffs
+          retry_q.@publish_count.get.should eq published
+          retry_q.message_count.should eq 1
+
+          # Deleting the queue deletes the retry queue, and ends its release loop
+          ch.queue_delete("retry-to-failed")
+          s.vhosts["/"].queue?("amq.retry-retry-to-failed").should be_nil
+          wait_for { !retry_q.message_expire_fiber_active? }
+        end
+      end
+    end
+
     it "refuses a purge of a queue with data it can't read, and leaves its retry queue alone" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

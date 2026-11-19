@@ -473,7 +473,7 @@ describe LavinMQ::AMQP::Queue do
           queue.message_count.should eq 2
 
           # Reading it again can't help, only a delete does
-          queue.resume!
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { queue.resume! }
           queue.state.failed?.should be_true
           select
           when bodies.receive then fail "delivered a message from a store that can't be read"
@@ -549,9 +549,48 @@ describe LavinMQ::AMQP::Queue do
           paused_file = File.join(queue.@data_dir, "paused")
           File.exists?(paused_file).should be_true
 
-          queue.resume!
+          # Refused, but the operator's pause is removed
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { queue.resume! }
           File.exists?(paused_file).should be_false
           queue.state.failed?.should be_true
+        end
+      end
+    end
+
+    it "recounts a queue whose message count exceeds its readable messages instead of failing the vhost load" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("phantom-msgs", durable: true)
+          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
+          4.times { q.publish_confirm body }
+        end
+        store = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue).@msg_store
+        store.@segments.keys.should eq [1u32, 2u32]
+        msg_dir = store.@msg_dir
+        seg1_size = store.@segments[1].size
+        msg_bytesize = (seg1_size - 4) // 3
+        s.stop
+
+        # Ack every message on disk, but let segment 1's metadata claim 10
+        # more messages than it holds, so the store counts 10 that it can't read
+        File.open(File.join(msg_dir, "acks.0000000001"), "a") do |f|
+          3.times { |i| f.write_bytes((4 + i * msg_bytesize).to_u32) }
+        end
+        File.open(File.join(msg_dir, "acks.0000000002"), "a", &.write_bytes(4u32))
+        File.open(File.join(msg_dir, "meta.0000000001"), "r+", &.write_bytes(13u32))
+
+        restart_server(s)
+        queue = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue)
+        queue.state.running?.should be_true
+        queue.message_count.should eq 0
+        # Segment 1's msgs are all acked once it's recounted, so it's deleted,
+        # unlinked after the persister's sync
+        wait_for { !File.exists?(File.join(msg_dir, "msgs.0000000001")) }
+        File.exists?(File.join(msg_dir, "meta.0000000001")).should be_false
+        with_channel(s) do |ch|
+          q = ch.queue("phantom-msgs", durable: true)
+          q.publish_confirm "after"
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "after"
         end
       end
     end
@@ -578,7 +617,7 @@ describe LavinMQ::AMQP::Queue do
           q.publish_confirm("third").should be_false
           # Other queues aren't affected
           ch.queue("other").publish_confirm("x").should be_true
-          queue.resume!
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { queue.resume! }
           queue.state.failed?.should be_true
           expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge }
         end
