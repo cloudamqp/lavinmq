@@ -5,14 +5,9 @@ module LavinMQ
     class Lease
       getter id, expired
 
-      # Where every lease's keepalive runs, for the life of the process: on a
-      # thread of its own, so busy client fibers can't hold a keepalive up past
-      # the TTL. An isolated context per lease did that too, but leaked its
-      # event loop's file descriptors when it ended, three per lease. Created
-      # at startup, also in a process that never grants a lease.
+      # A thread of its own, so busy client fibers can't delay a keepalive
       @@keepalive_context = Fiber::ExecutionContext::Concurrent.new("Etcd::Lease")
 
-      # A lease etcd granted, kept alive until it's released or expires
       def self.grant(etcd : Etcd, id : Int64, ttl : Int32) : self
         lease = new(etcd, id)
         @@keepalive_context.spawn(name: "Etcd::Lease #{id.to_s(16)} keepalive") do
@@ -21,8 +16,7 @@ module LavinMQ
         lease
       end
 
-      # Without a keepalive, see .grant
-      def initialize(@etcd : Etcd, @id : Int64)
+      private def initialize(@etcd : Etcd, @id : Int64)
         @expired = Channel(Exception?).new
       end
 
@@ -45,7 +39,6 @@ module LavinMQ
         end
       end
 
-      # *ttl* is what etcd last said the lease has left
       protected def keepalive_loop(ttl : Int32)
         loop do
           select

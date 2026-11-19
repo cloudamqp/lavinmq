@@ -277,16 +277,13 @@ describe LavinMQ::Etcd::Lease do
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end
 
-  # Each lease used to run its keepalive in an isolated execution context,
-  # whose event loop's file descriptors weren't closed when it ended
   it "keeps no file descriptors once released" do
     etcd = RecordingEtcd.new("127.0.0.1:1")
     open_fds = -> { Dir.children("/dev/fd").size }
-    # The first lease may start what all leases share
     LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10).release
     before = open_fds.call
     10.times { |i| LavinMQ::Etcd::Lease.grant(etcd, i.to_i64 + 2, 10).release }
-    sleep 100.milliseconds # for the keepalives to see the releases
+    sleep 100.milliseconds
     open_fds.call.should be <= before
   end
 
