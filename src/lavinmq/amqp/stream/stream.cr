@@ -153,7 +153,6 @@ module LavinMQ::AMQP
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
       return PublishResult::Closed if @state.closed?
       @msg_store_lock.synchronize do
-        # It would be lost with the rest when the stream is deleted
         return PublishResult::Failed if @msg_store.failed?
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
@@ -205,11 +204,9 @@ module LavinMQ::AMQP
       end
     end
 
-    # yield the next message in the ready queue
-    # returns true if a message was deliviered, false otherwise
-    # if we encouncer an unrecoverable ReadError, close queue
-    # A store error pauses the stream, or fails it if the data can't be
-    # read, and the consumer waits for it to be resumed
+    # Yields the next message for the cursor, returns true if one was delivered.
+    # A store error pauses the stream, or fails it if the data can't be read,
+    # and returns false: the consumer waits for the stream to be resumed.
     private def get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
       read_next(cursor) { |env| yield env }
     rescue MessageStore::Error

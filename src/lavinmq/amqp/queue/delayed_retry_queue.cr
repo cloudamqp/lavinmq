@@ -60,8 +60,9 @@ module LavinMQ::AMQP
       super
     end
 
-    # Raises ::Channel::ClosedError once the queue is closed, which ends the
-    # release loop
+    # Raises ::Channel::ClosedError once the queue is closed. It goes up
+    # through #expire_messages to DelayedQueue#message_expire_loop, whose
+    # rescue of it ends the release loop.
     private def wait_for_close : NoReturn
       loop { @message_ttl_change.receive }
     end
