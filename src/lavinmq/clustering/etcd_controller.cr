@@ -16,6 +16,8 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   def initialize(config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
     super(config, Controller.clustering_id(config))
     @elected_leader = BoolChannel.new(false)
+    # Once elected, see #run, the follower monitor makes no replication client
+    @follow_lock = Mutex.new
   end
 
   def run(&)
@@ -30,7 +32,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     @elected_leader.set(true)
     ensure_in_isr!
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
-    @repli_client.swap(nil).try &.close
+    @follow_lock.synchronize { @repli_client.swap(nil) }.try &.close
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
@@ -90,8 +92,11 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
           break
         end
       end
-      r = Clustering::Client.new(@config, @id, secret)
-      @repli_client.set(r)
+      r = @follow_lock.synchronize do
+        next if @elected_leader.value # e.g. while waiting for the secret
+        Clustering::Client.new(@config, @id, secret).tap { |c| @repli_client.set(c) }
+      end
+      return unless r
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end

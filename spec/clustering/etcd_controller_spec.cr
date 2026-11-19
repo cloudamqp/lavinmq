@@ -40,6 +40,26 @@ private class ProxyBindEtcd < LavinMQ::Etcd
   end
 end
 
+# Waits in #get, as an etcd slow to answer, until *gate* is closed
+private class SlowSecretEtcd < LavinMQ::Etcd
+  getter getting = Channel(Nil).new(1)
+  getter gate = Channel(Nil).new
+
+  def initialize(@leader_uri : String)
+    super("localhost:1")
+  end
+
+  def elect_listen(_name, &)
+    yield @leader_uri
+  end
+
+  def get(_key) : String?
+    @getting.send nil
+    @gate.receive?
+    "secret"
+  end
+end
+
 # No follower monitor: a replication client set with #following_for_spec is
 # left to #run, as when this node is elected before the monitor sees it
 private class UnmonitoredController < LavinMQ::Clustering::EtcdController
@@ -77,6 +97,38 @@ ensure
 end
 
 describe LavinMQ::Clustering::EtcdController do
+  # Its proxies would hold the client ports the broker binds next
+  it "makes no replication client once elected while it waited for the secret" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+      config.amqp_port = config.http_port = config.mqtt_port = 0
+      config.metrics_http_port = -1
+      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
+      etcd = SlowSecretEtcd.new("tcp://192.0.2.10:5679")
+      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      done = Channel(Nil).new
+      spawn(name: "follower monitor") do
+        controller.follow_leader_public
+        done.close
+      end
+      etcd.getting.receive
+      controller.mark_elected_for_spec
+      etcd.gate.close
+      select
+      when done.receive?
+      when timeout(5.seconds)
+        fail "the follower monitor didn't return"
+      end
+      controller.@repli_client.get.should be_nil
+    ensure
+      if c = controller
+        c.@repli_client.get.try &.close
+      end
+    end
+  end
+
   it "reports follower proxy bind failures without the generic unhandled exception log" do
     blocker = TCPServer.new("127.0.0.1", 0)
     with_datadir do |data_dir|
