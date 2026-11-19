@@ -123,6 +123,24 @@ describe "Transactions" do
       end
     end
 
+    it "keeps acks in a transaction across basic_recover" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("tx-recover")
+          2.times { q.publish "m1" }
+          ch.tx_select
+          msg = q.get(no_ack: false).should_not be_nil
+          q.get(no_ack: false).should_not be_nil
+          msg.ack
+          ch.basic_recover(requeue: true)
+          ch.tx_commit
+          sq = s.vhosts["/"].queue(q.name)
+          sq.message_count.should eq 1
+          sq.unacked_count.should eq 0
+        end
+      end
+    end
+
     it "can be rollbacked" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

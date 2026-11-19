@@ -1,4 +1,5 @@
 import * as Auth from './auth.js'
+import './theme.js'
 
 function showLoginError (message) {
   const el = document.getElementById('login-error')

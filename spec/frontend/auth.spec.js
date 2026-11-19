@@ -14,6 +14,23 @@ test.describe('when unauthenticated', _ => {
     await page.goto('/login')
     expect(await getViolations()).toEqual([])
   })
+
+  const themes = [
+    { os: 'light', stored: 'theme-dark', expected: 'theme-dark' },
+    { os: 'dark', stored: 'theme-light', expected: 'theme-light' },
+    { os: 'dark', stored: 'system theme-light', expected: 'theme-dark' }
+  ]
+  for (const { os, stored, expected } of themes) {
+    test(`login page shows the logo with stored "${stored}" on a ${os} OS`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: os })
+      await page.addInitScript(classes => localStorage.setItem('lmq.stateclasses', classes), stored)
+      await page.goto('/login')
+      const other = expected === 'theme-dark' ? 'theme-light' : 'theme-dark'
+      await expect(page.locator('html')).toContainClass(expected)
+      await expect(page.locator('html')).not.toContainClass(other)
+      await expect(page.getByRole('img', { name: 'LavinMQ logo' })).toBeVisible()
+    })
+  }
 })
 
 test.describe('login', _ => {

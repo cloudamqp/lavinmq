@@ -101,7 +101,7 @@ If the alternate exchange also cannot route the message, the message is discarde
 
 Any exchange can be made into a delayed exchange. See [Delayed Queues](delayed-queues.md) for details.
 
-Declare the exchange with type `x-delayed-message` and the underlying type as the `x-delayed-type` argument. Alternatively, apply the `delayed-message` policy to an existing exchange. Messages with an `x-delay` header are held in an internal queue and delivered after the delay expires.
+Declare the exchange with type `x-delayed-message` and the underlying type as the `x-delayed-type` argument. Messages with an `x-delay` header are held in an internal queue and delivered after the delay expires.
 
 ## Log Exchange
 

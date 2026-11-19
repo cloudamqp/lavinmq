@@ -62,8 +62,9 @@ module LavinMQ::AMQP
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      result = @vhost.exchange(@exchange_name).route_msg Message.moved_copy(msg, exchange_name: @exchange_name)
+      # A destination refused it while the vhost closes, the restart releases it again
+      return if result.rejected? && @vhost.closed?
       delete_message sp
     end
   end

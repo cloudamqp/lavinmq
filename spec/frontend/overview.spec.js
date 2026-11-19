@@ -19,6 +19,19 @@ test.describe('overview', _ => {
     }
   })
 
+  test('counters and their footers line up across the overview card', async ({ page }) => {
+    // Narrow enough that "View queues →" and the other links wrap, while
+    // Bindings has no link and a one line footer.
+    await page.setViewportSize({ width: 1100, height: 720 })
+    await page.goto('/')
+    await expect(page.locator('#uptime')).not.toHaveText('0s')
+    const tops = sel => page.locator(sel).evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().top)))
+    const counters = await tops('#overview .counter:not(#uptime)')
+    const footers = await tops('#overview .overview-col-footer')
+    expect(new Set(counters).size, `counter tops ${counters}`).toBe(1)
+    expect(new Set(footers).size, `footer tops ${footers}`).toBe(1)
+  })
+
   test('legend click isolates a series', async ({ page }) => {
     await page.goto('/')
     const items = page.locator('#msgChart .u-legend-item')
