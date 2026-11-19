@@ -218,10 +218,6 @@ describe LavinMQ::Server do
             IO::ByteFormat::NetworkEndian
           io.flush
           stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
-          # The socket is still open. (Regression: the consumers were only
-          # cancelled once it closed, so a message published in between was
-          # delivered to a client that had stopped reading, and lost as the
-          # consumer was no-ack.)
           q.consumers.should be_empty
           with_channel(s, &.basic_publish_confirm("msg", "", "q"))
           q.message_count.should eq 1

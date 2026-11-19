@@ -172,10 +172,6 @@ module LavinMQ
             case frame
             when AMQP::Frame::Connection::Close
               @log.debug { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
-              # Close the channels, and with them the consumers, before
-              # confirming. The client has stopped reading deliveries, so a
-              # message delivered to one of its no-ack consumers after
-              # CloseOk, until the socket closed, was lost.
               close_channels
               send AMQP::Frame::Connection::CloseOk.new
               @running = false
