@@ -25,7 +25,10 @@ module LavinMQ
     @first_shutdown_attempt = true
     @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
-    @closed = false
+    # Set when #stop starts, from the shutdown fiber, read by #run
+    @closed = Atomic(Bool).new(false)
+    # Closed when #stop is done
+    @stopped = Channel(Nil).new
     @replicator : Clustering::Server?
     @runner : Runner
     @server : LavinMQ::Server?
@@ -85,6 +88,9 @@ module LavinMQ
       @runner.run do
         start
       end
+      # The runner returns once a shutdown has started, e.g. when its lease
+      # expires meanwhile, and the broker may still be closing
+      @stopped.receive? if @closed.get
       @replicator.try &.close # only a serving leader has one
       @data_dir_lock.try &.release
     ensure
@@ -92,17 +98,20 @@ module LavinMQ
     end
 
     def stop
-      return if @closed
-      @closed = true
-      Log.warn { "Stopping" }
-      SystemD.notify_stopping
-      @runner.stopping
-      @http_server.try &.close rescue nil
-      @amqp_server.try &.close rescue nil
-      @mqtt_server.try &.close rescue nil
-      @server.try &.close rescue nil
-      @metrics_server.try &.close rescue nil
-      @runner.stop
+      return if @closed.swap(true)
+      begin
+        Log.warn { "Stopping" }
+        SystemD.notify_stopping
+        @runner.stopping
+        @http_server.try &.close rescue nil
+        @amqp_server.try &.close rescue nil
+        @mqtt_server.try &.close rescue nil
+        @server.try &.close rescue nil
+        @metrics_server.try &.close rescue nil
+        @runner.stop
+      ensure
+        @stopped.close
+      end
     end
 
     # Exits if another process holds the lock, before the server or the
