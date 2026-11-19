@@ -1,7 +1,6 @@
 require "../queue/durable_queue"
 require "./stream_consumer"
 require "./stream_message_store"
-require "./stream_reader"
 
 module LavinMQ::AMQP
   class Stream < DurableQueue
@@ -95,10 +94,16 @@ module LavinMQ::AMQP
 
     delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
 
-    def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
-      @msg_store_lock.synchronize do
-        stream_msg_store.find_offset(offset, tag, track_offset)
-      end
+    def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil,
+               stored_offset_tag : String? = nil) : StreamCursor
+      @msg_store_lock.synchronize { stream_msg_store.cursor(start, filter, stored_offset_tag) }
+    end
+
+    # The deliver path shifts from the cursor's requeued messages under
+    # @msg_store_lock (see StreamMessageStore#shift?). Returns whether there
+    # were no requeued messages before.
+    def requeue(cursor : StreamCursor, sp : SegmentPosition) : Bool
+      @msg_store_lock.synchronize { cursor.requeue(sp) }
     end
 
     private def message_expire_loop
@@ -168,43 +173,29 @@ module LavinMQ::AMQP
       false
     end
 
-    def reader(offset)
-      StreamReader.new(self, offset)
+    # Yields at most `limit` messages from `start` until the end of the stream.
+    # A store error is raised, after it paused or failed the stream, so that
+    # the read doesn't look complete.
+    def each_from(start : StreamOffset::Any, limit : Int32 = Int32::MAX, & : Envelope -> _) : Nil
+      cursor = self.cursor(start)
+      limit.times do
+        break unless read_next(cursor) do |env|
+                       @get_no_ack_count.add(1, :relaxed)
+                       yield env
+                     end
+      end
+    ensure
+      @msg_store_lock.synchronize { cursor.close } if cursor
     end
 
-    # Yields a message for StreamReader, see StreamMessageStore#read_with_lease?
-    # A store error pauses the stream, like a delivery's, and is raised for
-    # the reader to stop
-    protected def read_with_lease?(segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
-      stream_msg_store.read_with_lease?(@msg_store_lock, segment, position) { |env| yield env }
-    rescue ex : MessageStore::Error
-      pause_on_store_error(ex)
-      raise ex
-    end
-
-    protected def next_segment_offset(segment : UInt32) : Tuple(UInt32, Int64)?
-      @msg_store_lock.synchronize { stream_msg_store.next_segment_offset(segment) }
-    end
-
-    def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
-      get(consumer) do |env|
+    def consume_get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
+      get(cursor) do |env|
         yield env
         if env.redelivered
           @redeliver_count.add(1, :relaxed)
         else
           @deliver_count.add(1, :relaxed)
         end
-      end
-    end
-
-    # The deliver path shifts from the consumer's requeued messages under
-    # @msg_store_lock (see StreamMessageStore#shift?). Returns whether there
-    # were no requeued messages before.
-    def push_requeued(consumer : AMQP::StreamConsumer, sp : SegmentPosition) : Bool
-      @msg_store_lock.synchronize do
-        was_empty = consumer.requeued.empty?
-        consumer.requeued.push(sp)
-        was_empty
       end
     end
 
@@ -217,16 +208,25 @@ module LavinMQ::AMQP
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
+    # A store error pauses the stream, or fails it if the data can't be
+    # read, and the consumer waits for it to be resumed
+    private def get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
+      read_next(cursor) { |env| yield env }
+    rescue MessageStore::Error
+      false
+    end
+
+    # Like #get, but raises the store error after it has paused or failed the stream
+    private def read_next(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
       raise ClosedError.new if closed?
       # Retention can drop the segment while the delivery is suspended in a
       # socket write
-      stream_msg_store.shift_with_lease?(@msg_store_lock, consumer) do |env|
+      stream_msg_store.shift_with_lease?(@msg_store_lock, cursor) do |env|
         yield env # deliver the message
       end
     rescue ex : MessageStore::Error
       pause_on_store_error(ex)
-      false
+      raise ex
     end
 
     def ack(sp : SegmentPosition) : Nil
@@ -355,25 +355,11 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    def add_consumer(consumer : Client::Channel::Consumer) : Bool
-      stream_consumer = consumer.as?(AMQP::StreamConsumer) || return super
-      @msg_store_lock.synchronize { stream_msg_store.acquire_segment(stream_consumer) }
-      added = super
-    ensure
-      if stream_consumer && !added
-        @msg_store_lock.synchronize { stream_msg_store.release_segment(stream_consumer) }
-      end
-    end
-
     def rm_consumer(consumer : Client::Channel::Consumer)
       super
       if stream_consumer = consumer.as?(AMQP::StreamConsumer)
-        @msg_store_lock.synchronize { stream_msg_store.release_segment(stream_consumer) }
+        @msg_store_lock.synchronize { stream_consumer.cursor.close }
       end
-    end
-
-    protected def unmap_if_unused(segment : UInt32) : Nil
-      @msg_store_lock.synchronize { stream_msg_store.unmap_if_unused(segment) }
     end
   end
 end
