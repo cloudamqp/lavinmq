@@ -323,11 +323,12 @@ module IO::Buffered
     end
   end
 
-  # Only the fiber that last filled the read buffer releases it after a close.
-  # Its address is stored inverted, so the GC doesn't see a reference to it.
+  # Only the fiber that last filled the read buffer releases it after a close
   @read_fiber_key = 0_u64
   @closed_buffer_pool : IO::BufferPool? = nil
 
+  # The fiber's address, inverted so the GC doesn't see a reference to the
+  # fiber in the IO
   private def current_fiber_key : UInt64
     ~Fiber.current.object_id
   end
