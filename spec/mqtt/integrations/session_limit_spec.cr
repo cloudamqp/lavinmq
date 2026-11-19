@@ -106,6 +106,7 @@ module MqttSpecs
           subscribe(io, topic_filters: mk_topic_filters({"a/b", 0}))
 
           unsubscribe(io, ["a/b"]).should be_a(MQTT::Protocol::UnsubAck)
+          ping(io) # answered unless the connection is closed
           io.should_not be_closed
 
           # Acking something we never delivered is a protocol violation

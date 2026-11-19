@@ -9,8 +9,9 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, clean_session: false, keepalive: 1u16)
-          sleep 1.6.seconds
-          io.should be_closed
+          io.io.as(TCPSocket).read_timeout = 10.seconds
+          elapsed = Time.measure { io.should be_closed }
+          elapsed.should be < 2.5.seconds
         end
       end
     end

@@ -85,10 +85,17 @@ module MqttSpecs
 
     it "can be retained [MQTT-3.1.2-17]" do
       with_server do |server|
-        with_client_io(server) do |io2|
-          will = MQTT::Protocol::Will.new(
-            topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: true)
-          connect(io2, client_id: "will_client", will: will, keepalive: 1u16)
+        with_client_io(server) do |watcher|
+          connect(watcher, client_id: "watcher")
+          subscribe(watcher, topic_filters: mk_topic_filters({"will/t", 0}))
+          with_client_io(server) do |io2|
+            will = MQTT::Protocol::Will.new(
+              topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: true)
+            connect(io2, client_id: "will_client", will: will, keepalive: 1u16)
+          end
+          # The will is retained before it's routed, so it's stored once the watcher gets it
+          read_packet(watcher).should be_a(MQTT::Protocol::Publish)
+          disconnect(watcher)
         end
 
         with_client_io(server) do |io|

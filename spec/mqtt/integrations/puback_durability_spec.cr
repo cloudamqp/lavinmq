@@ -13,7 +13,7 @@ module MqttSpecs
             publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
             ping(io)
             read_packet(io).should be_a(MQTT::Protocol::PingResp)
-            read_packet(io).should be_nil # no PUBACK while the drain is held
+            expect_no_packet(io) # no PUBACK while the drain is held
             release_drain(gate)
             read_packet(io).should be_a(MQTT::Protocol::PubAck)
           end

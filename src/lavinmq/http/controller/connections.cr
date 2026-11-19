@@ -72,7 +72,7 @@ module LavinMQ
       # An AMQP close can wait behind a write to a client that doesn't read
       private def close_connection(c : Client, reason : String) : Nil
         case c
-        when AMQP::Client then c.close(reason, force_close_timeout: 5.seconds)
+        when AMQP::Client then c.close(reason, force_close_timeout: Config.instance.http_api_force_close_timeout)
         else                   c.close(reason)
         end
       end
