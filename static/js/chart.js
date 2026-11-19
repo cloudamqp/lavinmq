@@ -303,6 +303,10 @@ function initChart (handle) {
   }
 
   handle.uplot = new UPlot(opts, data, el)
+  handle.collectingEl = document.createElement('div')
+  handle.collectingEl.className = 'chart-collecting'
+  handle.collectingEl.textContent = 'Collecting data'
+  handle.uplot.over.append(handle.collectingEl)
   el.append(handle.legendEl)
   // uPlot's first legend update ran before the legend was in the page,
   // too early to measure the value column.
@@ -359,7 +363,8 @@ function rebuildFromLogs (handle, specs) {
   const now = Date.now() / 1000
   const byKey = new Map(specs.map(spec => [spec.key, spec]))
   const logs = handle.seriesKeys.map(key => (byKey.get(key) || {}).log || [])
-  const maxLen = Math.max(1, ...logs.map(log => log.length))
+  handle.samples = Math.max(0, ...logs.map(log => log.length))
+  const maxLen = Math.max(1, handle.samples)
 
   const timestamps = []
   for (let i = 0; i < maxLen; i++) {
@@ -400,6 +405,7 @@ function update (handle, data) {
     }
   }
   handle.uplot.setData(handle.data)
+  handle.collectingEl.hidden = handle.samples >= 2
   refreshLegend(handle)
 }
 

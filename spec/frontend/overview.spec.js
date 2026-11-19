@@ -142,6 +142,28 @@ test.describe('overview', _ => {
     for (const id of ids) await expect(legendTime(id)).toHaveText(live)
   })
 
+  test('a chart says it is collecting data until it has two samples to draw a line', async ({ page }) => {
+    let samples = 1
+    await page.route(/\/api\/overview(\?|$)/, async route => {
+      const response = await route.fetch()
+      const body = await response.json()
+      const log = new Array(samples).fill(5)
+      body.queue_totals = { ...body.queue_totals, messages_ready_log: log, messages_unacknowledged_log: log }
+      body.send_oct_details = { rate: 5, log }
+      body.recv_oct_details = { rate: 5, log }
+      body.message_stats = { publish: 5, publish_details: { rate: 5, log } }
+      await route.fulfill({ response, json: body })
+    })
+    await page.clock.install()
+    await page.goto('/')
+    const collecting = page.locator('#rateChart').getByText('Collecting data')
+    await expect(collecting).toBeVisible()
+
+    samples = 2
+    await page.clock.runFor(5000)
+    await expect(collecting).toBeHidden()
+  })
+
   test('chart timestamp shows the latest sample and the pause state', async ({ page }) => {
     await page.goto('/')
     const legendTime = page.locator('.u-legend-time').first()
