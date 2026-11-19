@@ -47,6 +47,7 @@ module LavinMQ
       end
 
       private def keepalive_loop(ttl : Int32)
+        request_timeout = (ttl / 3).seconds
         loop do
           select
           when @expired.receive? # closed by #release
@@ -55,7 +56,7 @@ module LavinMQ
           end
           sent = Time.instant
           begin
-            ttl = @etcd.lease_keepalive(@id)
+            ttl = @etcd.lease_keepalive(@id, request_timeout)
             @deadline.set(sent + ttl.seconds)
           rescue ex
             # Only etcd's word that the lease is gone ends it before the

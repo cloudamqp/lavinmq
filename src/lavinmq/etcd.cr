@@ -10,7 +10,7 @@ module LavinMQ
     Log = LavinMQ::Log.for "etcd"
 
     record Endpoint, host : String, port : Int32, auth : String?, tls : Bool
-    record Connection, socket : IO, address : String, auth : String?
+    record Connection, socket : IO, tcp : TCPSocket, address : String, auth : String?
     record ElectionLeader, election : String, key : String, lease : Int64
 
     @endpoints : Array(Endpoint)
@@ -110,8 +110,10 @@ module LavinMQ
       Lease.new(self, id, ttl)
     end
 
-    def lease_keepalive(id) : Int32
-      json = post("/v3/lease/keepalive", body: %({"ID":"#{id}"}))
+    # An etcd member holds a keepalive for an unresponsive etcd leader ~7 s,
+    # a retry after *timeout* reaches the new leader instead
+    def lease_keepalive(id, timeout : Time::Span? = nil) : Int32
+      json = post("/v3/lease/keepalive", body: %({"ID":"#{id}"}), read_timeout: timeout)
       if ttl = json.dig?("result", "TTL")
         ttl.as_s.to_i
       else
@@ -160,9 +162,15 @@ module LavinMQ
       end
     end
 
-    private def post(path, body) : JSON::Any
+    # A timed out read raises `Error`, so `with_tcp` closes the socket and retries
+    private def post(path, body, read_timeout : Time::Span? = nil) : JSON::Any
       with_tcp do |conn|
-        return post_request(conn.socket, conn.address, conn.auth, path, body)
+        conn.tcp.read_timeout = read_timeout # TLS reads go through it too
+        begin
+          return post_request(conn.socket, conn.address, conn.auth, path, body)
+        ensure
+          conn.tcp.read_timeout = nil
+        end
       end
     end
 
@@ -317,7 +325,7 @@ module LavinMQ
 
           Log.debug { "Connected to #{address}" }
           @connected.set(true)
-          return Connection.new socket, address, e.auth
+          return Connection.new socket, tcp_socket, address, e.auth
         rescue ex : IO::Error
           Log.debug { "Could not connect to #{address}: #{ex}" }
           next
