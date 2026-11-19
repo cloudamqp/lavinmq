@@ -160,6 +160,21 @@ describe LavinMQ::Auth::JWT::TokenParser do
         claims.permissions["myvhost"][:write].should eq(/.*/)
       end
 
+      it "compiles a pattern once and reuses it for later tokens" do
+        parser = TokenParserTestHelper.create_token_parser(["sub"])
+        payload = LavinMQ::Auth::JWT::Payload.new(
+          exp: RoughTime.utc.to_unix + 3600,
+          sub: "user",
+          scope: "read:myvhost/a* read:myvhost/b* write:myvhost/*"
+        )
+        first = parser.parse(TokenParserTestHelper.create_mock_token(payload)).permissions["myvhost"]
+        second = parser.parse(TokenParserTestHelper.create_mock_token(payload)).permissions["myvhost"]
+        first[:read].should eq(/^a.*$|^b.*$/)
+        second[:read].should be(first[:read])
+        second[:write].should be(first[:write])
+        second[:config].should be(first[:config])
+      end
+
       it "returns empty permissions when scope is empty" do
         parser = TokenParserTestHelper.create_token_parser(["sub"])
         payload = LavinMQ::Auth::JWT::Payload.new(

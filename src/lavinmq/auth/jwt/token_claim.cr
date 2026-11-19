@@ -11,6 +11,13 @@ module LavinMQ
         expires_at : Time
 
       class TokenParser
+        NO_ACCESS = /^$/
+        # Compiled scope patterns are kept, as each Regex registers a GC
+        # finalizer and tokens are parsed on every login and API request
+        MAX_PATTERNS = 1024
+        @patterns = Hash(String, Regex).new
+        @patterns_lock = Mutex.new
+
         def initialize(@config : Config)
         end
 
@@ -70,7 +77,7 @@ module LavinMQ
 
           tags = Set(Tag).new
           permissions = Hash(String, User::Permissions).new do |h, k|
-            h[k] = {config: Regex.new("^$"), read: Regex.new("^$"), write: Regex.new("^$")}
+            h[k] = {config: NO_ACCESS, read: NO_ACCESS, write: NO_ACCESS}
           end
           filter_scopes(scopes).each { |scope| parse_role(scope, tags, permissions) }
           {tags.to_a, permissions}
@@ -138,7 +145,7 @@ module LavinMQ
           regex_pattern = wildcard_to_regex(pattern)
 
           begin
-            regex = Regex.new(regex_pattern)
+            regex = pattern(regex_pattern)
           rescue ex : ArgumentError
             Log.warn { "Skipping scope '#{role}' due to invalid regex pattern: #{ex.message}" }
             return
@@ -157,7 +164,14 @@ module LavinMQ
           if existing.source == "^$"
             new_regex
           else
-            Regex.new("#{existing.source}|#{new_regex.source}")
+            pattern("#{existing.source}|#{new_regex.source}")
+          end
+        end
+
+        private def pattern(source : String) : Regex
+          @patterns_lock.synchronize do
+            @patterns.clear if @patterns.size >= MAX_PATTERNS
+            @patterns[source] ||= Regex.new(source)
           end
         end
 
