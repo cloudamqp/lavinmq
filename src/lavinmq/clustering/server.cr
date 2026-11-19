@@ -581,7 +581,9 @@ module LavinMQ
         end
       end
 
-      def close
+      # Disconnects the followers, so nothing more is confirmed, without
+      # storing the checksums: later writes still change them, see #close
+      def fence : Nil
         @fenced.set(true)
         @lock.synchronize do
           @listeners.each &.close
@@ -589,6 +591,10 @@ module LavinMQ
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
+      end
+
+      def close
+        fence
         # Unrestored they're empty, the replication client's would be lost
         @file_index.lock { |_files, checksums| checksums.store if @restored }
       end
