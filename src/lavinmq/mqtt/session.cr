@@ -54,8 +54,8 @@ module LavinMQ
       @metadata_file : String
       @replicator : Clustering::Replicator?
       @has_client = BoolChannel.new(false)
-      # False while the store has data it can't read, until it's purged
-      @store_readable = BoolChannel.new(true)
+      # True while a store error stops the deliveries, see #pause_on_store_error
+      @paused = BoolChannel.new(false)
       @has_capacity = BoolChannel.new(true)
       # This session's topic filters and their QoS, kept by the MQTT exchange
       # as it binds and unbinds them, so finding a session's subscriptions
@@ -84,6 +84,10 @@ module LavinMQ
         @vhost.persister.mark_dirty(@vhost.data_dir) if created
         @replicator = durable? ? @vhost.@replicator : nil
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
+        if @msg_store.failed?
+          @log.error { "Paused, message data can't be loaded. Purge the session to remove all its messages, or delete it" }
+          @paused.set(true)
+        end
         @metadata_file = File.join(data_dir, ".metadata")
         username = nil
         if File.exists?(@metadata_file)
@@ -121,7 +125,7 @@ module LavinMQ
         return false if @closed.swap(true)
         @has_capacity.close
         @has_client.close
-        @store_readable.close
+        @paused.close
         @msg_store_lock.synchronize do
           @msg_store.close
         end
@@ -170,9 +174,9 @@ module LavinMQ
             client.flush
             next @has_capacity.when_true.receive?
           end
-          unless @store_readable.value
+          if @paused.value
             client.flush
-            next @store_readable.when_true.receive?
+            next @paused.when_false.receive?
           end
           get_packet do |pub_packet, bytesize|
             client.send(pub_packet, flush: false)
@@ -183,9 +187,10 @@ module LavinMQ
             client.flush
             Fiber.yield
           end
+        rescue ex : MessageStore::Error
+          # The client stays connected: it would only reconnect to the same store
+          pause_on_store_error(ex)
         rescue ex
-          # The client stays connected: it would only reconnect to the same data
-          next if ex.is_a?(MessageStore::Error) && stop_deliveries(ex)
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           if client
             client.close("Server force closed client")
@@ -194,17 +199,30 @@ module LavinMQ
         end
       end
 
-      # Nothing is delivered from a store with data it can't read, until a
-      # purge has removed all of it. Returns false if the store can be read.
-      # Decided under the lock a purge holds, so that it isn't undone.
-      private def stop_deliveries(ex : Exception) : Bool
-        stopped = @msg_store_lock.synchronize do
-          next false if closed? || !@msg_store.failed?
-          @store_readable.set(false)
+      # Nothing more is delivered when the message store fails, publishes are
+      # still stored. #resume! tries again, unless the store has data it can't
+      # read: then only a purge, which removes all of it, resumes the session.
+      # Like a queue's, this pause isn't kept over a restart of the broker.
+      private def pause_on_store_error(ex : MessageStore::Error) : Nil
+        paused = @msg_store_lock.synchronize do
+          next false if closed?
+          # A purge has removed the data since the read failed. Decided under
+          # the lock a purge holds, so that it isn't undone.
+          next false if ex.is_a?(MessageStore::UnreadableError) && !@msg_store.failed?
+          @paused.set(true)
           true
         end
-        @log.error(exception: ex) { "Message data can't be read, nothing is delivered until the session is purged" } if stopped
-        stopped
+        if paused
+          @log.error(exception: ex) do
+            if @msg_store.failed?
+              "Paused, message data can't be read. Purge the session to remove all its messages, or delete it"
+            else
+              "Paused due to a message store error, resume the session to try again"
+            end
+          end
+        else
+          @log.debug(exception: ex) { "Message store error while paused" }
+        end
       end
 
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
@@ -448,17 +466,6 @@ module LavinMQ
           end || break
         end
         false
-      rescue ex : MessageStore::Error
-        raise store_error(ex)
-      end
-
-      # A store with data it can't read stops the deliveries until a purge, see
-      # #deliver_loop. Another store error closes the session.
-      private def store_error(ex : MessageStore::Error) : Exception
-        return ex if @msg_store.failed?
-        @log.error(ex) { "Queue closed due to error" }
-        close
-        ClosedError.new(cause: ex)
       end
 
       def build_packet(env, packet_id) : Protocol::Publish
@@ -506,6 +513,11 @@ module LavinMQ
             @unacked_count.sub(1, :relaxed)
             @unacked_bytesize.sub(sp.bytesize, :relaxed)
             delete_message(sp)
+          rescue ex : MessageStore::Error
+            # The client isn't disconnected for it. The message stays in its
+            # segment, so it can come back after a restart of the broker.
+            @log.error(exception: ex) { "Failed to delete #{sp}" }
+            pause_on_store_error(ex)
           rescue ex
             raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
           ensure
@@ -537,7 +549,7 @@ module LavinMQ
 
       private def drop_overflow : Nil
         return unless (ml = @max_length) || (mlb = @max_length_bytes)
-        return if @msg_store.failed? # nothing can be read, until a purge
+        return if @paused.value # enforced again once resumed, or purged
         if ml = @max_length
           @msg_store_lock.synchronize do
             while @msg_store.size > ml
@@ -555,9 +567,8 @@ module LavinMQ
           end
         end
       rescue ex : MessageStore::Error
-        # The publish is stored. If it was the limit that reached data that
-        # can't be read, the deliveries stop until a purge.
-        raise ex unless stop_deliveries(ex)
+        # The publish is stored, the limit is enforced again once resumed
+        pause_on_store_error(ex)
       end
 
       private def clear_policy_arguments
@@ -570,13 +581,27 @@ module LavinMQ
 
       def pause!; end
 
-      def resume!; end
+      # Resumes deliveries that a store error paused. A session with data it
+      # can't read stays paused until it's purged.
+      def resume! : Nil
+        resumed = @msg_store_lock.synchronize do
+          next false unless @paused.value
+          if @msg_store.failed?
+            @log.error { "Still paused, message data can't be read. Purge the session to remove all its messages" }
+            next false
+          end
+          @paused.set(false)
+          true
+        end
+        @log.info { "Resumed" } if resumed
+        drop_overflow if resumed
+      end
 
-      # Paused while the store has data it can't read. A session can't be
-      # paused by an operator, #pause! and #resume! do nothing.
+      # Paused only by a store error: a session can't be paused by an operator,
+      # #pause! does nothing
       def state : QueueState
         return QueueState::Closed if closed?
-        @store_readable.value ? QueueState::Running : QueueState::Paused
+        @paused.value ? QueueState::Paused : QueueState::Running
       end
 
       def state_match?(states : Array(QueueState)) : Bool
@@ -592,7 +617,7 @@ module LavinMQ
           next purged unless @msg_store.failed?
           # What the client has in flight stays booked, its acks are ignored
           @msg_store.wipe
-          @store_readable.set(true) unless closed?
+          @paused.set(false) unless closed?
           ready
         end
         @log.info { "Purged #{count} messages" }

@@ -23,6 +23,19 @@ private class ReplacedClient < LavinMQ::MQTT::Client
   end
 end
 
+class LavinMQ::MQTT::SessionMessageStore
+  class_property? fail_next_delete = false
+
+  # As a delete whose write to the ack file fails
+  def delete(sp) : Nil
+    if LavinMQ::MQTT::SessionMessageStore.fail_next_delete?
+      LavinMQ::MQTT::SessionMessageStore.fail_next_delete = false
+      raise Error.new(@wfile)
+    end
+    previous_def
+  end
+end
+
 module SessionResumeHelpers
   include MqttHelpers
 
@@ -303,7 +316,7 @@ module MqttSpecs
         # The client isn't disconnected, it would only reconnect to the same message
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
-          wait_for { !session.@store_readable.value }
+          wait_for { session.@paused.value }
           # A limit can't drop the message either, and doesn't fail the publish
           defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
           server.vhosts["/"].add_policy("ml", "^mqtt\\.", "queues", defs, 10_i8, apply: false)
@@ -316,6 +329,10 @@ module MqttSpecs
           # Shown as paused, so it doesn't look like a running session that is stuck
           session.state.should eq LavinMQ::QueueState::Paused
           session.state_match?([LavinMQ::QueueState::Paused]).should be_true
+          # Resuming doesn't help, the message still can't be read
+          session.resume!
+          session.state.should eq LavinMQ::QueueState::Paused
+          read_packet(io).should be_nil
 
           # The purge removes all of it, with the message published after
           segment = store.@segments[sp.segment].path
@@ -351,9 +368,40 @@ module MqttSpecs
         # The publisher gets its PUBACK, and isn't disconnected
         publish_from(server, "a/b", ["2"])
         session.closed?.should be_false
-        session.@store_readable.value.should be_false
+        session.state.should eq LavinMQ::QueueState::Paused
         session.message_count.should be > 0
       end
+    end
+
+    it "pauses on a store error, without disconnecting the client, until it's resumed" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          session = server.vhosts["/"].session("mqtt.resumer")
+          publish_from(server, "a/b", ["1"])
+          first = read_publish(io)
+          LavinMQ::MQTT::SessionMessageStore.fail_next_delete = true
+          puback(io, first.packet_id)
+          wait_for { session.state.paused? }
+          session.closed?.should be_false
+          session.client.should_not be_nil
+
+          publish_from(server, "a/b", ["2"])
+          read_packet(io).should be_nil
+          session.message_count.should eq 1
+
+          session.resume!
+          session.state.should eq LavinMQ::QueueState::Running
+          second = read_publish(io)
+          second.payload.should eq "2".to_slice
+          puback(io, second.packet_id)
+          wait_for { session.message_count == 0 && session.unacked_count == 0 }
+          disconnect(io)
+        end
+      end
+    ensure
+      LavinMQ::MQTT::SessionMessageStore.fail_next_delete = false
     end
 
     it "forgets an owed id when a max-length policy drops its message" do
