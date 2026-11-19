@@ -861,6 +861,8 @@ module LavinMQ::AMQP
     # a restart of the broker, which loads the store again.
     private def pause_on_store_error(ex : MessageStore::Error) : Nil
       return if closed?
+      # A purge has removed the data since the read failed, and resumed the queue
+      return if ex.is_a?(MessageStore::UnreadableError) && !@msg_store.failed?
       if @state_lock.synchronize { set_paused }
         @log.error(ex) do
           if @msg_store.failed?
@@ -1650,6 +1652,7 @@ module LavinMQ::AMQP
       delete_count = @msg_store_lock.synchronize do
         # A close that took the lock first closed the store after the check above
         next 0_u32 if @msg_store.closed
+        ready = @msg_store.size
         count = @msg_store.failed? ? 0_u32 : purge_readable(max_count)
         # Also when it was this purge that reached the data that can't be read
         if @msg_store.failed?
@@ -1657,7 +1660,8 @@ module LavinMQ::AMQP
           # read can't be told from what can't
           wiped = true
           @deliveries.clear
-          count += @msg_store.wipe
+          @msg_store.wipe
+          count = ready # also what was purged before the data was reached
         end
         count
       end

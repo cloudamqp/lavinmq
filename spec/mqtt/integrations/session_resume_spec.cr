@@ -329,6 +329,29 @@ module MqttSpecs
       end
     end
 
+    it "stores a publish whose max-length drop is the first to reach a message that can't be read" do
+      with_server do |server|
+        deliver_unacked(server, ["1"])
+        session = server.vhosts["/"].session("mqtt.resumer")
+        wait_for { session.client.nil? }
+        store = session.@msg_store
+        sp = store.@packet_ids.keys.first
+        File.open(store.@segments[sp.segment].path, "r+") do |f|
+          f.seek(sp.position + sp.bytesize - "1".bytesize - sizeof(UInt64))
+          f.write_bytes(UInt64::MAX)
+        end
+        defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
+        server.vhosts["/"].add_policy("ml", "^mqtt\\.", "queues", defs, 10_i8, apply: false)
+        server.vhosts["/"].apply_policies
+
+        # The publisher gets its PUBACK, and isn't disconnected
+        publish_from(server, "a/b", ["2"])
+        session.closed?.should be_false
+        session.@store_readable.value.should be_false
+        session.message_count.should be > 0
+      end
+    end
+
     it "forgets an owed id when a max-length policy drops its message" do
       with_server do |server|
         deliver_unacked(server, ["1"])

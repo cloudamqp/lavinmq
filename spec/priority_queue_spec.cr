@@ -323,6 +323,21 @@ describe LavinMQ::AMQP::PriorityQueue do
       end
     end
 
+    describe "#purge_all" do
+      it "is failed after it reached data that a sub store can't read" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 2u8)
+          2.times { store.push LavinMQ::Message.new("ex", "rk", "body", properties: props) }
+          segment = store.@stores[2].@segments.first_value
+          write_at(segment.path, 4 + 8 + 1 + "ex".bytesize + 1 + "rk".bytesize + props.bytesize, UInt64::MAX)
+          store.failed?.should be_false
+          store.purge_all { }
+          # So that the queue's purge goes on to wipe it
+          store.failed?.should be_true
+        end
+      end
+    end
+
     describe "#wipe" do
       it "stays empty when a message it removed is requeued" do
         with_prio_store(5) do |store|

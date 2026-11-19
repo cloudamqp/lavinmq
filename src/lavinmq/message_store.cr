@@ -95,8 +95,9 @@ module LavinMQ
     # data that can't be decoded: another error can pass, or be fixed by the
     # recount of a restart, and mustn't need a purge of all the messages.
     private def read_failed(mfile : MFile, cause : Exception) : Error
-      @failed.set(true, :relaxed) if undecodable?(cause)
-      Error.new(mfile, cause: cause)
+      return Error.new(mfile, cause: cause) unless undecodable?(cause)
+      @failed.set(true, :relaxed)
+      UnreadableError.new(mfile, cause: cause)
     end
 
     private def undecodable?(ex : Exception) : Bool
@@ -142,7 +143,7 @@ module LavinMQ
 
     def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
-      raise Error.new(@rfile) if failed?
+      raise UnreadableError.new(@rfile) if failed?
       if sp = @requeued.first?
         seg = @segments[sp.segment]
         begin
@@ -200,7 +201,7 @@ module LavinMQ
     # guarding the store is held, see #shift_with_lease? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
       raise ClosedError.new if @closed
-      raise Error.new(@rfile) if failed?
+      raise UnreadableError.new(@rfile) if failed?
       if sp = @requeued.shift?
         begin
           segment = @segments[sp.segment]
@@ -1097,5 +1098,8 @@ module LavinMQ
         super("path=#{mfile.path} pos=#{mfile.pos} size=#{mfile.size}", cause: cause)
       end
     end
+
+    # From a store with data it can't read, which is failed until it's wiped
+    class UnreadableError < Error; end
   end
 end

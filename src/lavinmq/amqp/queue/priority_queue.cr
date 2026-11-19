@@ -242,6 +242,8 @@ module LavinMQ::AMQP
       def purge_all(&on_requeued : SegmentPosition ->)
         @stores.each(&.purge_all(&on_requeued))
         @empty.set true
+        # A sub store's purge can have reached data it can't read
+        @failed.set(true, :relaxed) if @stores.any?(&.failed?)
       end
 
       def wipe : UInt32
