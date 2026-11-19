@@ -342,6 +342,15 @@ describe LavinMQ::Etcd do
   ensure
     server.try &.close
   end
+
+  it "grants the lease when the old one is in its last second" do
+    etcd = LastSecondEtcd.new("127.0.0.1:1")
+    lease = etcd.lease_grant(10, 7)
+    lease.id.should eq 7
+    etcd.grants.should eq 2
+  ensure
+    lease.try &.release
+  end
 end
 
 describe LavinMQ::Etcd::Lease do
@@ -539,5 +548,24 @@ private class RecordingEtcd < LavinMQ::Etcd
       return keepalive.call(id.to_i64)
     end
     raise LavinMQ::Etcd::LeaseNotFound.new("stand-in")
+  end
+end
+
+# Etcd stand-in where the old lease is in its last second: the first grant
+# fails, and timetolive leaves out the TTL of 0
+private class LastSecondEtcd < LavinMQ::Etcd
+  getter grants = 0
+
+  private def post(path, body) : JSON::Any
+    case path
+    when "/v3/lease/grant"
+      @grants += 1
+      raise LavinMQ::Etcd::LeaseAlreadyExists.new("lease already exists") if @grants == 1
+      JSON.parse(%({"ID":"7","TTL":"10"}))
+    when "/v3/lease/timetolive"
+      JSON.parse(%({"ID":"7","grantedTTL":"10"}))
+    else
+      JSON.parse("{}")
+    end
   end
 end
