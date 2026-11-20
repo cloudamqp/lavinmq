@@ -3,7 +3,6 @@ require "../src/lavinmq/etcd"
 require "../src/lavinmq/clustering/etcd_coordinator"
 require "file_utils"
 require "http/client"
-require "http/server"
 require "./spec_helper"
 
 describe LavinMQ::Etcd, tags: "etcd" do
@@ -156,10 +155,11 @@ describe LavinMQ::Etcd, tags: "etcd" do
       member = (victim + 1) % etcds.size
       # Only the local member, like a LavinMQ node
       etcd = LavinMQ::Etcd.new(cluster.endpoint(member))
+      granted = Time.instant
       lease = etcd.elect("foo/#{rand}", "bar", ttl: 5)
-      # The first keepalive goes out at TTL/3 (1.67 s); stop the leader just
-      # before, so it lands in the ~1 s before the others notice
-      sleep 1.4.seconds
+      # The first keepalive goes out TTL/3 (1.67 s) after the grant; stop the
+      # leader just before, so it lands in the ~1 s before the others notice
+      sleep(granted + 1.4.seconds - Time.instant)
       etcds[victim].signal(Signal::STOP)
       begin
         lease.wait(10.seconds) # twice the TTL, so the lease must have been renewed
@@ -167,43 +167,6 @@ describe LavinMQ::Etcd, tags: "etcd" do
         etcds[victim].signal(Signal::CONT)
       end
     end
-  end
-
-  it "waits for etcd to come back once it has been connected", tags: "slow" do
-    cluster = EtcdCluster.new(1)
-    cluster.run do |etcds|
-      etcd = LavinMQ::Etcd.new(cluster.endpoints, reconnect_timeout: 10.seconds)
-      etcd.put("foo", "bar")
-      etcds[0].terminate(graceful: false)
-      etcds[0].wait
-      spawn(name: "restart etcd") do
-        sleep 2.seconds
-        etcds[0] = cluster.restart(0)
-      end
-      etcd.put("foo", "baz") # reconnects once etcd is back, instead of exiting
-    end
-  end
-
-  it "exits when etcd doesn't come back within the reconnect timeout", tags: "slow" do
-    cluster = EtcdCluster.new(1)
-    cluster.run do |etcds|
-      etcd = LavinMQ::Etcd.new(cluster.endpoints, reconnect_timeout: 2.seconds)
-      etcd.put("foo", "bar")
-      etcds[0].terminate(graceful: false)
-      etcds[0].wait
-      started = Time.instant
-      ex = expect_raises(SpecExit) { etcd.get("foo") }
-      ex.code.should eq 5
-      (Time.instant - started).should be >= 2.seconds
-    end
-  end
-
-  it "exits at once when etcd has never been reached" do
-    etcd = LavinMQ::Etcd.new("127.0.0.1:1", reconnect_timeout: 10.seconds)
-    started = Time.instant
-    ex = expect_raises(SpecExit) { etcd.get("foo") }
-    ex.code.should eq 5
-    (Time.instant - started).should be < 2.seconds
   end
 
   it "raises LeaseNotFound when using an invalid lease", tags: "slow" do
@@ -330,27 +293,6 @@ describe LavinMQ::Etcd do
     lease.try &.release
   end
 
-  # etcd's gateway answers with this error when the member shuts down, e.g.
-  # during `systemctl restart etcd`. Followers always have an observe stream
-  # and a campaign open, so it must be retried like a lost connection.
-  it "retries a request that etcd answers with an EOF error" do
-    requests = Atomic(Int32).new(0)
-    server = HTTP::Server.new do |ctx|
-      ctx.response.content_type = "application/json"
-      if requests.add(1) == 0 # as on an observe stream: 200, the error in the body
-        ctx.response.print %({"error":{"grpc_code":14,"http_code":503,"message":"error reading from server: EOF"}})
-      else
-        ctx.response.print %({"kvs":[{"value":"#{Base64.strict_encode("bar")}"}]})
-      end
-    end
-    address = server.bind_tcp("127.0.0.1", 0)
-    spawn(name: "fake etcd") { server.listen }
-    etcd = LavinMQ::Etcd.new("127.0.0.1:#{address.port}")
-    etcd.get("foo").should eq "bar"
-    requests.get.should eq 2
-  ensure
-    server.try &.close
-  end
 end
 
 describe LavinMQ::Etcd::Lease do
@@ -369,9 +311,9 @@ describe LavinMQ::Etcd::Lease do
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end
 
-  # "no leader" during an etcd leader election, and any other error that
-  # isn't etcd saying the lease is gone, e.g. a connection reset
-  {LavinMQ::Etcd::NoLeader.new("etcdserver: no leader"), IO::Error.new("Connection reset by peer")}.each do |error|
+  # "no leader" during an etcd leader election, EOF while the etcd member
+  # restarts (the gateway's error, raised as IO::EOFError)
+  {LavinMQ::Etcd::NoLeader.new("etcdserver: no leader"), IO::EOFError.new("error reading from server: EOF")}.each do |error|
     it "keeps the lease through a transient #{error.class}" do
       failed = Atomic(Bool).new(false)
       etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) do
@@ -477,11 +419,6 @@ class EtcdCluster
       "--log-level=error",
       "--unsafe-no-fsync=true",
     }, output: STDOUT, error: STDERR)
-  end
-
-  # Starts member *i* again, e.g. after a spec terminated it
-  def restart(i) : Process
-    start_process(@ports[i], i)
   end
 
   def stop(etcds)

@@ -14,9 +14,8 @@ module LavinMQ
     record ElectionLeader, election : String, key : String, lease : Int64
 
     @endpoints : Array(Endpoint)
-    @connected = Atomic(Bool).new(false)
 
-    def initialize(endpoints = "localhost:2379", @reconnect_timeout : Time::Span = 10.seconds)
+    def initialize(endpoints = "localhost:2379")
       @endpoints = endpoints.split(',').map { |ep| parse_endpoint(ep) }
     end
 
@@ -312,27 +311,17 @@ module LavinMQ
       end
     end
 
-    # Exits at once if etcd has never been reached, e.g. it isn't running at
-    # startup. Once it has, a member restart is waited out for up to
-    # *reconnect_timeout* (the lease TTL), as the lease outlives it.
     private def connect : Connection
-      deadline = Time.instant + @reconnect_timeout
-      loop do
-        @endpoints.shuffle.each do |e|
-          address = "#{e.host}:#{e.port}"
-          tcp_socket = create_tcp_socket(e.host, e.port)
-          socket = e.tls ? wrap_with_tls(tcp_socket, e.host) : tcp_socket
+      @endpoints.shuffle.each do |e|
+        address = "#{e.host}:#{e.port}"
+        tcp_socket = create_tcp_socket(e.host, e.port)
+        socket = e.tls ? wrap_with_tls(tcp_socket, e.host) : tcp_socket
 
-          Log.debug { "Connected to #{address}" }
-          @connected.set(true)
-          return Connection.new socket, tcp_socket, address, e.auth
-        rescue ex : IO::Error
-          Log.debug { "Could not connect to #{address}: #{ex}" }
-          next
-        end
-        break if !@connected.get || Time.instant >= deadline
-        Log.warn { "No etcd endpoint responded, retrying" }
-        sleep 1.second
+        Log.debug { "Connected to #{address}" }
+        return Connection.new socket, tcp_socket, address, e.auth
+      rescue ex : IO::Error
+        Log.debug { "Could not connect to #{address}: #{ex}" }
+        next
       end
       Log.fatal { "No etcd endpoint responded" }
       exit 5 # 5th character in the alphabet is E(etcd)
@@ -378,8 +367,8 @@ module LavinMQ
       return unless error_msg
       Log.debug { "etcd error: #{error_msg}" }
       case error_msg
-      when "error reading from server: EOF" # the member is shutting down, retried like a lost connection
-        raise Error.new(error_msg)
+      when "error reading from server: EOF"
+        raise IO::EOFError.new(error_msg)
       when "etcdserver: no leader"
         raise NoLeader.new(error_msg)
       when "etcdserver: lease already exists"
