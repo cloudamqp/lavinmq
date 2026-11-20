@@ -264,10 +264,6 @@ module LavinMQ
         raise LavinMQ::Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
       end
 
-      def unacked_messages
-        @channel.unacked
-      end
-
       def details_tuple
         channel_details = @channel.details_tuple
         {
