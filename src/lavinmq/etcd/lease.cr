@@ -1,5 +1,3 @@
-require "../../stdlib/isolated_wait_for"
-
 module LavinMQ
   class Etcd
     # Represents holding a Lease
@@ -7,11 +5,19 @@ module LavinMQ
     class Lease
       getter id, expired
 
-      def initialize(@etcd : Etcd, @id : Int64, ttl : Int32)
-        @expired = Channel(Exception?).new
-        Fiber::ExecutionContext::Isolated.new("Etcd::Lease") do
-          keepalive_loop(ttl)
+      # A thread of its own, so busy client fibers can't delay a keepalive
+      @@keepalive_context = Fiber::ExecutionContext::Concurrent.new("Etcd::Lease")
+
+      def self.grant(etcd : Etcd, id : Int64, ttl : Int32) : self
+        lease = new(etcd, id)
+        @@keepalive_context.spawn(name: "Etcd::Lease #{id.to_s(16)} keepalive") do
+          lease.keepalive_loop(ttl)
         end
+        lease
+      end
+
+      private def initialize(@etcd : Etcd, @id : Int64)
+        @expired = Channel(Exception?).new
       end
 
       # Force release of lease (and leadership). The lease is revoked before
@@ -33,7 +39,7 @@ module LavinMQ
         end
       end
 
-      private def keepalive_loop(ttl : Int32)
+      protected def keepalive_loop(ttl : Int32)
         loop do
           select
           when @expired.receive? # closed by #release

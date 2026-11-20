@@ -1976,6 +1976,20 @@ fieldset.inline {
   width: 100%;
 }
 
+.chart-collecting {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  pointer-events: none;
+}
+
+.chart-collecting[hidden] {
+  display: none;
+}
+
 .u-legend-custom {
   font-size: 0.75rem;
   color: var(--color-text-secondary);
