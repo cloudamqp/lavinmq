@@ -218,6 +218,9 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config1.data_dir = "/tmp/isr-stepdown1"
     config1.clustering_etcd_endpoints = "localhost:12379"
     config1.clustering_advertised_uri = "tcp://localhost:5683"
+    # A follower's proxies would bind the default ports, and forward to the
+    # leader's, the same ones on this host, until out of file descriptors
+    config1.amqp_port = config1.mqtt_port = config1.http_port = 0
     FileUtils.rm_rf config1.data_dir
     controller1 = LavinMQ::Clustering::EtcdController.new(config1)
 
@@ -225,6 +228,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config2.data_dir = "/tmp/isr-stepdown2"
     config2.clustering_etcd_endpoints = "localhost:12379"
     config2.clustering_advertised_uri = "tcp://localhost:5684"
+    config2.amqp_port = config2.mqtt_port = config2.http_port = 0
     FileUtils.rm_rf config2.data_dir
     controller2 = LavinMQ::Clustering::EtcdController.new(config2)
 
@@ -268,6 +272,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
     served2.should be_false
   ensure
+    controller2.try &.stop rescue nil # closes the replication client, its lease is gone
     FileUtils.rm_rf "/tmp/isr-stepdown1"
     FileUtils.rm_rf "/tmp/isr-stepdown2"
   end
