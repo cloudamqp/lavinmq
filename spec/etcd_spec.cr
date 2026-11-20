@@ -329,18 +329,25 @@ describe LavinMQ::Etcd::Lease do
 
   it "expires locally when no keepalive succeeds within the TTL" do
     # Like a keepalive stuck in Etcd#with_tcp's retry loop while etcd has no quorum
-    etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) { sleep 1.hour; 3 })
+    stuck = Channel(Nil).new
+    etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) { stuck.receive?; 3 })
+    started = Time.instant
     lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
-    expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(6.seconds) }
+    expect_raises(LavinMQ::Etcd::Lease::Expired, "No keepalive succeeded within the lease TTL") { lease.wait(6.seconds) }
+    (Time.instant - started).should be >= 2.5.seconds
+  ensure
+    lease.try &.release
+    stuck.try &.close
   end
 
   # Like a keepalive the local etcd member forwards to an etcd leader that
   # stopped answering: the request is retried before the TTL runs out.
   it "keeps the lease through a keepalive that gets no answer" do
     keepalives = Atomic(Int32).new(0)
+    unanswered = Channel(Nil).new
     server = HTTP::Server.new do |ctx|
       ctx.response.content_type = "application/json"
-      sleep 1.hour if keepalives.add(1) == 0
+      unanswered.receive? if keepalives.add(1) == 0
       ctx.response.print %({"result":{"ID":"1","TTL":"3"}})
     end
     address = server.bind_tcp("127.0.0.1", 0)
@@ -351,7 +358,24 @@ describe LavinMQ::Etcd::Lease do
     keepalives.get.should be > 1
   ensure
     lease.try &.release
+    unanswered.try &.close
     server.try &.close
+  end
+
+  # The keepalive loop gives up too, with the last error, not only Lease#wait
+  it "stops sending keepalives and signals expiry when they still fail at the deadline" do
+    etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) : Int32 do
+      raise LavinMQ::Etcd::NoLeader.new("etcdserver: no leader")
+    end)
+    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 1)
+    select
+    when err = lease.expired.receive?
+      err.should be_a(LavinMQ::Etcd::NoLeader)
+    when timeout(3.seconds)
+      fail "the keepalive loop kept retrying past the deadline"
+    end
+  ensure
+    lease.try &.release
   end
 
   it "schedules the next keepalive from when the previous one was sent" do
