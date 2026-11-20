@@ -41,12 +41,12 @@ describe BoolChannel do
     abort = Channel(Nil).new
     order = [] of Symbol
     spawn do
-      bc.wait_until(true, Channel(Nil).new(1), abort) { }
+      bc.wait_until(true, Channel(Nil).new(1), abort)
       order << :first
     end
     Fiber.yield
     bc.set(true) # wakes the first waiter, which hasn't run yet
-    bc.wait_until(true, Channel(Nil).new(1), abort) { }.should be_true
+    bc.wait_until(true, Channel(Nil).new(1), abort).should be_true
     order << :second
     order.should eq [:first, :second]
   end
@@ -55,8 +55,8 @@ describe BoolChannel do
     bc = BoolChannel.new(false)
     abort = Channel(Nil).new
     second = Channel(Bool).new(1)
-    spawn { bc.wait_until(true, Channel(Nil).new(1), abort) { } }
-    spawn { second.send bc.wait_until(true, Channel(Nil).new(1), Channel(Nil).new) { } }
+    spawn { bc.wait_until(true, Channel(Nil).new(1), abort) }
+    spawn { second.send bc.wait_until(true, Channel(Nil).new(1), Channel(Nil).new) }
     Fiber.yield
     abort.close  # the first waiter picks abort but hasn't run yet
     bc.set(true) # so its turn comes after it chose to leave
