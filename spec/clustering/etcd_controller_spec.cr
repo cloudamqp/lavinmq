@@ -555,6 +555,34 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
   end
 
+  it "makes no replication client once stopped while it waited for the secret" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_advertised_uri = "tcp://localhost:5689"
+      etcd = SecretlessEtcd.new
+      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      done = Channel(Exception?).new(1)
+      spawn(name: "follower monitor waiting for the secret") do
+        controller.follow_leader_public(BoolChannel.new(false))
+        done.send nil
+      rescue ex
+        done.send ex
+      end
+      etcd.leaders.send "tcp://127.0.0.1:1"
+      etcd.watching.receive
+      controller.stop
+      etcd.secret.send "secret"
+      select
+      when ex = done.receive
+        ex.should be_nil
+      when timeout(5.seconds)
+        fail "follower monitor didn't return"
+      end
+      controller.repli_client.should be_nil
+    end
+  end
+
   it "will release lease on shutdown", tags: "slow" do
     with_datadir do |data_dir|
       with_clustered_launcher_config(data_dir) do |config|
