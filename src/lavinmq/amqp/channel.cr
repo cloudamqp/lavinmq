@@ -868,13 +868,11 @@ module LavinMQ
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         tag = @delivery_tag.add(1, :relaxed)
         unless no_ack
-          @unack_lock.synchronize do
+          notify_has_capacity do
             raise UnrecordedError.new("Channel is closed") unless @running
             @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
+            @basic_get_unacked_count.add(1u32, :relaxed) unless consumer
           end
-          add = consumer ? 0u32 : 1u32
-          basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
-          @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
         end
         tag
       end
