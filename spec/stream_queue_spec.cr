@@ -1552,6 +1552,35 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    # state of the meta file of zero-filled segment 2 => first offset of segment 3 after the load
+    {kept: 3i64, deleted: 2i64, zero_filled: 2i64}.each do |meta, offset|
+      it "numbers the offsets after a zero-filled segment whose meta file is #{meta}, also after a second restart" do
+        with_datadir do |data_dir|
+          store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+          body = "a" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times do
+            store.push LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, body.bytesize.to_u64, IO::Memory.new(body))
+          end
+          store.@segments.size.should eq 3
+          store.close
+          segment = File.join(data_dir, "msgs.0000000002")
+          File.write(segment, Bytes.new(File.size(segment))) # a power loss can leave a segment zero-filled
+          meta_file = File.join(data_dir, "meta.0000000002")
+          File.delete(meta_file) if meta == :deleted
+          File.write(meta_file, Bytes.new(File.size(meta_file))) if meta == :zero_filled
+
+          2.times do
+            store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+            store.@segment_first_offset[1u32].should eq 1
+            store.@segment_first_offset[3u32].should eq offset
+            store.last_offset.should eq offset
+            store.@segment_first_offset[4u32].should eq offset + 1
+            store.close
+          end
+        end
+      end
+    end
+
     it "loads when the trailing record is torn mid-body" do
       with_datadir do |data_dir|
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
