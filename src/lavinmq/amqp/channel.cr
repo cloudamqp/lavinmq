@@ -973,28 +973,12 @@ module LavinMQ
       private def process_tx_acks
         notify_has_capacity do
           @tx_acks.each do |tx_ack|
-            if idx = @unacked.bsearch_index { |u, _| u.tag >= tx_ack.delivery_tag }
-              raise "BUG: Delivery tag not found" unless @unacked[idx].tag == tx_ack.delivery_tag
-              @log.debug { "Unacked bsearch found tag:#{tx_ack.delivery_tag} at index:#{idx}" }
-              if tx_ack.multiple
-                (idx + 1).times do
-                  unack = @unacked.shift
-                  @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
-                  if tx_ack.negative
-                    @rejects << {unack, tx_ack.requeue}
-                  else
-                    do_ack(unack)
-                  end
-                end
-              else
-                unack = @unacked.delete_at(idx)
-                @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
-                if tx_ack.negative
-                  @rejects << {unack, tx_ack.requeue}
-                else
-                  do_ack(unack)
-                end
-              end
+            idx = @unacked.bsearch_index { |u, _| u.tag >= tx_ack.delivery_tag }
+            next unless idx && @unacked[idx].tag == tx_ack.delivery_tag
+            if tx_ack.multiple
+              (idx + 1).times { process_tx_ack(tx_ack, @unacked.shift) }
+            else
+              process_tx_ack(tx_ack, @unacked.delete_at(idx))
             end
           end
           @tx_acks.clear
@@ -1005,6 +989,15 @@ module LavinMQ
         raise ex
       else
         reject_all
+      end
+
+      private def process_tx_ack(tx_ack : TxAck, unack : Unack) : Nil
+        @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
+        if tx_ack.negative
+          @rejects << {unack, tx_ack.requeue}
+        else
+          do_ack(unack)
+        end
       end
 
       def tx_rollback(frame)
