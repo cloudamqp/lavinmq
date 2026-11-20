@@ -7,11 +7,12 @@ module LavinMQ
     class Lease
       getter id, expired
 
-      def initialize(@etcd : Etcd, @id : Int64, ttl : Int32)
+      # *started* is when the grant was requested, etcd's TTL counts from the grant
+      def initialize(@etcd : Etcd, @id : Int64, ttl : Int32, @started : Time::Instant = Time.instant)
         @expired = Channel(Exception?).new
+        @released = Atomic(Bool).new(false)
         # When etcd expires the lease at the earliest, its TTL counts from
         # when it got the last keepalive. Nanoseconds since @started.
-        @started = Time.instant
         @deadline = Atomic(Int64).new(ttl.seconds.total_nanoseconds.to_i64)
         Fiber::ExecutionContext::Isolated.new("Etcd::Lease") do
           keepalive_loop(ttl)
@@ -22,6 +23,7 @@ module LavinMQ
       # anything waiting on it wakes, so writes fenced by the lease are already
       # refused by then.
       def release
+        @released.set(true)
         @etcd.lease_revoke(@id)
       ensure
         @expired.close
@@ -46,30 +48,47 @@ module LavinMQ
         end
       end
 
+      # Keepalives go out a third of the TTL after the previous one was sent,
+      # not after it was answered, so a slow answer doesn't eat into the margin
+      # to the deadline. A failed one is retried sooner.
       private def keepalive_loop(ttl : Int32)
         request_timeout = (ttl / 3).seconds
+        next_at = @started + (ttl / 3).seconds
+        failures = 0
         loop do
           select
           when @expired.receive? # closed by #release
             return
-          when timeout((ttl / 3).seconds)
+          when timeout({next_at - Time.instant, Time::Span.zero}.max)
           end
           sent = Time.instant
           begin
             ttl = @etcd.lease_keepalive(@id, request_timeout)
             @deadline.set((sent + ttl.seconds - @started).total_nanoseconds.to_i64)
+            next_at = sent + (ttl / 3).seconds
+            Log.info { "Lease #{@id} keepalive succeeded again after #{failures} failed attempts" } if failures > 0
+            failures = 0
           rescue ex
             # Only etcd's word that the lease is gone ends it before the
             # deadline, any other error (e.g. "no leader" during an etcd
             # leader election, or EOF while a member restarts) is retried
-            raise ex if ex.is_a?(LeaseNotFound | LeaseExpired)
-            Log.warn { "Lease #{@id} keepalive failed, retrying: #{ex.message}" }
-            ttl = 1
+            raise ex if ex.is_a?(LeaseNotFound | LeaseExpired) || Time.instant > @started + @deadline.get.nanoseconds
+            failures += 1
+            if failures == 1
+              Log.warn { "Lease #{@id} keepalive failed, retrying: #{ex.message}" }
+            else
+              Log.debug { "Lease #{@id} keepalive failed again, retrying: #{ex.message}" }
+            end
+            next_at = Time.instant + (ttl / 10).seconds
           end
         end
       rescue ex
         unless @expired.closed?
-          Log.error { "Lease #{@id} expired: #{ex.message}" }
+          if @released.get # a keepalive in flight while #release revokes the lease
+            Log.debug { "Lease #{@id} released: #{ex.message}" }
+          else
+            Log.error { "Lease #{@id} expired: #{ex.message}" }
+          end
           error = ex
           while @expired.try_send?(error)
           end
