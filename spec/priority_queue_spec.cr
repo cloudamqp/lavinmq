@@ -323,6 +323,37 @@ describe LavinMQ::AMQP::PriorityQueue do
       end
     end
 
+    describe "#purge_all" do
+      it "is failed after it reached data that a sub store can't read" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 2u8)
+          2.times { store.push LavinMQ::Message.new("ex", "rk", "body", properties: props) }
+          segment = store.@stores[2].@segments.first_value
+          write_at(segment.path, 4 + 8 + 1 + "ex".bytesize + 1 + "rk".bytesize + props.bytesize, UInt64::MAX)
+          store.failed?.should be_false
+          store.purge_all { }
+          # So that the queue sees it, and isn't read or written
+          store.failed?.should be_true
+        end
+      end
+    end
+
+    describe "#shift?" do
+      it "reads no priority while one sub store can't be read" do
+        with_prio_store(5) do |store|
+          store.push LavinMQ::Message.new("ex", "rk", "low")
+          segment = store.@stores[0].@segments.first_value
+          # The body size of the first message
+          write_at(segment.path, 4 + 8 + 1 + "ex".bytesize + 1 + "rk".bytesize + AMQ::Protocol::Properties.new.bytesize, UInt64::MAX)
+          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+          store.push LavinMQ::Message.new("ex", "rk", "high", properties: AMQP::Client::Properties.new(priority: 2u8))
+          expect_raises(LavinMQ::MessageStore::Error) { store.first? }
+          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+          store.size.should eq 2
+        end
+      end
+    end
+
     describe "#[]" do
       it "returns messages with priority above max" do
         with_prio_store(5) do |store|

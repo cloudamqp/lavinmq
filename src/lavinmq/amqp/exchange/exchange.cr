@@ -313,7 +313,7 @@ module LavinMQ
           in .ok?
             count += 1
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
-          in .overflow?, .closed?
+          in .overflow?, .closed?, .failed?
             rejected = true
           in .dropped?
             # message was a duplicate; nothing to do

@@ -14,6 +14,19 @@ describe LavinMQ::SchemaVersion do
       end
     end
 
+    it "Doesn't read a file with a zero version but data after it as empty" do
+      with_datadir do |data_dir|
+        path = File.join(data_dir, "test_schema_version")
+        MFile.open(path, 12) do |file|
+          file.write_bytes 0
+          file.write_bytes 1i64
+          expect_raises(LavinMQ::OutdatedSchemaVersion) do
+            LavinMQ::SchemaVersion.verify(file, :message)
+          end
+        end
+      end
+    end
+
     it "Should verify schema version" do
       with_datadir do |data_dir|
         path = File.join(data_dir, "test_schema_version")
@@ -36,7 +49,7 @@ describe LavinMQ::SchemaVersion do
       end
     end
 
-    it "Deletes empty file when it is second file" do
+    it "Deletes empty file and creates a new when it is the last file" do
       with_amqp_server do |s|
         v = s.vhosts["/"]
         v.declare_queue("q", true, false)
@@ -47,7 +60,8 @@ describe LavinMQ::SchemaVersion do
         end
         # init new message store
         msg_store = LavinMQ::MessageStore.new(data_dir, nil)
-        msg_store.@segments.size.should eq 1
+        msg_store.@segments.size.should eq 2
+        msg_store.@segments.last_value.size.should eq 4
       end
     end
   end
