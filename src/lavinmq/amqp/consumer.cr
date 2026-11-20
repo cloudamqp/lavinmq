@@ -132,7 +132,8 @@ module LavinMQ
         ch = @channel
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
-        ch.has_capacity.wait_until(true, @capacity_turn, @notify_closed) { flush }
+        flush # before joining the line, a client that doesn't read blocks it
+        ch.has_capacity.wait_until(true, @capacity_turn, @notify_closed)
         true
       end
 
@@ -166,8 +167,9 @@ module LavinMQ
       private def wait_for_queue_ready
         return unless @queue.empty?
         @log.debug { "Waiting for queue not to be empty" }
+        flush # before joining the line, a client that doesn't read blocks it
         idle_timeout = Config.instance.deliver_loop_idle_timeout
-        return :ready if @queue.empty.wait_until(false, @capacity_turn, @notify_closed, idle_timeout) { flush }
+        return :ready if @queue.empty.wait_until(false, @capacity_turn, @notify_closed, idle_timeout)
         raise ClosedError.new if @closed
         @log.debug { "Deliver loop idle timeout" }
         :timeout
