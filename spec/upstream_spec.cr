@@ -831,6 +831,18 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
+    it "terminates when it's stopped while it waits for a consumer" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost = UpstreamSpecHelpers.setup_federation(s, "stop while idle", nil, "uq")
+        downstream_vhost.declare_queue("dq", false, false)
+        link = upstream.link(downstream_vhost.queue("dq"))
+        wait_for { link.state.running? }
+        link.stop
+        # It consumed from the closed connection, which never returned
+        wait_for { link.state.terminated? }
+      end
+    end
+
     it "stays terminated when a stop races the end of its run loop" do
       with_amqp_server do |s|
         upstream, downstream_vhost = UpstreamSpecHelpers.stop_during_prefetch_upstream(s, queue: "uq")
