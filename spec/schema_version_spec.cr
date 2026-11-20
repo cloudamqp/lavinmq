@@ -36,7 +36,7 @@ describe LavinMQ::SchemaVersion do
       end
     end
 
-    it "Deletes empty file when it is second file" do
+    it "Deletes empty file and creates a new when it is the last file" do
       with_amqp_server do |s|
         v = s.vhosts["/"]
         v.declare_queue("q", true, false)
@@ -47,7 +47,8 @@ describe LavinMQ::SchemaVersion do
         end
         # init new message store
         msg_store = LavinMQ::MessageStore.new(data_dir, nil)
-        msg_store.@segments.size.should eq 1
+        msg_store.@segments.size.should eq 2
+        msg_store.@segments.last_value.size.should eq 4
       end
     end
   end
