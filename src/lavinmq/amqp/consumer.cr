@@ -214,7 +214,7 @@ module LavinMQ
       def accepts? : Bool
         return false unless @flow
         return false if @prefetch_count > 0 && @unacked.get(:relaxed) >= @prefetch_count
-        return false if @channel.global_prefetch_count > 0 && @channel.unacked.size >= @channel.global_prefetch_count
+        return false unless @channel.has_capacity?
         true
       end
 

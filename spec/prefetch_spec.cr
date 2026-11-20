@@ -70,6 +70,31 @@ describe LavinMQ::Server do
         end
       end
     end
+
+    it "should not count basic.get deliveries against the global prefetch" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1, true
+          q = ch.queue
+          q.publish "get-me"
+          q.get(no_ack: false).should_not be_nil
+          delivered = Channel(String).new
+          returned = Channel(String).new
+          q.subscribe(no_ack: false) { |msg| delivered.send msg.body_io.to_s }
+          ch.on_return { |msg| returned.send msg.body_io.to_s }
+          ch.basic_publish "now", "", q.name, immediate: true
+          select
+          when body = delivered.receive
+            body.should eq "now"
+          when returned.receive
+            fail "immediate publish returned though the consumer had capacity"
+          when timeout 2.seconds
+            fail "neither delivered nor returned"
+          end
+        end
+      end
+    end
+
     it "should not deliver past a global prefetch lowered below the unacked count" do
       with_amqp_server do |s|
         with_channel(s) do |ch|

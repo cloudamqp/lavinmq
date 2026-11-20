@@ -160,6 +160,23 @@ describe "Transactions" do
       end
     end
 
+    it "skips an ack of a delivery that an earlier ack in the transaction covers" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("tx-covered-ack")
+          3.times { q.publish "m" }
+          ch.tx_select
+          msgs = Array.new(3) { q.get(no_ack: false).should_not be_nil }
+          ch.basic_ack(msgs[1].delivery_tag, multiple: true)
+          msgs[0].ack
+          ch.tx_commit
+          sq = s.vhosts["/"].queue(q.name)
+          sq.message_count.should eq 0
+          sq.unacked_count.should eq 1
+        end
+      end
+    end
+
     {"ack", "nack"}.each do |method|
       it "treats #{method} of all messages as a no-op when nothing is outstanding" do
         with_amqp_server do |s|
