@@ -125,30 +125,46 @@ class ExitRecordingController < LavinMQ::Clustering::Controller
     @exit_codes.send code
     loop { sleep 1.hour }
   end
+
+  # Whether the leader_lost hook from `lease_spec_config` has run
+  def leader_lost_hook_ran? : Bool
+    File.exists?(File.join(@config.data_dir, "leader_lost"))
+  end
 end
 
-private def lease_spec_config(name : String, port : Int32, ttl = 10) : LavinMQ::Config
+private def lease_spec_config(data_dir : String, port : Int32, ttl = 10) : LavinMQ::Config
   config = LavinMQ::Config.new
-  config.data_dir = "/tmp/#{name}"
-  FileUtils.rm_rf config.data_dir
+  config.data_dir = data_dir
   config.clustering_etcd_endpoints = "localhost:12379"
   config.clustering_advertised_uri = "tcp://localhost:#{port}"
   config.clustering_etcd_lease_ttl = ttl
+  config.amqp_port = -1
+  config.mqtt_port = -1
+  config.http_port = -1
+  # Quiet when a controller stopped during cleanup runs it after its dir is gone
+  config.clustering_on_leader_lost = "touch #{File.join(data_dir, "leader_lost")} 2>/dev/null"
   config
 end
 
 # Starts a leader and a candidate queued in the election behind it
 private def with_leader_and_candidate(name : String, candidate_ttl = 10, &)
-  leader = ExitRecordingController.new(lease_spec_config("#{name}1", 5686))
-  candidate = ExitRecordingController.new(lease_spec_config("#{name}2", 5687, ttl: candidate_ttl))
-  etcd = LavinMQ::Etcd.new("localhost:12379")
-  spawn(name: "#{name} leader") { leader.run { } }
-  wait_for { etcd.get("lavinmq/leader/#{leader.id.to_s(16)}") }
-  spawn(name: "#{name} candidate") { candidate.run { } }
-  wait_for { etcd.get("lavinmq/leader/#{candidate.id.to_s(16)}") }
-  yield leader, candidate, etcd
-ensure
-  leader.try &.stop rescue nil
+  with_datadir do |leader_dir|
+    with_datadir do |candidate_dir|
+      leader = ExitRecordingController.new(lease_spec_config(leader_dir, 5686))
+      candidate = ExitRecordingController.new(lease_spec_config(candidate_dir, 5687, ttl: candidate_ttl))
+      begin
+        etcd = LavinMQ::Etcd.new("localhost:12379")
+        spawn(name: "#{name} leader") { leader.run { } }
+        wait_for { etcd.get("lavinmq/leader/#{leader.id.to_s(16)}") }
+        spawn(name: "#{name} candidate") { candidate.run { } }
+        wait_for { etcd.get("lavinmq/leader/#{candidate.id.to_s(16)}") }
+        yield leader, candidate, etcd
+      ensure
+        leader.stop rescue nil
+        candidate.stop rescue nil
+      end
+    end
+  end
 end
 
 # Exit code of *controller* within *within*, or nil
@@ -680,6 +696,9 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         # Stepping down releases the lease, which the lease watcher mustn't
         # take for a lost lease
         exit_code(candidate, within: 1.second).should be_nil
+        # The stopped leader lost its leadership, the candidate never led
+        wait_for { leader.leader_lost_hook_ran? }
+        candidate.leader_lost_hook_ran?.should be_false
       end
     end
 
@@ -687,25 +706,32 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       with_leader_and_candidate("lease-stop") do |_leader, candidate, _etcd|
         candidate.stop
         exit_code(candidate, within: 1.second).should be_nil
+        candidate.leader_lost_hook_ran?.should be_false
       end
     end
 
     it "exits when its lease expires while it starts to serve" do
-      controller = ExitRecordingController.new(lease_spec_config("lease-startup", 5690, ttl: 3))
-      started = Channel(Nil).new
-      spawn(name: "lease startup ctrl") do
-        controller.run do
-          started.send nil
-          sleep # like a startup stuck in flush_isr
+      with_datadir do |data_dir|
+        controller = ExitRecordingController.new(lease_spec_config(data_dir, 5690, ttl: 3))
+        started = Channel(Nil).new
+        spawn(name: "lease startup ctrl") do
+          controller.run do
+            started.send nil
+            sleep # like a startup stuck in flush_isr
+          end
+        end
+        begin
+          select
+          when started.receive
+          when timeout(5.seconds)
+            fail "controller was not elected leader"
+          end
+          LavinMQ::Etcd.new("localhost:12379").lease_revoke(controller.id)
+          exit_code(controller, within: 5.seconds).should eq 3
+        ensure
+          controller.stop rescue nil
         end
       end
-      select
-      when started.receive
-      when timeout(5.seconds)
-        fail "controller was not elected leader"
-      end
-      LavinMQ::Etcd.new("localhost:12379").lease_revoke(controller.id)
-      exit_code(controller, within: 5.seconds).should eq 3
     end
   end
 
