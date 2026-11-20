@@ -256,12 +256,16 @@ describe LavinMQ::HTTP::BindingsController do
   end
 
   describe "the mqtt exchange" do
-    it "does not list subscriptions among the bindings" do
+    it "lists subscriptions first among the bindings" do
       with_http_server do |http, s|
-        declare_mqtt_subscription(s, "mqtt.hidden", "a/b", 1u8)
-
-        mqtt_bindings(http.get("/api/bindings"), "mqtt.hidden").should be_empty
-        mqtt_bindings(http.get("/api/bindings/%2f"), "mqtt.hidden").should be_empty
+        declare_mqtt_subscription(s, "mqtt.listed", "a/b", 1u8)
+        s.vhosts["/"].declare_queue("q1", false, false)
+        s.vhosts["/"].bind_queue("q1", "amq.topic", "rk")
+        {http.get("/api/bindings"), http.get("/api/bindings/%2f")}.each do |response|
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.map { |b| {b["source"].as_s, b["destination"].as_s} }
+            .should eq [{LavinMQ::MQTT::EXCHANGE, "mqtt.listed"}, {"amq.topic", "q1"}]
+        end
       end
     end
 
@@ -367,9 +371,4 @@ private def declare_mqtt_subscription(s, name, topic_filter, qos)
   s.vhosts["/"].declare_queue(name, true, false, mqtt_args)
   s.vhosts["/"].bind_queue(name, LavinMQ::MQTT::EXCHANGE, topic_filter,
     LavinMQ::MQTT.qos_arguments(qos))
-end
-
-private def mqtt_bindings(response, destination)
-  response.status_code.should eq 200
-  JSON.parse(response.body).as_a.select { |b| b["destination"] == destination }
 end

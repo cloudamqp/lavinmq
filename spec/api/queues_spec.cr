@@ -650,7 +650,8 @@ describe LavinMQ::HTTP::QueuesController do
         response = http.get("/api/queues/%2f/mqtt.sub/bindings?page=1&page_size=100")
         response.status_code.should eq 200
         items = JSON.parse(response.body)["items"].as_a
-        items.map { |b| {b["source"].as_s, b["routing_key"].as_s} }.should eq [{LavinMQ::MQTT::EXCHANGE, "a/b"}]
+        items.map { |b| {b["source"].as_s, b["routing_key"].as_s} }
+          .should eq [{"", "mqtt.sub"}, {LavinMQ::MQTT::EXCHANGE, "a/b"}]
       end
     end
   end

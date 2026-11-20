@@ -1,5 +1,6 @@
 require "../controller"
 require "../binding_helpers"
+require "../mqtt_exchange_compat"
 require "../../name_validator"
 require "./exchanges"
 require "./queues"
@@ -22,7 +23,7 @@ module LavinMQ
         get "/api/exchanges/:vhost/#{NAME}" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            exchange_to_json(vhost.mqtt_exchange, context.response.output)
+            MQTTExchangeView.new(vhost).to_json(context.response.output)
           end
         end
 
@@ -89,10 +90,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             # Matched on name, so a session named mqtt.default is listed
-            arr = Array(AMQP::BindingDetails | MQTT::SubscriptionDetails).new
-            vhost.mqtt_exchange.bindings_details.each { |b| arr << b if b.destination.name == NAME }
-            bindings(vhost).each { |b| arr << b if b.destination.name == NAME }
-            page(context, arr)
+            page(context, bindings(vhost).select { |b| b.destination.name == NAME })
           end
         end
 
@@ -242,26 +240,6 @@ module LavinMQ
         name = params[key]?
         return if name.nil? || name == NAME
         exchange(context, params, vhost, key)
-      end
-
-      # As `AMQP::Exchange#to_json` writes it, in its key order
-      private def exchange_to_json(x : MQTT::Exchange, io : IO) : Nil
-        policy, operator_policy = x.vhost.exchange_policies(x.name)
-        details = {
-          type: "mqtt", durable: false, auto_delete: false, internal: true,
-          arguments: AMQP::Table.new, vhost: x.vhost.name,
-          policy: policy.try &.name,
-          operator_policy: operator_policy.try &.name,
-          effective_policy_definition: Policy.merge_definitions(policy, operator_policy),
-          effective_arguments: Array(String).new,
-          name: x.name,
-          message_stats: x.stats_details,
-        }
-        JSON.build(io) do |json|
-          json.object do
-            details.each { |k, v| json.field(k, v) unless v.nil? }
-          end
-        end
       end
     end
   end

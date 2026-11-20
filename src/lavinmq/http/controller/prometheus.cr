@@ -2,6 +2,7 @@ require "uri"
 require "benchmark"
 require "../controller"
 require "../binding_helpers"
+require "../mqtt_exchange_compat"
 require "../../clustering/client"
 require "../../../stdlib/io_buffered"
 require "../../gc_pause"
@@ -493,7 +494,7 @@ module LavinMQ
             end
           end
           queues += vhost.queues_size + vhost.sessions_size
-          vhost.each_exchange { |e| bindings += e.binding_count }
+          MQTTExchangeCompat.each_exchange(vhost) { |e| bindings += e.binding_count }
         end
         writer.write({name:  "connections",
                       value: connections,
@@ -752,7 +753,7 @@ module LavinMQ
 
         # Write values
         vhosts.each do |vhost|
-          vhost.each_exchange do |e|
+          MQTTExchangeCompat.each_exchange(vhost) do |e|
             labels = {exchange: e.name, vhost: vhost.name}
             writer.write_value("detailed_exchange_deduplication", e.dedup_count, labels)
           end
