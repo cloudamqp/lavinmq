@@ -513,7 +513,7 @@ module LavinMQ
         arguments["x-delayed-exchange"] = true
         make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
       when "x-federation-upstream"
-        AMQP::FederationExchange.new(vhost, name, arguments)
+        AMQP::FederationExchange.new(vhost, name, arguments.clone)
       when "x-consistent-hash"
         AMQP::ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "x-mqtt-topic"
