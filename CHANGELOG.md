@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `lavinmqctl add_user`, `change_password` and `hash_password` read the password from stdin when it isn't given as an argument, so it no longer has to be exposed in the process list or in sudo's log. In a terminal they prompt for it without echoing
+
 ### Changed
 
 - A `SIGHUP` config reload now applies changes to `auth_backends`, enabling or disabling OAuth (and local) authentication, and to the `[oauth]` `issuer` and `jwks_cache_ttl`, fetching keys from the new issuer, including for token refreshes on existing connections. An unsupported `auth_backends` value is now rejected when the config is parsed [#2451](https://github.com/cloudamqp/lavinmq/pull/2451)
