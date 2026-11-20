@@ -65,7 +65,6 @@ module LavinMQ
 
         private def state(state)
           @log.debug { "state change from=#{@state} to=#{state}" }
-          @last_changed = RoughTime.unix_ms
           changed = @state_lock.synchronize do
             next false if @state == state
             next false if @state.terminated?
@@ -74,6 +73,7 @@ module LavinMQ
             true
           end
           return unless changed
+          @last_changed = RoughTime.unix_ms
           loop { @state_changed.try_send?(state) || break }
         end
 
@@ -81,7 +81,6 @@ module LavinMQ
         # Use on broker shutdown — the upstream queue/exchange must survive a
         # restart so buffered messages aren't lost.
         def stop
-          return if @state.terminated?
           state(State::Terminating)
           @upstream_connection.try &.close
         end
