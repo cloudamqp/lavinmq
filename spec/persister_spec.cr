@@ -559,23 +559,38 @@ describe LavinMQ::Persister, "messages the broker moves between queues" do
     end
   end
 
-  it "reloads a restarted queue's store only after its emptied segments are unlinked" do
+  it "loads a queue declared again after a delete only after the old store's emptied segments are unlinked" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         src = declare_dead_lettering(ch)
-        queue = s.vhosts["/"].queue("src").as(LavinMQ::AMQP::Queue)
         segment = File.join(queue_dir(s, "src"), "msgs.0000000001")
-        restarted = Channel(Bool).new
-        expect_kept_until_synced(s, segment, queue_dir(s, "dst")) do
+        declared = Channel(Nil).new
+        s.persister.sync
+        with_drain_held do
           8.times { src.publish "x" * 100_000 }
           wait_for { message_count(s, "dst") == 8 }
-          queue.close
-          spawn { restarted.send queue.restart! }
+          sleep 50.milliseconds # the sources are deleted right after their copies
+          File.exists?(segment).should be_true
+          # Deleted and declared again, as a failed queue is recovered. The new
+          # store reuses the directory, so it waits for the old one's unlinks.
+          ch.queue_delete("src")
+          spawn do
+            with_channel(s) { |ch2| declare_src(ch2, ttl: 60_000) }
+            declared.send nil
+          end
           sleep 50.milliseconds
-          queue.closed?.should be_true
+          select
+          when declared.receive then fail "declared before the old store's segments were unlinked"
+          when timeout(0.seconds)
+          end
         end
-        restarted.receive.should be_true
-        queue.@msg_store.@segments.has_key?(1u32).should be_false
+        declared.receive
+        q = ch.queue("src", passive: true)
+        q.publish_confirm "new"
+        # The old unlink doesn't take the new store's first segment with it
+        s.persister.sync
+        File.exists?(segment).should be_true
+        q.get(no_ack: true).try(&.body_io.to_s).should eq "new"
       end
     end
   end

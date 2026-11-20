@@ -59,7 +59,7 @@ describe "Alternate Exchange policy" do
         wg.add(1)
         ctx.spawn do
           until Time.instant >= deadline
-            ex.reapply_policy
+            ex.apply_policy(ex.policy, ex.operator_policy)
             Fiber.yield
           end
         ensure
