@@ -80,5 +80,19 @@ module MqttSpecs
         end
       end
     end
+
+    it "has its rates updated with the vhost's" do
+      with_server do |server|
+        exchange = server.vhosts["/"].mqtt_exchange
+        with_client_io(server) do |io|
+          connect(io)
+          publish(io, topic: "a/b", payload: "x".to_slice, qos: 0u8)
+          disconnect(io)
+        end
+        wait_for { exchange.publish_in_count == 1 }
+        server.vhosts["/"].update_rates(1.0)
+        exchange.current_stats_details[:publish_in_details][:rate].should eq 1.0
+      end
+    end
   end
 end

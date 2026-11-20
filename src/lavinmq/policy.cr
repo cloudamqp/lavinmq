@@ -128,8 +128,12 @@ module LavinMQ
     end
 
     def match?(resource : Exchange)
+      match_exchange?(resource.name)
+    end
+
+    def match_exchange?(name : String) : Bool
       return false unless @apply_to.all? || @apply_to.exchanges?
-      @pattern.matches?(resource.name)
+      @pattern.matches?(name)
     end
 
     def details_tuple
