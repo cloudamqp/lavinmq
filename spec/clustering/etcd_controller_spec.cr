@@ -129,6 +129,37 @@ describe LavinMQ::Clustering::EtcdController do
     end
   end
 
+  it "makes no replication client once stopped while it waited for the secret" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+      config.amqp_port = config.http_port = config.mqtt_port = 0
+      config.metrics_http_port = -1
+      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
+      etcd = SlowSecretEtcd.new("tcp://192.0.2.10:5679")
+      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      done = Channel(Nil).new
+      spawn(name: "follower monitor") do
+        controller.follow_leader_public
+        done.close
+      end
+      etcd.getting.receive
+      controller.stop
+      etcd.gate.close
+      select
+      when done.receive?
+      when timeout(5.seconds)
+        fail "the follower monitor didn't return"
+      end
+      controller.@repli_client.get.should be_nil
+    ensure
+      if c = controller
+        c.@repli_client.get.try &.close
+      end
+    end
+  end
+
   it "reports follower proxy bind failures without the generic unhandled exception log" do
     blocker = TCPServer.new("127.0.0.1", 0)
     with_datadir do |data_dir|
@@ -165,8 +196,9 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config1.clustering_etcd_endpoints = "localhost:12379"
     config1.clustering_advertised_uri = "tcp://localhost:5681"
     config1.clustering_port = 5681
-    config1.amqp_port = 5671
-    config1.http_port = 15671
+    # A follower's proxies forward to the leader's ports, on this host the
+    # follower's own when they're the same, until out of file descriptors
+    config1.amqp_port = config1.mqtt_port = config1.http_port = 0
     controller1 = LavinMQ::Clustering::EtcdController.new(config1)
 
     config2 = LavinMQ::Config.new
@@ -174,8 +206,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config2.clustering_etcd_endpoints = "localhost:12379"
     config2.clustering_advertised_uri = "tcp://localhost:5682"
     config2.clustering_port = 5682
-    config2.amqp_port = 5672
-    config2.http_port = 15672
+    config2.amqp_port = config2.mqtt_port = config2.http_port = 0
     controller2 = LavinMQ::Clustering::EtcdController.new(config2)
 
     listen = Channel(String?).new
@@ -199,18 +230,21 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     sleep 0.1.seconds
     leader = listen.receive
     case leader
-    when /1$/
+    when .try &.starts_with?(config1.clustering_advertised_uri.to_s)
       controller1.stop
-      listen.receive.should match /2$/
+      listen.receive.to_s.should start_with config2.clustering_advertised_uri.to_s
       sleep 0.1.seconds
       controller2.stop
-    when /2$/
+    when .try &.starts_with?(config2.clustering_advertised_uri.to_s)
       controller2.stop
-      listen.receive.should match /1$/
+      listen.receive.to_s.should start_with config1.clustering_advertised_uri.to_s
       sleep 0.1.seconds
       controller1.stop
     else fail("no leader elected")
     end
+  ensure
+    controller1.try &.stop rescue nil
+    controller2.try &.stop rescue nil
   end
 
   it "steps down if it wins the election while not in the ISR" do
