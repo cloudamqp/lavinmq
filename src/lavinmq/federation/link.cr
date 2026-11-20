@@ -21,6 +21,7 @@ module LavinMQ
         @state_changed = Channel(State?).new
         # Serializes state changes, so that a stop can't be undone (see #state)
         @state_lock = Mutex.new
+        @run_loop_done : Channel(Nil)?
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
@@ -54,8 +55,13 @@ module LavinMQ
 
         def run
           @log.info { "Starting" }
+          @run_loop_done = Channel(Nil).new
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
           Fiber.yield
+        end
+
+        def wait_stopped : Nil
+          @run_loop_done.try &.receive?
         end
 
         # A stop wins: once the link is terminating, a run loop that is still
@@ -116,6 +122,7 @@ module LavinMQ
         ensure
           state(State::Terminated)
           @state_changed.close
+          @run_loop_done.try &.close
           @log.info { "Terminated" }
         end
 

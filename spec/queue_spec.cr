@@ -50,6 +50,12 @@ def in_parallel(ctx, n, &blk : Int32 -> Nil)
   wg.wait
 end
 
+# Where the property flags are of a message at *pos*, published to the default
+# exchange. Flags with bits that aren't defined can't be decoded.
+private def unreadable_flags_pos(pos : Int, routing_key : String) : Int64
+  pos.to_i64 + sizeof(Int64) + 1 + 1 + routing_key.bytesize
+end
+
 describe LavinMQ::AMQP::Queue do
   it "should not expire message before server is fully started" do
     # https://github.com/cloudamqp/lavinmq/issues/1697
@@ -351,59 +357,230 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  describe "Restarting queues" do
-    q_name = "restart"
-    it "should restart a closed queue" do
+  describe "Close and delete concurrency" do
+    # Runs the block on *n* fibers of *ctx*, released at the same time
+    race = ->(ctx : Fiber::ExecutionContext::Parallel, n : Int32, blk : Int32 -> Nil) do
+      go = Atomic(Bool).new(false)
+      wg = WaitGroup.new(n)
+      n.times do |i|
+        ctx.spawn do
+          until go.get(:acquire)
+          end
+          blk.call(i)
+        ensure
+          wg.done
+        end
+      end
+      sleep 1.millisecond
+      go.set(true, :release)
+      wg.wait
+    end
+
+    it "tears the queue down only once when closed and deleted concurrently", tags: "slow" do
       with_amqp_server do |s|
-        with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          # Publish a message
-          q.publish_confirm "test message"
-          queue.message_count.should eq 1
-
-          # Close the queue
-          queue.close
-          queue.closed?.should be_true
-
-          # Restart the queue & verify
-          queue.restart!.should be_true
-          queue.closed?.should be_false
-          queue.message_count.should eq 1
-          msg = q.get(no_ack: true).should_not be_nil
-          msg.body_io.to_s.should eq "test message"
+        vhost = s.vhosts["/"]
+        ctx = Fiber::ExecutionContext::Parallel.new("close-delete-race", 4)
+        closes = Atomic(Int32).new(0)
+        deletes = Atomic(Int32).new(0)
+        errors = Atomic(Int32).new(0)
+        300.times do |i|
+          name = "close-delete-race-#{i}"
+          vhost.declare_queue(name, true, false)
+          q = vhost.queue(name)
+          closes.set(0)
+          deletes.set(0)
+          race.call(ctx, 4, ->(j : Int32) do
+            begin
+              if j.even?
+                closes.add(1) if q.close
+              else
+                deletes.add(1) if q.delete
+              end
+            rescue
+              errors.add(1)
+            end
+            nil
+          end)
+          closes.get.should be <= 1
+          deletes.get.should eq 1
+          errors.get.should eq 0
+          vhost.queue?(name).should be_nil
+          # A close that lost the race to delete must not overwrite Deleted
+          q.state.deleted?.should be_true
         end
       end
     end
 
-    it "should restart after corrupt data closes the queue" do
+    it "doesn't add a consumer to a queue that is closed concurrently", tags: "slow" do
+      with_amqp_server do |s|
+        with_channel(s) do |_ch|
+          conn = s.connections.first.as(LavinMQ::AMQP::Client)
+          server_ch = conn.channels.first.as(LavinMQ::AMQP::Channel)
+          vhost = s.vhosts["/"]
+          ctx = Fiber::ExecutionContext::Parallel.new("add-consumer-close-race", 4)
+          300.times do |i|
+            name = "add-consumer-close-race-#{i}"
+            vhost.declare_queue(name, true, false)
+            q = vhost.queue(name)
+            q.publish(LavinMQ::Message.new("", name, "body"))
+            consumers = Array.new(3) do |j|
+              frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, name, "c#{j}",
+                false, false, false, false, AMQ::Protocol::Table.new)
+              LavinMQ::AMQP::Consumer.new(server_ch, q, frame).tap { |c| server_ch.@consumers << c }
+            end
+            race.call(ctx, 4, ->(j : Int32) do
+              if j == 0
+                q.close
+              else
+                begin
+                  q.add_consumer(consumers[j - 1])
+                rescue LavinMQ::AMQP::Queue::ClosedError
+                  # the close won the race
+                end
+              end
+              nil
+            end)
+            q.closed?.should be_true
+            q.consumers.should be_empty
+            q.delete
+          end
+        end
+      end
+    end
+  end
+
+  describe "Message data that can't be read" do
+    q_name = "unreadable"
+
+    it "fails the queue without cancelling its consumer, and stays failed when resumed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
           queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-          q.publish_confirm "test message"
-          queue.message_count.should eq 1
+          q.publish_confirm "first"
+          q.publish_confirm "second"
+          segment = queue.@msg_store.@segments.first_value
+          write_at(segment.path, unreadable_flags_pos(4, q_name), 0x0003u16)
 
-          # Write corrupt data to the segment file
-          mfile = queue.@msg_store.@segments.first_value
-          File.open(mfile.path, "w+") do |f|
-            f.seek(mfile.size - mfile.size + 4)
-            f.write(("x"*10).to_slice)
-          end
-
-          # Try to consume, which will trigger the close due to corrupt data
-          q.subscribe(tag: "tag", no_ack: false, &.ack)
-          should_eventually(be_true) { queue.state.closed? }
-
-          # Delete corrupted segment file
-          File.delete(mfile.path)
-
-          # Restart the queue & verify that it is running
-          queue.restart!.should be_true
+          bodies = Channel(String).new(4)
+          q.subscribe(no_ack: true) { |msg| bodies.send msg.body_io.to_s }
+          should_eventually(be_true) { queue.state.failed? }
           queue.closed?.should be_false
-          queue.state.running?.should be_true
-          queue.message_count.should eq 0
+          File.exists?(File.join(queue.@data_dir, "paused")).should be_false
+
+          # Publishes are nacked, they'd be lost with the rest when it's deleted
+          q.publish_confirm("third").should be_false
+          queue.message_count.should eq 2
+
+          # Reading it again can't help, only a delete does
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { queue.resume! }
+          queue.state.failed?.should be_true
+          select
+          when bodies.receive then fail "delivered a message from a store that can't be read"
+          when timeout 50.milliseconds
+          end
+          queue.consumers.size.should eq 1
+        end
+      end
+    end
+
+    it "redelivers nothing from a failed queue on a recover, and requeues what was unacked" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "m1"
+          q.publish_confirm "m2"
+          deliveries = Channel(String).new(4)
+          q.subscribe(no_ack: false) { |m| deliveries.send m.body_io.to_s }
+          deliveries.receive.should eq "m1"
+          segment = queue.@msg_store.@segments.first_value
+          record_size = (segment.size - 4) // 2
+          write_at(segment.path, unreadable_flags_pos(4 + record_size, q_name), 0x0003u16)
+          queue.basic_get(no_ack: true) { }
+          queue.state.failed?.should be_true
+
+          ch.basic_recover(requeue: false)
+          select
+          when body = deliveries.receive then fail "redelivered #{body} from a failed queue"
+          when timeout 100.milliseconds
+          end
+          should_eventually(eq 0) { queue.unacked_count }
+          ch.closed?.should be_false
+        end
+      end
+    end
+
+    it "refuses a purge, and leaves the queue as it is, but takes acks of what was delivered" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          4.times { |i| q.publish_confirm "msg#{i}" }
+          unacked = Array.new(3) { q.get(no_ack: false).should_not be_nil }
+          segment = queue.@msg_store.@segments.first_value
+          write_at(segment.path, unreadable_flags_pos(segment.pos, q_name), 0x0003u16)
+          q.get(no_ack: true).should be_nil
+          queue.state.failed?.should be_true
+
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge }
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge(1) }
+          with_channel(s) do |ch2|
+            expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
+              ch2.queue_purge(q_name)
+            end
+          end
+          queue.message_count.should eq 1
+          queue.state.failed?.should be_true
+
+          unacked[0].ack
+          should_eventually(eq 2) { queue.unacked_count }
+          ch.closed?.should be_false
+        end
+      end
+    end
+
+    it "refuses the purge that reaches it, with or without a count, and fails the queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          [nil, 1].each_with_index do |count, i|
+            name = "#{q_name}-#{i}"
+            q = ch.queue(name, durable: true)
+            queue = s.vhosts["/"].queue(name).as(LavinMQ::AMQP::DurableQueue)
+            3.times { |n| q.publish_confirm "msg#{n}" }
+            segment = queue.@msg_store.@segments.first_value
+            write_at(segment.path, unreadable_flags_pos(4, name), 0x0003u16)
+
+            expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) do
+              count ? queue.purge(count) : queue.purge
+            end
+            queue.@msg_store.failed?.should be_true
+            queue.state.failed?.should be_true
+            q.publish_confirm("new").should be_false
+          end
+        end
+      end
+    end
+
+    it "removes a pause by an operator when resumed, and stays failed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "first"
+          segment = queue.@msg_store.@segments.first_value
+          write_at(segment.path, unreadable_flags_pos(4, q_name), 0x0003u16)
+          q.get(no_ack: true).should be_nil
+          queue.state.failed?.should be_true
+          queue.pause!
+          paused_file = File.join(queue.@data_dir, "paused")
+          File.exists?(paused_file).should be_true
+
+          # Refused, but the operator's pause is removed
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { queue.resume! }
+          File.exists?(paused_file).should be_false
+          queue.state.failed?.should be_true
         end
       end
     end
@@ -432,7 +609,7 @@ describe LavinMQ::AMQP::Queue do
 
         restart_server(s)
         queue = s.vhosts["/"].queue("phantom-msgs").as(LavinMQ::AMQP::Queue)
-        queue.closed?.should be_false
+        queue.state.running?.should be_true
         queue.message_count.should eq 0
         # Segment 1's msgs are all acked once it's recounted, so it's deleted,
         # unlinked after the persister's sync
@@ -446,132 +623,111 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "closes a queue whose first message is corrupt instead of failing the vhost load" do
+    it "fails a queue whose segment can't be loaded, refusing publishes and purges" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q = ch.queue("corrupt-msg", durable: true)
-          body = "x" * (LavinMQ::Config.instance.segment_size // 4)
-          4.times { q.publish_confirm body }
+          q = ch.queue(q_name, durable: true)
+          q.publish_confirm "first"
+          q.publish_confirm "second"
         end
-        store = s.vhosts["/"].queue("corrupt-msg").as(LavinMQ::AMQP::Queue).@msg_store
-        store.@segments.keys.should eq [1u32, 2u32]
-        msg_dir = store.@msg_dir
-        s.stop
-
-        # Segment 1 has a meta file, so the load trusts it without reading the
-        # segment, and the corrupt message is first found when the queue
-        # starts and checks whether the first message expires
-        File.exists?(File.join(msg_dir, "meta.0000000001")).should be_true
-        # Invalid property flags on the first message: ts (8), exchange "" (1),
-        # routing key "corrupt-msg" (1 + 11), then the flags
-        File.open(File.join(msg_dir, "msgs.0000000001"), "r+") do |f|
-          f.seek(4 + 8 + 1 + 1 + "corrupt-msg".bytesize)
-          f.write_bytes(0x0003u16)
-        end
-
+        queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+        path = queue.@msg_store.@segments.first_value.path
+        write_at(path, unreadable_flags_pos(4, q_name), 0x0003u16)
         restart_server(s)
-        queue = s.vhosts["/"].queue("corrupt-msg").as(LavinMQ::AMQP::Queue)
-        queue.closed?.should be_true
-        queue.restart!.should be_false
-      end
-    end
 
-    it "should expire msgs after restarting a queue" do
-      with_amqp_server do |s|
+        queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+        queue.closed?.should be_false
+        queue.state.failed?.should be_true
+        File.exists?(path).should be_true
         with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new(
-            {"x-message-ttl" => 500, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
-          ))
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          # Publish a message
-          q.publish_confirm "test message"
-          queue.message_count.should eq 1
-
-          # Close the queue
-          queue.close
-          queue.closed?.should be_true
-
-          # Restart the queue & verify
-          queue.restart!.should be_true
-          queue.closed?.should be_false
-          queue.message_count.should eq 1
-          should_eventually(be_true) { queue.message_count == 0 }
+          q = ch.queue(q_name, durable: true)
+          q.get(no_ack: true).should be_nil
+          q.publish_confirm("third").should be_false
+          # Other queues aren't affected
+          ch.queue("other").publish_confirm("x").should be_true
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { queue.resume! }
+          queue.state.failed?.should be_true
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge }
         end
+        # A restart loads the same data
+        restart_server(s)
+        queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+        queue.state.failed?.should be_true
+        File.exists?(path).should be_true
       end
     end
 
-    it "should expire queue after restarting a queue" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new({"x-expires" => 100}))
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          # Close the queue
-          queue.close
-          queue.closed?.should be_true
-
-          # Restart the queue & verify
-          queue.restart!.should be_true
-          queue.closed?.should be_false
-          should_eventually(be_true) { queue.closed? }
-        end
-      end
-    end
-
-    it "should reapply policies after restart" do
+    it "can delete a queue whose segment can't be loaded" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          # Apply a max-length policy
-          definition = {"max-length" => JSON::Any.new(2i64)}
-          policy = LavinMQ::Policy.new("test", "/", /.*/, LavinMQ::Policy::Target::Queues, definition, 0i8)
-          queue.apply_policy(policy, nil)
-
-          # Close and restart the queue
-          queue.close
-          queue.closed?.should be_true
-          queue.restart!.should be_true
-
-          # Publish 4 messages, only 2 should be kept
-          4.times { |i| q.publish_confirm "msg #{i}" }
-          queue.message_count.should eq 2
+          q.publish_confirm "first"
+        end
+        queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+        data_dir = queue.@data_dir
+        write_at(queue.@msg_store.@segments.first_value.path, unreadable_flags_pos(4, q_name), 0x0003u16)
+        restart_server(s)
+        s.vhosts["/"].queue(q_name).state.failed?.should be_true
+        with_channel(s) do |ch|
+          ch.queue_delete(q_name)
+          s.vhosts["/"].queue?(q_name).should be_nil
+          wait_for { !Dir.exists?(data_dir) }
+          # Declared again, it starts empty and running
+          q = ch.queue(q_name, durable: true)
+          q.publish_confirm "new"
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "new"
         end
       end
     end
 
-    it "should not restart if queue is still running" do
+    it "fails a queue with a segment of an unsupported schema version at load" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+          q = ch.queue(q_name, durable: true)
+          q.publish_confirm "first"
+        end
+        queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+        write_at(queue.@msg_store.@segments.first_value.path, 0, LavinMQ::Schema::VERSION + 1)
+        restart_server(s)
+        queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
+        queue.state.failed?.should be_true
+        expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { queue.purge }
+      end
+    end
+  end
 
-          # Try to restart without closing
-          queue.restart!.should be_false
+  describe "Ack files that can't be opened" do
+    it "pauses the queue on an ack, without closing the channel" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ack-open", durable: true)
+          queue = s.vhosts["/"].queue("ack-open").as(LavinMQ::AMQP::DurableQueue)
+          2.times { |i| q.publish_confirm "m#{i}" }
+          msg = q.get(no_ack: false).should_not be_nil
+          # The ack file can't be opened, as when the broker is out of file descriptors
+          acks = File.join(queue.@data_dir, "acks.0000000001")
+          Dir.mkdir(acks)
+          msg.ack
+          should_eventually(be_true) { queue.state.paused? }
+          queue.paused_reason.should eq "store_error"
+          ch.closed?.should be_false
+          Dir.delete(acks)
+          queue.resume!
+          q.get(no_ack: true).try(&.body_io.to_s).should eq "m1"
         end
       end
     end
 
-    it "should clear exclusive consumer flag after restart" do
+    it "pauses the queue on a purge of all its messages, which isn't reported as done" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::DurableQueue)
-
-          q.subscribe(no_ack: true, exclusive: true) { }
-          should_eventually(be_true) { queue.has_exclusive_consumer? }
-
-          queue.close
-          queue.restart!.should be_true
-
-          queue.has_exclusive_consumer?.should be_false
-        end
-
-        with_channel(s) do |ch|
-          q = ch.queue(q_name, durable: true)
-          q.subscribe(no_ack: true) { }
+          q = ch.queue("ack-open-purge", durable: true)
+          queue = s.vhosts["/"].queue("ack-open-purge").as(LavinMQ::AMQP::DurableQueue)
+          2.times { |i| q.publish_confirm "m#{i}" }
+          Dir.mkdir(File.join(queue.@data_dir, "acks.0000000001"))
+          expect_raises(LavinMQ::MessageStore::Error) { queue.purge }
+          queue.state.paused?.should be_true
+          queue.paused_reason.should eq "store_error"
         end
       end
     end

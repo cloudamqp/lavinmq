@@ -342,7 +342,6 @@ describe LavinMQ::HTTP::PrometheusController do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("ch_q", durable: false, auto_delete: true)
           q.subscribe(no_ack: false) { |_| }
-          wait_for { !ch.@consumers.empty? }
 
           raw = http.get("/metrics/detailed?family=channel_metrics").body
           lines = raw.lines.select(&.starts_with?("lavinmq_detailed_channel_consumers{"))

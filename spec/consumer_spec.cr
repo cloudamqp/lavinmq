@@ -58,6 +58,40 @@ describe LavinMQ::Client::Channel::Consumer do
         end
       end
     end
+
+    it "should not stall other consumers when one consumer's client stops reading" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      LavinMQ::Config.instance.tcp_send_buffer_size = 4096
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("stalled-reader")
+          queue = s.vhosts["/"].queue(q.name)
+          # A no-ack consumer that never reads, with small buffers so they fill fast
+          with_raw_amqp_connection(s) do |io, stream|
+            io.recv_buffer_size = 4096
+            io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+            io.flush
+            stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+            io.write_bytes AMQ::Protocol::Frame::Basic::Consume.new(1_u16, 0_u16, q.name, "", false, true, false, false,
+              AMQ::Protocol::Table.new), IO::ByteFormat::NetworkEndian
+            io.flush
+            stream.next_frame.as(AMQ::Protocol::Frame::Basic::ConsumeOk)
+            with_channel(s) do |ch2|
+              ch2.prefetch 10
+              ch2.basic_consume(q.name, no_ack: false, &.ack)
+              body = Bytes.new(8 * 1024)
+              # One message at a time, so the queue is empty whenever the
+              # stuck consumer flushes, and its flush blocks once its socket
+              # is full. The other consumer must still get every message.
+              200.times do
+                q.publish_confirm body
+                wait_for(3.seconds) { queue.message_count.zero? }
+              end
+            end
+          end
+        end
+      end
+    end
   end
 
   describe "with x-priority" do
