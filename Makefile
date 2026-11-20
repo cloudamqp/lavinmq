@@ -175,9 +175,11 @@ rpm:
 	git archive --prefix lavinmq/ --output ~/rpmbuild/SOURCES/lavinmq.tar.gz HEAD
 	env version="$(shell ./packaging/rpm/rpm-version)" rpmbuild -bb packaging/rpm/lavinmq.spec
 
+# Keeps the libgc tarball, as `make deps` fetches it for offline builds
 .PHONY: clean
 clean:
-	$(RM) $(BINS) $(DOCS) $(MANPAGES) $(VIEW_TARGETS)
+	$(RM) $(BINS) $(DOCS) $(MANPAGES) $(VIEW_TARGETS) ext/libgc.a
+	$(RM) -r packaging/libgc/bdwgc
 
 .PHONY: watch
 watch:
