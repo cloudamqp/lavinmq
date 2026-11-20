@@ -282,9 +282,14 @@ describe LavinMQ::Etcd::Lease do
     open_fds = -> { Dir.children("/dev/fd").size }
     LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10).release
     before = open_fds.call
-    10.times { |i| LavinMQ::Etcd::Lease.grant(etcd, i.to_i64 + 2, 10).release }
+    20.times do |i|
+      lease = LavinMQ::Etcd::Lease.grant(etcd, i.to_i64 + 2, 10)
+      sleep 10.milliseconds # its keepalive waits for the next one
+      lease.release
+    end
     sleep 100.milliseconds
-    open_fds.call.should be <= before
+    # A leak is three per lease, other specs' fibers may hold a few meanwhile
+    (open_fds.call - before).should be < 20
   end
 
   it "signals expiry when the revoke fails" do
