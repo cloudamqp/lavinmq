@@ -159,5 +159,26 @@ describe "Transactions" do
         end
       end
     end
+
+    {"ack", "nack"}.each do |method|
+      it "treats #{method} of all messages as a no-op when nothing is outstanding" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.tx_select
+            if method == "ack"
+              ch.basic_ack(0_u64, multiple: true)
+            else
+              ch.basic_nack(0_u64, multiple: true)
+            end
+            ch.tx_commit
+            q = ch.queue
+            q.publish "m1"
+            ch.tx_commit
+            msg = q.get(no_ack: true).should_not be_nil
+            msg.body_io.to_s.should eq "m1"
+          end
+        end
+      end
+    end
   end
 end
