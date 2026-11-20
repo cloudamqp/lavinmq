@@ -51,16 +51,13 @@ module LavinMQ
         post "/api/users/bulk-delete" do |context, _params|
           refuse_unless_administrator(context, user(context))
           body = parse_body(context)
-          users = body["users"]?
-          unless users.try &.as_a?
-            bad_request(context, "Field 'users' is required")
+          users = body["users"]?.try &.as_a?
+          bad_request(context, "Field 'users' is required") unless users
+          unless users.all?(&.as_s?)
+            bad_request(context, "Field 'users' must be array of user names")
           end
-          users.try &.as_a.each do |u|
-            unless u.as_s?
-              bad_request(context, "Field 'users' must be array of user names")
-            end
-            @server.users.delete(u.as_s, false)
-          end
+          deleted = users.count { |u| @server.users.delete(u.as_s, save: false) }
+          @server.users.save! if deleted > 0
           context.response.status_code = 204
           context
         end
