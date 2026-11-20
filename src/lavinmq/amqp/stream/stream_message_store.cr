@@ -31,6 +31,7 @@ module LavinMQ::AMQP
       # known and nothing is dropped from it. Nothing is published to it either.
       @last_offset = failed? ? 0i64 : get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
+      store_offset_after_dropped_segment unless failed?
       drop_overflow
     end
 
@@ -453,12 +454,21 @@ module LavinMQ::AMQP
       if first = @segment_first_offset[seg - 1]?
         return first + (@segment_msg_count[seg - 1]? || 0u32)
       end
-      if offset = @dropped_segment_end[seg - 1]?
+      loaded = @segment_first_offset.each_key.select(&.<(seg)).max?
+      loaded_end = loaded ? @segment_first_offset[loaded] + (@segment_msg_count[loaded]? || 0u32) : 1i64
+      # A meta file isn't synced when it's written, so a power loss can zero-fill it too
+      if (offset = @dropped_segment_end[seg - 1]?) && offset >= loaded_end
         return offset
       end
-      loaded = @segment_first_offset.each_key.select(&.<(seg)).max? || return 1i64
-      @log.warn { "No segment or meta file before segment #{seg}, the offsets from it on have moved" }
-      @segment_first_offset[loaded] + (@segment_msg_count[loaded]? || 0u32)
+      @log.warn { "No segment or meta file before segment #{seg}, the offsets from it on have moved" } if loaded
+      loaded_end
+    end
+
+    # The offset after a dropped segment is stored when its segment gets a meta file, at a rollover
+    private def store_offset_after_dropped_segment : Nil
+      return if @closed || @size.zero? || @segments.size == 1 || @segments.has_key?(@segments.last_key - 1)
+      open_new_segment
+      @segment_first_offset[@segments.last_key] = @last_offset + 1 # no push has counted its first message
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)

@@ -1720,25 +1720,28 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    # {zero-filled segment, its meta file survives} => first offset of each segment after the load
-    {
-      {2, true}  => {1u32 => 1i64, 3u32 => 3i64},
-      {2, false} => {1u32 => 1i64, 3u32 => 2i64},
-    }.each do |(zeroed, meta), first_offsets|
-      it "numbers the offsets after zero-filled segment #{zeroed} #{meta ? "with" : "without"} its meta file" do
+    # state of the meta file of zero-filled segment 2 => first offset of segment 3 after the load
+    {kept: 3i64, deleted: 2i64, zero_filled: 2i64}.each do |meta, offset|
+      it "numbers the offsets after a zero-filled segment whose meta file is #{meta}, also after a second restart" do
         with_datadir do |data_dir|
           store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
           StreamSpecHelpers.push(store, 3, LavinMQ::Config.instance.segment_size // 2)
           store.@segments.size.should eq 3
           store.close
-          segment = File.join(data_dir, "msgs.000000000#{zeroed}")
+          segment = File.join(data_dir, "msgs.0000000002")
           File.write(segment, Bytes.new(File.size(segment))) # a power loss can leave a segment zero-filled
-          File.delete(segment.sub("msgs.", "meta.")) unless meta
+          meta_file = File.join(data_dir, "meta.0000000002")
+          File.delete(meta_file) if meta == :deleted
+          File.write(meta_file, Bytes.new(File.size(meta_file))) if meta == :zero_filled
 
-          store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-          store.@segment_first_offset.should eq first_offsets
-          store.last_offset.should eq 3 - (meta ? 0 : 1)
-          store.close
+          2.times do
+            store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+            store.@segment_first_offset[1u32].should eq 1
+            store.@segment_first_offset[3u32].should eq offset
+            store.last_offset.should eq offset
+            store.@segment_first_offset[4u32].should eq offset + 1
+            store.close
+          end
         end
       end
     end
