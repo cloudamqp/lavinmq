@@ -17,6 +17,10 @@ lavinmq --config /etc/lavinmq/lavinmq.ini
 
 Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (or the systemd-standard `CONFIGURATION_DIRECTORY`) to a directory; LavinMQ will load `lavinmq.ini` from that directory. Defaults to `/etc/lavinmq`.
 
+## Boolean Values
+
+Settings of type Bool accept `1`, `true`, `yes`, `on` or `y` for true and `0`, `false`, `no`, `off` or `n` for false, in any case. This applies in the INI file, including `[sni:]` sections, in environment variables and in CLI flags that take a value. Any other value stops LavinMQ from starting, or fails a reload, with an error naming the setting. This includes an empty value and a value followed by a comment on the same line, e.g. `sync = false # note`. The exception is `tcp_proxy_protocol`, which also accepts `2` and reads any other value as false.
+
 ## Reloading
 
 Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had. The configuration is rebuilt the same way as at startup: a setting removed from the file goes back to its default, and command line arguments and environment variables take precedence over the file.
