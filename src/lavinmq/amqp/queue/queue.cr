@@ -123,7 +123,7 @@ module LavinMQ::AMQP
     @message_ttl_change = ::Channel(Nil).new
 
     # Leaf lock: basic.get, acks/closes of any channel and stats all touch
-    # the list, and Channel#close holds its @unack_lock meanwhile. The Deque
+    # the list, and Channel#close holds its unacked lock meanwhile. The Deque
     # is only reachable through the lock.
     @basic_get_unacked = Sync::Exclusive(Deque(UnackedMessage)).new(Deque(UnackedMessage).new, :unchecked)
 

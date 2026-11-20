@@ -1971,9 +1971,9 @@ describe LavinMQ::AMQP::Stream do
             # and the deliver loop may be on another thread
             wait_for do
               consumer.unacked == msg_count &&
-                server_ch.@unack_lock.synchronize { server_ch.unacked.size } == msg_count
+                server_ch.unacked.size == msg_count
             end
-            sps = server_ch.@unack_lock.synchronize { server_ch.unacked.map(&.sp) }
+            sps = server_ch.unacked.map(&.sp)
             sps.size.should eq msg_count
 
             wg = WaitGroup.new(3)
