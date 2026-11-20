@@ -92,5 +92,17 @@ module MqttSpecs
         end
       end
     end
+
+    it "closes a client that sends an UNSUBSCRIBE with packet id 0 [MQTT-2.3.1-1]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: [subtopic("a/b")])
+          unsubscribe(io, topics: ["a/b"], packet_id: 0u16, expect_response: false)
+          io.should be_closed
+        end
+        server.vhosts["/"].mqtt_exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
+      end
+    end
   end
 end
