@@ -507,12 +507,16 @@ describe LavinMQ::HTTP::ExchangesController do
   end
 
   describe "the mqtt exchange" do
-    it "is not listed" do
+    it "is listed first" do
       with_http_server do |http, _|
         {http.get("/api/exchanges"), http.get("/api/exchanges/%2f")}.each do |response|
           response.status_code.should eq 200
-          JSON.parse(response.body).as_a.map(&.["name"].as_s).should_not contain LavinMQ::MQTT::EXCHANGE
+          first = JSON.parse(response.body).as_a.first
+          first["name"].should eq LavinMQ::MQTT::EXCHANGE
+          first["type"].should eq "mqtt"
         end
+        response = http.get("/api/exchanges/%2f?page=1&name=mqtt")
+        JSON.parse(response.body)["items"].as_a.map(&.["name"]).should eq [LavinMQ::MQTT::EXCHANGE]
       end
     end
 

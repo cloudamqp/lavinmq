@@ -1,13 +1,12 @@
 require "../amqp"
 require "../exchange"
+require "./mqtt_exchange_compat"
 
 module LavinMQ
   module HTTP
     module BindingHelpers
       private def bindings(vhost)
-        vhost.exchanges.flat_map do |e|
-          e.bindings_details
-        end
+        MQTTExchangeCompat.exchanges(vhost).flat_map &.bindings_details
       end
 
       private def binding_for_props(context, source, destination : LavinMQ::Queue | LavinMQ::Exchange, props)

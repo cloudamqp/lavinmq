@@ -1,6 +1,7 @@
 require "../controller"
 require "../../version"
 require "../stats_helper"
+require "../mqtt_exchange_compat"
 
 module LavinMQ
   module HTTP
@@ -61,10 +62,10 @@ module LavinMQ
               channels += c.channel_count
               consumers += c.channels.sum &.consumers_size
             end
-            exchanges += vhost.exchanges_size
+            exchanges += MQTTExchangeCompat.exchanges_size(vhost)
             queues += vhost.queues_size
             queues += vhost.sessions_size
-            vhost.each_exchange { |e| bindings += e.binding_count }
+            MQTTExchangeCompat.each_exchange(vhost) { |e| bindings += e.binding_count }
             vhost_ready, vhost_unacked = vhost.count_messages
             ready += vhost_ready
             unacked += vhost_unacked
