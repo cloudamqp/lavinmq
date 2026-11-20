@@ -19,7 +19,6 @@ module LavinMQ
         @upstream_channel : ::AMQP::Client::Channel?
         @metadata : ::Log::Metadata
         @state_changed = Channel(State?).new
-        # Serializes state changes, so that a stop can't be undone (see #state)
         @state_lock = Mutex.new
         @run_loop_done : Channel(Nil)?
 
@@ -64,11 +63,6 @@ module LavinMQ
           @run_loop_done.try &.receive?
         end
 
-        # A stop wins: once the link is terminating, a run loop that is still
-        # starting can't take it back to Starting, Running or Stopped, or it
-        # would reconnect instead of ending. Terminated is final, so that a
-        # stop that checked for it just before the run loop ended can't make
-        # the link Terminating again.
         private def state(state)
           @log.debug { "state change from=#{@state} to=#{state}" }
           @last_changed = RoughTime.unix_ms
@@ -329,7 +323,6 @@ module LavinMQ
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
-            # A stop during setup leaves the link terminating (see #state)
             return if stop_link?
             loop do
               @log.debug { "Waiting for consumers" }
@@ -480,7 +473,6 @@ module LavinMQ
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
-            # A stop during setup leaves the link terminating (see #state)
             return if stop_link?
             upstream_q.subscribe(no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
               if should_forward?(msg.properties.headers)

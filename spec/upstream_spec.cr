@@ -33,9 +33,6 @@ module UpstreamSpecHelpers
     {upstream, upstream_vhost, downstream_vhost}
   end
 
-  # Stops its links while one of them sets its prefetch: a link reads the
-  # prefetch count right before it sends basic.qos, and the stop runs while
-  # the link waits for the reply
   class StopDuringPrefetchUpstream < LavinMQ::Federation::Upstream
     @stop_sent = false
 
@@ -826,7 +823,6 @@ describe LavinMQ::Federation::Upstream do
         upstream, downstream_vhost = UpstreamSpecHelpers.stop_during_prefetch_upstream(s, queue: "uq")
         downstream_vhost.declare_queue("dq", false, false)
         link = upstream.link(downstream_vhost.queue("dq"))
-        # It went Running over the stop, and reconnected until the broker closed
         wait_for { link.state.terminated? }
       end
     end
@@ -943,7 +939,6 @@ describe LavinMQ::Federation::Upstream do
         upstream, downstream_vhost = UpstreamSpecHelpers.stop_during_prefetch_upstream(s, exchange: "upstream_ex")
         downstream_vhost.declare_exchange("downstream_ex", "topic", false, false)
         link = upstream.link(downstream_vhost.exchange("downstream_ex"))
-        # It went Running over the stop, and reconnected until the broker closed
         wait_for { link.state.terminated? }
       end
     end
