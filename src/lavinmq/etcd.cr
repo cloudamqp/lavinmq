@@ -118,13 +118,10 @@ module LavinMQ
       end
     end
 
+    # etcd leaves out a TTL of 0, which a lease has in its last second
     def lease_ttl(id) : Int32
       json = post("/v3/lease/timetolive", body: %({"ID":"#{id}"}))
-      if ttl = json["TTL"]?
-        ttl.as_s.to_i
-      else
-        raise Error.new("Lease #{id} expired")
-      end
+      json["TTL"]?.try(&.as_s.to_i) || 0
     end
 
     def lease_revoke(id) : Nil
