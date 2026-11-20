@@ -570,7 +570,9 @@ module LavinMQ
         if @tx
           @unack_lock.synchronize do
             if frame.delivery_tag.zero? && frame.multiple # all msgs so far
-              @tx_acks.push(TxAck.new @unacked.last.tag, frame.multiple, false, false)
+              if last = @unacked.last?
+                @tx_acks.push(TxAck.new last.tag, frame.multiple, false, false)
+              end
               return
             elsif @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
               check_double_ack!(frame.delivery_tag)
@@ -639,7 +641,9 @@ module LavinMQ
         if @tx
           @unack_lock.synchronize do
             if frame.delivery_tag.zero? && frame.multiple # all msgs so far
-              @tx_acks.push(TxAck.new @unacked.last.tag, true, true, frame.requeue)
+              if last = @unacked.last?
+                @tx_acks.push(TxAck.new last.tag, true, true, frame.requeue)
+              end
               return
             elsif @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
               check_double_ack!(frame.delivery_tag)
