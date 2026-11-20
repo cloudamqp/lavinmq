@@ -162,7 +162,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
       sleep(granted + 1.4.seconds - Time.instant)
       etcds[victim].signal(Signal::STOP)
       begin
-        lease.wait(10.seconds) # twice the TTL, so the lease must have been renewed
+        lease.wait(6.seconds) # longer than the 5 s TTL, so the lease must have been renewed
       ensure
         etcds[victim].signal(Signal::CONT)
       end
