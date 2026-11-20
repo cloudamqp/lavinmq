@@ -790,6 +790,18 @@ describe LavinMQ::Federation::Upstream do
   end
 
   describe "QueueLink" do
+    it "terminates when it's stopped while it waits for a consumer" do
+      with_amqp_server do |s|
+        upstream, _, downstream_vhost = UpstreamSpecHelpers.setup_federation(s, "stop while idle", nil, "uq")
+        downstream_vhost.declare_queue("dq", false, false)
+        link = upstream.link(downstream_vhost.queue("dq"))
+        wait_for { link.state.running? }
+        link.stop
+        # It consumed from the closed connection, which never returned
+        wait_for { link.state.terminated? }
+      end
+    end
+
     it "set x-received-from" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
