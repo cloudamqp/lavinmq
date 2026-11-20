@@ -2,9 +2,9 @@ require "./spec_helper"
 
 def create_oauth_test_authenticator(config : LavinMQ::Config? = nil)
   config ||= create_oauth_test_config
-  uri = config.oauth_issuer_url || URI.new
-  jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
-  verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
+  provider = config.oauth_provider.should_not be_nil
+  jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(provider.issuer_url, provider.jwks_cache_ttl)
+  verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
   LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 end
 
@@ -366,7 +366,8 @@ module OAuthUserHelper
     config.oauth_issuer_url = URI.parse("https://auth.example.com")
     config.oauth_preferred_username_claims = ["preferred_username"]
     jwks_fetcher = MockJWKSFetcher.new
-    verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
+    provider = config.oauth_provider.should_not be_nil
+    verifier = LavinMQ::Auth::JWT::TokenVerifier.new(provider, jwks_fetcher)
     LavinMQ::Auth::OAuthUser.new(
       "testuser",
       [] of LavinMQ::Tag,
