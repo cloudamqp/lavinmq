@@ -15,6 +15,7 @@ module LavinMQ::AMQP
     @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
     @segment_first_offset = Hash(UInt32, Int64).new  # segment_id => offset of first msg
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
+    @dropped_segment_end = Hash(UInt32, Int64).new   # empty segment dropped at load => offset after its last msg
     @consumer_offsets : ConsumerOffsets
     @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
 
@@ -22,6 +23,7 @@ module LavinMQ::AMQP
       super
       @last_offset = get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
+      store_offset_after_dropped_segment unless @closed
       drop_overflow
     end
 
@@ -400,21 +402,50 @@ module LavinMQ::AMQP
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
         # was written before shutdown — don't parse a msg out of an empty file.
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
-        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
-        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
+        @segment_first_offset[seg] = first_offset_from_previous(seg)
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
-        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
+        @segment_first_offset[seg] = first_offset_from_previous(seg)
         @segment_first_ts[seg] = msg.timestamp
         # NOTE: scan_last_ts re-scans the segment even though super already did.
         # This path only runs when metadata files are missing, so the cost is acceptable.
         @segment_last_ts[seg] = scan_last_ts(mfile)
       end
+    end
+
+    # The meta file of an empty segment still tells where the next segment's offsets start
+    private def delete_empty_segment(seg : UInt32, file : MFile) : Nil
+      File.open(meta_file_name(file)) do |meta|
+        count = meta.read_bytes(UInt32)
+        @dropped_segment_end[seg] = meta.read_bytes(Int64) + count
+      end
+    rescue File::NotFoundError | IO::EOFError
+    ensure
+      super
+    end
+
+    # From the segment before *seg*, also when that one was dropped as empty at load
+    private def first_offset_from_previous(seg : UInt32) : Int64
+      if first = @segment_first_offset[seg - 1]?
+        return first + (@segment_msg_count[seg - 1]? || 0u32)
+      end
+      loaded = @segment_first_offset.each_key.select(&.<(seg)).max?
+      loaded_end = loaded ? @segment_first_offset[loaded] + (@segment_msg_count[loaded]? || 0u32) : 1i64
+      # A meta file isn't synced when it's written, so a power loss can zero-fill it too
+      if (offset = @dropped_segment_end[seg - 1]?) && offset >= loaded_end
+        return offset
+      end
+      @log.warn { "No segment or meta file before segment #{seg}, the offsets from it on have moved" } if loaded
+      loaded_end
+    end
+
+    # The offset after a dropped segment is stored when its segment gets a meta file, at a rollover
+    private def store_offset_after_dropped_segment : Nil
+      return if @closed || @size.zero? || @segments.size == 1 || @segments.has_key?(@segments.last_key - 1)
+      open_new_segment
+      @segment_first_offset[@segments.last_key] = @last_offset + 1 # no push has counted its first message
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
