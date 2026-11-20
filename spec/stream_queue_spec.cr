@@ -1720,6 +1720,29 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    # {zero-filled segment, its meta file survives} => first offset of each segment after the load
+    {
+      {2, true}  => {1u32 => 1i64, 3u32 => 3i64},
+      {2, false} => {1u32 => 1i64, 3u32 => 2i64},
+    }.each do |(zeroed, meta), first_offsets|
+      it "numbers the offsets after zero-filled segment #{zeroed} #{meta ? "with" : "without"} its meta file" do
+        with_datadir do |data_dir|
+          store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+          StreamSpecHelpers.push(store, 3, LavinMQ::Config.instance.segment_size // 2)
+          store.@segments.size.should eq 3
+          store.close
+          segment = File.join(data_dir, "msgs.000000000#{zeroed}")
+          File.write(segment, Bytes.new(File.size(segment))) # a power loss can leave a segment zero-filled
+          File.delete(segment.sub("msgs.", "meta.")) unless meta
+
+          store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+          store.@segment_first_offset.should eq first_offsets
+          store.last_offset.should eq 3 - (meta ? 0 : 1)
+          store.close
+        end
+      end
+    end
+
     it "loads when the trailing record is torn mid-body" do
       with_datadir do |data_dir|
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
