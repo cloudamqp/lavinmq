@@ -25,9 +25,9 @@ module LavinMQ
       getter global_prefetch_count = 0_u16
       @unacked = Deque(Unack).new
       @lock = Mutex.new(:checked)
-      @basic_get_count = Atomic(UInt32).new(0)
-      # Removed deliveries that still count against the global prefetch
-      @reserved = Atomic(Int32).new(0)
+      # Deliveries that count against the global prefetch: those to consumers,
+      # not basic.get, and the reserved ones
+      @consumer_count = Atomic(Int32).new(0)
 
       def each(& : Unack ->) : Nil
         @lock.synchronize { @unacked.each { |unack| yield unack } }
@@ -38,21 +38,21 @@ module LavinMQ
       end
 
       def has_capacity? : Bool
-        return true if @global_prefetch_count.zero?
-        consumer_unacked = @unacked.size + @reserved.get(:relaxed) - @basic_get_count.get(:relaxed)
-        consumer_unacked < @global_prefetch_count
+        @global_prefetch_count.zero? || @consumer_count.get(:relaxed) < @global_prefetch_count
       end
 
       def global_prefetch_count=(value : UInt16)
         update_capacity { @global_prefetch_count = value }
       end
 
-      # The block returns the delivery tag, or raises to not record the delivery
+      # The block returns the delivery tag, or raises to not record the
+      # delivery. Allocate the tag in the block, so that concurrent pushes
+      # can't record their tags out of order.
       def push(queue : Queue, sp : SegmentPosition, consumer : AMQP::Consumer?, & : -> UInt64) : UInt64
         update_capacity do
           tag = yield
           @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
-          @basic_get_count.add(1u32, :relaxed) unless consumer
+          @consumer_count.add(1, :relaxed) if consumer
           tag
         end
       end
@@ -63,7 +63,7 @@ module LavinMQ
           return false unless yield
           idx = @unacked.bsearch_index { |u, _| u.tag >= unack.tag } || @unacked.size
           @unacked.insert(idx, unack)
-          @basic_get_count.add(1u32, :relaxed) unless unack.consumer
+          @consumer_count.add(1, :relaxed) if unack.consumer
           true
         end
       end
@@ -107,11 +107,11 @@ module LavinMQ
       # Keeps counting the delivery that a #reject! block is removing against
       # the global prefetch, until #release
       def reserve : Nil
-        @reserved.add(1, :relaxed)
+        @consumer_count.add(1, :relaxed)
       end
 
       def release(count : Int32) : Nil
-        update_capacity { @reserved.sub(count, :relaxed) }
+        update_capacity { @consumer_count.sub(count, :relaxed) }
       end
 
       def includes_tag?(tag : UInt64) : Bool
@@ -129,7 +129,7 @@ module LavinMQ
       end
 
       private def removed(unack : Unack) : Unack
-        @basic_get_count.sub(1u32, :relaxed) unless unack.consumer
+        @consumer_count.sub(1, :relaxed) if unack.consumer
         unack
       end
 

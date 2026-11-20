@@ -797,14 +797,11 @@ module LavinMQ
       # under the lock while the channel is still running is always requeued
       # by close.
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
-        tag = @delivery_tag.add(1, :relaxed)
-        unless no_ack
-          @unacked.push(queue, sp, consumer) do
-            raise UnrecordedError.new("Channel is closed") unless @running
-            tag
-          end
+        return @delivery_tag.add(1, :relaxed) if no_ack
+        @unacked.push(queue, sp, consumer) do
+          raise UnrecordedError.new("Channel is closed") unless @running
+          @delivery_tag.add(1, :relaxed)
         end
-        tag
       end
 
       # Iterate over all unacked messages and see if any has been unacked longer than the queue's consumer timeout
