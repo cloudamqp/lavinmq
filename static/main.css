@@ -1538,6 +1538,10 @@ th.group.last {
   max-width: 10px;
 }
 
+.table td.checkbox input:disabled {
+  opacity: 0.5;
+}
+
 .table th[data-sort-key] {
   cursor: pointer;
   position: relative;
