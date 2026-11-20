@@ -1261,8 +1261,18 @@ module LavinMQ::AMQP
           else
             @unacked_count.add(1, :relaxed)
             @unacked_bytesize.add(sp.bytesize, :relaxed)
-            yield env # deliver the message
-            # requeuing of failed delivery is up to the consumer
+            begin
+              yield env # deliver the message
+            rescue ex : AMQP::Channel::UnrecordedError
+              # No client got it, so it's put back as if never shifted: not
+              # counted as a delivery attempt or a reject
+              @unacked_count.sub(1, :relaxed)
+              @unacked_bytesize.sub(sp.bytesize, :relaxed)
+              uncount_delivery(sp) if settings.counts_deliveries?
+              redeliver_message(sp, route_to_retry: false)
+              raise ex
+            end
+            # requeuing of other failed deliveries is up to the consumer
           end
           # Signal expire loop to recalculate wait time for next message
           @message_ttl_change.try_send? nil
@@ -1277,11 +1287,12 @@ module LavinMQ::AMQP
     end
 
     def unacked_messages : Array(UnackedMessage)
-      result = consumers.select(AMQP::Consumer).flat_map do |c|
-        c.unacked_messages.compact_map do |u|
+      # Each channel once, as it can have several consumers of the queue
+      result = consumers.select(AMQP::Consumer).map(&.channel).uniq!.flat_map do |ch|
+        ch.unacked.compact_map do |u|
           next unless u.queue == self
           if consumer = u.consumer
-            UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
+            UnackedMessage.new(ch, u.tag, u.delivered_at, consumer.tag)
           end
         end
       end
@@ -1301,6 +1312,15 @@ module LavinMQ::AMQP
       headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
       env.message.properties.headers = headers
       delivery_count > 0 ? env.as_redelivered : env
+    end
+
+    # Undoes the count #with_delivery_count_header added
+    private def uncount_delivery(sp : SegmentPosition) : Nil
+      @msg_store_lock.synchronize do
+        if count = @deliveries[sp]?
+          count > 1 ? (@deliveries[sp] = count - 1) : @deliveries.delete(sp)
+        end
+      end
     end
 
     # See #strip_delivery_count for why the header can be trusted here

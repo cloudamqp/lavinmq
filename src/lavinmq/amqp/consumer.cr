@@ -52,6 +52,7 @@ module LavinMQ
       end
 
       @notify_closed = ::Channel(Nil).new
+      # Also the turn for messages, a consumer is in one line at a time
       @capacity_turn = ::Channel(Nil).new(1)
 
       def flow(active : Bool)
@@ -131,7 +132,8 @@ module LavinMQ
         ch = @channel
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
-        ch.has_capacity.wait_until_true(@capacity_turn, @notify_closed) { flush }
+        flush # before joining the line, a client that doesn't read blocks it
+        ch.has_capacity.wait_until(true, @capacity_turn, @notify_closed)
         true
       end
 
@@ -160,19 +162,17 @@ module LavinMQ
         end
       end
 
+      # Consumers wait for messages in line, so the one that delivered last
+      # can't win every message while the others also have capacity
       private def wait_for_queue_ready
         return unless @queue.empty?
         @log.debug { "Waiting for queue not to be empty" }
-        flush
-        select
-        when @queue.empty.when_false.receive
-          :ready
-        when @notify_closed.receive
-          raise ClosedError.new
-        when timeout Config.instance.deliver_loop_idle_timeout
-          @log.debug { "Deliver loop idle timeout" }
-          :timeout
-        end
+        flush # before joining the line, a client that doesn't read blocks it
+        idle_timeout = Config.instance.deliver_loop_idle_timeout
+        return :ready if @queue.empty.wait_until(false, @capacity_turn, @notify_closed, idle_timeout)
+        raise ClosedError.new if @closed
+        @log.debug { "Deliver loop idle timeout" }
+        :timeout
       end
 
       private def wait_for_paused_queue
@@ -223,12 +223,13 @@ module LavinMQ
         end
         delivery_tag = begin
           @channel.next_delivery_tag(@queue, sp, @no_ack, self)
-        rescue ex : AMQP::Channel::ClosedError
-          # Only raised in ack mode. The channel closed before it recorded the
-          # message as unacked, so close won't requeue it. The segment lease
-          # is released by the caller.
-          reject(sp) if recover
-          @queue.requeue(sp)
+        rescue ex : AMQP::Channel::UnrecordedError
+          # Queue#get puts back the messages it shifts, but a recovered one was
+          # delivered before, so it's requeued like on close
+          if recover
+            reject(sp)
+            @queue.requeue(sp)
+          end
           raise ex
         end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
@@ -261,10 +262,6 @@ module LavinMQ
         0
       rescue OverflowError
         raise LavinMQ::Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
-      end
-
-      def unacked_messages
-        @channel.unacked
       end
 
       def details_tuple

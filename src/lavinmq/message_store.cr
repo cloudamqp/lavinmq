@@ -569,19 +569,29 @@ module LavinMQ
       end
       unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
-      path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
-      wfile = open_segment(path, capacity)
+      wfile = create_segment(next_id, capacity)
       readahead_for_writes(wfile)
-      wfile.write_bytes Schema::VERSION
-      wfile.pos = 4
-      @replicator.try &.register_file wfile
-      @replicator.try &.append_value path, Schema::VERSION, 0i64
       @wfile_id = next_id
       @wfile = @segments[next_id] = wfile
       delete_unused_segments
-      @wfile.delete unless @durable # mark as deleted if non-durable
       wfile
+    end
+
+    # A new segment holding only the schema version
+    private def create_segment(seg : UInt32, capacity = Config.instance.segment_size) : MFile
+      path = segment_path(seg)
+      mfile = open_segment(path, capacity)
+      mfile.write_bytes Schema::VERSION
+      mfile.pos = 4
+      @replicator.try &.register_file mfile
+      @replicator.try &.append_value path, Schema::VERSION, 0i64
+      mfile.delete unless @durable # mark as deleted if non-durable
+      mfile
+    end
+
+    private def segment_path(seg : UInt32) : String
+      File.join(@msg_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
     end
 
     private def write_metadata_file(seg : UInt32, wfile : MFile)
@@ -626,7 +636,7 @@ module LavinMQ
         path = File.join(@msg_dir, f)
 
         # The ack file is orphaned if there is no corresponding msg file
-        msgs_path = File.join(@msg_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
+        msgs_path = segment_path(seg)
         unless File.exists?(msgs_path)
           @log.warn { "Deleting orphaned ack file: #{path}" }
           File.delete(path)
@@ -663,6 +673,15 @@ module LavinMQ
       # msg_dir does not exist, nothing to load
     end
 
+    # A crash can leave a 0-byte segment, which can't be mapped without a capacity
+    private def open_segment_at_load(path : String, last : Bool) : MFile
+      last || File.size(path).zero? ? open_last_segment(path) : open_segment(path)
+    end
+
+    private def delete_empty_segment(seg : UInt32, file : MFile) : Nil
+      delete_file(file, including_meta: true)
+    end
+
     private def load_segments_from_disk : Nil
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
@@ -671,52 +690,53 @@ module LavinMQ
         end
       end
       ids.sort!
-      was_empty = ids.empty?
-      ids << 1_u32 if was_empty
+      if ids.empty?
+        @segments[1_u32] = create_segment(1_u32)
+        return
+      end
       last_idx = ids.size - 1
       ids.each_with_index do |seg, idx|
-        filename = "msgs.#{seg.to_s.rjust(10, '0')}"
-        path = File.join(@msg_dir, filename)
-        file = idx == last_idx ? open_last_segment(path) : open_segment(path)
+        path = segment_path(seg)
+        file = open_segment_at_load(path, idx == last_idx)
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
 
-        if was_empty
-          file.write_bytes Schema::VERSION
-          @replicator.try &.append_value path, Schema::VERSION, 0i64
-        else
-          begin
-            SchemaVersion.verify(file, :message)
-          rescue IO::EOFError
-            # delete empty file, it will be recreated if it's needed
-            @log.warn { "Empty file at #{path}, deleting it" }
-            delete_file(file, including_meta: true)
-            if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
-              file = open_segment(path, Config.instance.segment_size)
-              file.write_bytes Schema::VERSION
-              @replicator.try &.append_value path, Schema::VERSION, 0i64
-            else
-              @segments.delete seg
-              next
-            end
-          rescue ex
-            @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }
-            @segments[seg] = file
-            # Register remaining segments by path so the replicator knows about
-            # all files on disk even though we won't load them due to the abort.
-            if replicator = @replicator
-              ids[(idx + 1)..].each do |remaining_seg|
-                replicator.register_file File.join(@msg_dir, "msgs.#{remaining_seg.to_s.rjust(10, '0')}")
-              end
-            end
-            close_store
-            break
+        begin
+          SchemaVersion.verify(file, :message)
+        rescue IO::EOFError
+          # delete empty file, it will be recreated if it's needed
+          @log.warn { "Empty file at #{path}, deleting it" }
+          delete_empty_segment(seg, file)
+          # One segment must exist, and the last one takes the writes
+          if idx == 0 || idx == last_idx
+            seg = recreated_segment_id(seg)
+            file = create_segment(seg)
+          else
+            @segments.delete seg
+            next
           end
+        rescue ex
+          @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }
+          @segments[seg] = file
+          # Register remaining segments by path so the replicator knows about
+          # all files on disk even though we won't load them due to the abort.
+          if replicator = @replicator
+            ids[(idx + 1)..].each do |remaining_seg|
+              replicator.register_file segment_path(remaining_seg)
+            end
+          end
+          close_store
+          break
         end
         file.pos = 4
         @segments[seg] = file
         Fiber.yield
       end
+    end
+
+    # No gap in the ids, a stream finds a segment's first offset from the one before it
+    private def recreated_segment_id(seg : UInt32) : UInt32
+      @segments.last_key?.try(&.succ) || seg
     end
 
     # Populate bytesize, size and segment_msg_count
