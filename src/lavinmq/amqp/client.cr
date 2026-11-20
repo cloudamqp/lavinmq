@@ -172,6 +172,7 @@ module LavinMQ
             case frame
             when AMQP::Frame::Connection::Close
               @log.debug { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
+              close_channels
               send AMQP::Frame::Connection::CloseOk.new
               @running = false
               next
@@ -461,6 +462,15 @@ module LavinMQ
         channel
       end
 
+      private def close_channels : Nil
+        i = 0u32
+        @channels.values.each do |ch|
+          close_channel(ch)
+          Fiber.yield if (i &+= 1) % 512 == 0
+        end
+        @channels.clear
+      end
+
       # Stays registered until Channel::CloseOk, so in-flight frames are discarded.
       protected def close_channel(channel : Client::Channel?) : Nil
         return unless channel
@@ -553,12 +563,7 @@ module LavinMQ
 
       private def cleanup
         @running = false
-        i = 0u32
-        @channels.values.each do |ch|
-          close_channel(ch)
-          Fiber.yield if (i &+= 1) % 512 == 0
-        end
-        @channels.clear
+        close_channels
         # Iterate a snapshot because Queue#close deletes exclusive queues,
         # which calls back into #exclusive_queue_deleted.
         @exclusive_queues.dup.each(&.close)
@@ -877,19 +882,10 @@ module LavinMQ
       @last_queue_name : String?
 
       private def declare_new_queue(frame)
-        unless @vhost.flow?
-          send_precondition_failed(frame, "Server low on disk space, can not create queue")
-          return
-        end
         if frame.queue_name.empty?
           frame.queue_name = AMQP::Queue.generate_name
         end
-        dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
-        dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
-        unless dlx_ok && @user.can_config?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to queue '#{frame.queue_name}'")
-          return
-        end
+        return unless queue_declare_allowed?(frame)
         @vhost.apply(frame)
         @last_queue_name = frame.queue_name
         if frame.exclusive
@@ -900,6 +896,24 @@ module LavinMQ
         unless frame.no_wait
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
         end
+      end
+
+      private def queue_declare_allowed?(frame) : Bool
+        queue = frame.queue_name
+        # Dead lettering reads from the queue and publishes to the DLX
+        dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
+        if !@vhost.flow?
+          send_precondition_failed(frame, "Server low on disk space, can not create queue")
+        elsif !@user.can_config?(@vhost.name, queue)
+          send_access_refused(frame, "User '#{@user.name}' doesn't have configure permissions to queue '#{queue}'")
+        elsif dlx && !@user.can_read?(@vhost.name, queue)
+          send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to queue '#{queue}'")
+        elsif dlx && !@user.can_write?(@vhost.name, dlx)
+          send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to exchange '#{dlx}'")
+        else
+          return true
+        end
+        false
       end
 
       private def bind_queue(frame)

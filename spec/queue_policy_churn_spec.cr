@@ -60,6 +60,20 @@ class GatedPolicyExpireQueue < LavinMQ::AMQP::Queue
   end
 end
 
+# Its next pass of the limits stops on a store error, as a transient one would
+class FailingDropQueue < LavinMQ::AMQP::DurableQueue
+  property? fail_drop = false
+
+  private def drop_overflow(dlx_tasks : LavinMQ::AMQP::Argument::DeadLettering::Tasks? = nil) : Nil
+    if fail_drop?
+      @fail_drop = false
+      pause_on_store_error(LavinMQ::MessageStore::Error.new(@msg_store.@wfile))
+      return
+    end
+    super
+  end
+end
+
 private def churn_policy(definition)
   LavinMQ::Policy.new("churn", "/", /.*/, LavinMQ::Policy::Target::Queues,
     JSON.parse(definition.to_json).as_h, 0i8)
@@ -213,7 +227,7 @@ describe "Queue policy churn" do
     end
   end
 
-  it "releases the limits guard after a store error and enforces policies after restart" do
+  it "releases the limits guard after a store error" do
     with_amqp_server do |s|
       queue = LavinMQ::AMQP::DurableQueue.create(s.vhosts["/"], "store_failure")
       3.times { queue.publish(LavinMQ::Message.new("", queue.name, "body")) }
@@ -221,58 +235,30 @@ describe "Queue policy churn" do
       queue.apply_policy(churn_policy({"max-length" => 1}), nil)
       should_eventually(be_false) { queue.@policy_limits_fiber_active.get }
       queue.@policy_limits_pending.get.should be_false
-
-      queue.close
-      queue.restart!.should be_true
-      should_eventually(eq 1) { queue.message_count }
-      should_eventually(be_false) { queue.@policy_limits_fiber_active.get }
     ensure
       queue.try &.delete
     end
   end
 
-  it "coalesces into a limits worker blocked across restart and uses the new policy" do
+  it "enforces the limits before a queue a store error paused is resumed" do
     with_amqp_server do |s|
-      queue = LavinMQ::AMQP::DurableQueue.create(s.vhosts["/"], "limits_restart")
-      10.times { queue.publish(LavinMQ::Message.new("", queue.name, "body")) }
-      queue.@msg_store_lock.synchronize do
-        queue.apply_policy(churn_policy({"max-length" => 1}), nil)
-        should_eventually(be_false) { queue.@policy_limits_pending.get }
-        queue.close
-        queue.apply_policy(churn_policy({"max-length" => 8}), nil)
-        queue.restart!.should be_true
-        20.times { queue.reapply_policy }
-        Fiber.yield
-        workers = 0
-        Fiber.list do |fiber|
-          workers += 1 if fiber.name == "Queue#apply_policy_limits #{queue.vhost.name}/#{queue.name}"
-        end
-        workers.should eq 1
-      end
-      should_eventually(be_false) { queue.@policy_limits_fiber_active.get }
-      queue.message_count.should eq 8
+      queue = FailingDropQueue.create(s.vhosts["/"], "limits_resume")
+      s.vhosts["/"].register_queue(queue)
+      4.times { queue.publish(LavinMQ::Message.new("", queue.name, "body")) }
+      queue.fail_drop = true
+      queue.apply_policy(churn_policy({"max-length" => 1}), nil)
+      should_eventually(be_true) { queue.state.paused? }
+      queue.message_count.should eq 4
+      # The limits fail again: still paused, nothing delivered that they'd drop
+      queue.fail_drop = true
+      queue.resume!
+      queue.state.paused?.should be_true
+      queue.message_count.should eq 4
+      # Enforced before the queue runs again
+      queue.resume!
+      queue.state.running?.should be_true
+      queue.message_count.should eq 1
     ensure
-      queue.try &.delete
-    end
-  end
-
-  it "keeps one expiration worker across restart while waiting for the vhost to open" do
-    with_amqp_server do |s|
-      vhost = s.vhosts["/"]
-      vhost.closed.set(true)
-      queue = LavinMQ::AMQP::DurableQueue.create(vhost, "expiry_restart",
-        arguments: LavinMQ::AMQP::Table.new({"x-expires" => 60_000}))
-      vhost.register_queue(queue)
-      Fiber.yield
-      queue.close
-      queue.restart!.should be_true
-      queue_expire_fibers(queue).should eq 1
-      vhost.closed.set(false)
-      queue.apply_policy(churn_policy({"expires" => 100}), nil)
-      should_eventually(be_true) { queue.closed? }
-      should_eventually(eq 0) { queue_expire_fibers(queue) }
-    ensure
-      s.try &.vhosts["/"].closed.set(false)
       queue.try &.delete
     end
   end
@@ -321,7 +307,7 @@ describe "Queue policy re-apply" do
         wg.add(1)
         ctx.spawn do
           until Time.instant >= deadline
-            queue.reapply_policy
+            queue.apply_policy(queue.policy, queue.operator_policy)
             Fiber.yield
           end
         ensure

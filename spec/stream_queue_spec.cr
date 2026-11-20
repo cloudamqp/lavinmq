@@ -24,6 +24,30 @@ module StreamSpecHelpers
     end
   end
 
+  # Resident kB of the mapping of `path` in this process, from /proc/self/smaps
+  def self.mapped_rss_kb(path : String) : Int32
+    in_mapping = false
+    File.each_line("/proc/self/smaps") do |line|
+      if line.ends_with?(path)
+        in_mapping = true
+      elsif in_mapping && line.starts_with?("Rss:")
+        return line.split[1].to_i
+      end
+    end
+    fail("No mapping found for #{path}")
+  end
+
+  T0 = Time.unix(1_700_000_000)
+
+  # Pushes `count` messages to `store`, the i:th (0-based) published at T0 + i seconds
+  def self.push(store, count, bodysize = 10, headers = nil) : Array(LavinMQ::SegmentPosition)
+    Array.new(count) do |i|
+      ts = (T0 + i.seconds).to_unix_ms
+      props = AMQ::Protocol::Properties.new(headers: headers)
+      store.push LavinMQ::Message.new(ts, "e", "k", props, bodysize.to_u64, IO::Memory.new("a" * bodysize))
+    end
+  end
+
   def self.offset_from_headers(headers)
     if headers
       headers["x-stream-offset"].as(Int64)
@@ -328,7 +352,7 @@ describe LavinMQ::AMQP::Stream do
           spawn(name: "offset sampler") do
             until done
               if consumer = stream.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer)
-                observed << consumer.offset
+                observed << consumer.cursor.offset
               end
               Fiber.yield
             end
@@ -377,7 +401,7 @@ describe LavinMQ::AMQP::Stream do
           spawn(name: "offset sampler") do
             until done
               if consumer = stream.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer)
-                observed << consumer.offset
+                observed << consumer.cursor.offset
               end
               Fiber.yield
             end
@@ -808,7 +832,7 @@ describe LavinMQ::AMQP::Stream do
             consumer = wait_for { q.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer) }
             store = q.stream_msg_store
             mfile = nil
-            q.consume_get(consumer) do |env|
+            q.consume_get(consumer.cursor) do |env|
               seg = env.segment_position.segment
               mfile = store.@segments[seg]
               20.times do
@@ -841,7 +865,7 @@ describe LavinMQ::AMQP::Stream do
             consumer = wait_for { q.consumers.first?.as?(LavinMQ::AMQP::StreamConsumer) }
             store = q.stream_msg_store
             mfile = nil
-            q.consume_get(consumer) do |env|
+            q.consume_get(consumer.cursor) do |env|
               seg = env.segment_position.segment
               mfile = store.@segments[seg]
               policy = s.vhosts["/"].add_policy("mlb", qname, "queues",
@@ -866,12 +890,9 @@ describe LavinMQ::AMQP::Stream do
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
           q.message_count.should eq 3
-
-          stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-          stream.close
-          stream.restart!
-          stream.message_count.should eq 3
         end
+        restart_server(s)
+        s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).message_count.should eq 3
       end
     end
   end
@@ -933,12 +954,12 @@ describe LavinMQ::AMQP::Stream do
         1500.times { stream.publish(LavinMQ::Message.new("", queue_name, data)) }
         store.@segments.size.should be > 2
         offsets = Hash(LavinMQ::SegmentPosition, Int64).new
-        store.@segments.each_key do |seg|
-          pos = 4u32
-          while env = store.read(seg, pos)
+        stream.@msg_store_lock.synchronize do
+          cursor = store.cursor(LavinMQ::AMQP::StreamOffset::First.new)
+          while env = store.shift?(cursor)
             offsets[env.segment_position] = offsets.size.to_i64 + 1
-            pos += env.segment_position.bytesize
           end
+          cursor.close
         end
         offsets.size.should eq 1500
 
@@ -947,17 +968,19 @@ describe LavinMQ::AMQP::Stream do
         q.subscribe(no_ack: false) { }
         wait_for { stream.@consumers.size == 1 }
         consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
+        # The cursor pins its segment from its first read
+        stream.@msg_store_lock.synchronize { store.shift?(consumer.cursor) }.should_not be_nil
         {offsets.keys, offsets.keys.shuffle!}.each do |sps|
-          sps.each { |sp| stream.push_requeued(consumer, sp) }
+          sps.each { |sp| stream.requeue(consumer.cursor, sp) }
           sps.each do |sp|
-            env = stream.@msg_store_lock.synchronize { store.shift?(consumer) }.should_not be_nil
+            env = stream.@msg_store_lock.synchronize { store.shift?(consumer.cursor) }.should_not be_nil
             env.segment_position.should eq sp
             headers = env.message.properties.headers.should_not be_nil
             headers["x-stream-offset"].should eq offsets[sp]
           end
         end
         # Only the segments that are read or written keep their index
-        store.@offset_index.keys.to_set.should eq Set{consumer.segment, store.@segments.last_key}
+        store.@offset_index.keys.to_set.should eq Set{consumer.cursor.segment, store.@segments.last_key}
       end
     end
   end
@@ -1027,6 +1050,18 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "raises ClosedError for a cursor from a stored offset on a closed store" do
+      with_datadir do |data_dir|
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.push(LavinMQ::Message.new("", "q", "m"))
+        msg_store.store_consumer_offset("tag", 1)
+        msg_store.close
+        expect_raises(LavinMQ::MessageStore::ClosedError) do
+          msg_store.cursor(LavinMQ::AMQP::StreamOffset::First.new, stored_offset_tag: "tag")
+        end
+      end
+    end
+
     it "appends consumer tag file" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]
@@ -1079,16 +1114,60 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
-    # Closing the store runs StreamMessageStore#close, which closes state
-    # that is only set up after loading, and crashed the process
-    it "closes instead of crashing when a segment has an unsupported schema version" do
+    it "loads as failed when a segment has an unsupported schema version" do
       with_datadir do |data_dir|
         File.write(File.join(data_dir, "msgs.0000000001"), "\x09\x00\x00\x00")
-        LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil).closed.should be_true
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.failed?.should be_true
+        store.closed.should be_false
+        store.close
       end
     end
 
-    it "closes instead of crashing when a record in a segment can't be decoded" do
+    it "closes only the channel of a consumer whose seek reaches data it can't read" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("seek-consume", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          3.times { |i| q.publish_confirm "m#{i}" }
+        end
+        stream = s.vhosts["/"].queue("seek-consume").as(LavinMQ::AMQP::Stream)
+        mfile = stream.stream_msg_store.@segments.first_value
+        # The body size of the first message, past the end of the segment
+        write_at(mfile.path, 4 + 8 + 1 + 1 + "seek-consume".bytesize + AMQ::Protocol::Properties.new.bytesize, 10_000_000_u64)
+        conn = AMQP::Client.new(port: amqp_port(s)).connect
+        begin
+          ch = conn.channel
+          ch.prefetch 1
+          # No offset given: the default start seeks from the first message
+          expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED/) do
+            ch.queue("seek-consume", passive: true).subscribe(no_ack: false) { }
+          end
+          stream.state.failed?.should be_true
+          conn.closed?.should be_false
+          conn.channel.queue("other").publish_confirm("x").should be_true
+        ensure
+          conn.close
+        end
+      end
+    end
+
+    it "schedules no retention for a stream that failed to load" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        body = "x" * (LavinMQ::Config.instance.segment_size // 2)
+        3.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+        store.close
+        write_at(File.join(data_dir, "msgs.0000000002"), 0, LavinMQ::Schema::VERSION + 1)
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.failed?.should be_true
+        store.max_age = 1.millisecond
+        # Else the max-age loop would wake for a segment it never drops
+        store.next_expiry.should be_nil
+        store.close
+      end
+    end
+
+    it "loads as failed when a record in a segment can't be decoded" do
       with_datadir do |data_dir|
         io = IO::Memory.new
         io.write_bytes LavinMQ::Schema::VERSION
@@ -1098,21 +1177,92 @@ describe LavinMQ::AMQP::Stream do
         io.write_bytes 0_u16       # property flags
         io.write_bytes UInt64::MAX # body size, overflows when skipped
         File.write(File.join(data_dir, "msgs.0000000001"), io.to_slice)
-        LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil).closed.should be_true
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.failed?.should be_true
+        store.closed.should be_false
+        store.close
       end
     end
 
-    it "starts with a stream queue whose segment is corrupt, and closes that queue" do
+    it "keeps a stream paused over a restart of the broker" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q = ch.queue("corrupt-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
-          q.publish_confirm "x"
+          ch.queue("paused-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
         end
-        segment = File.join(s.vhosts["/"].queue("corrupt-stream").@data_dir, "msgs.0000000001")
-        File.open(segment, "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        s.vhosts["/"].queue("paused-stream").pause!
         restart_server(s)
-        s.vhosts["/"].queue("corrupt-stream").closed?.should be_true
-        with_channel(s) { |ch| ch.queue("other").publish_confirm("x").should be_true }
+        stream = s.vhosts["/"].queue("paused-stream")
+        stream.state.paused?.should be_true
+        stream.resume!
+        stream.state.running?.should be_true
+      end
+    end
+
+    it "starts with a stream whose segment is corrupt failed, refusing publishes and purges until it's deleted" do
+      with_amqp_server do |s|
+        args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
+        with_channel(s) do |ch|
+          q = ch.queue("corrupt-stream", args: args)
+          2.times { q.publish_confirm "x" }
+        end
+        data_dir = s.vhosts["/"].queue("corrupt-stream").@data_dir
+        File.open(File.join(data_dir, "msgs.0000000001"), "r+", &.write_bytes(9_u32)) # an unsupported schema version
+        restart_server(s)
+        stream = s.vhosts["/"].queue("corrupt-stream").as(LavinMQ::AMQP::Stream)
+        stream.closed?.should be_false
+        stream.state.failed?.should be_true
+        with_channel(s) do |ch|
+          ch.queue("other").publish_confirm("x").should be_true
+          ch.prefetch 1
+          q = ch.queue("corrupt-stream", args: args)
+          msgs = Channel(AMQP::Client::DeliverMessage).new(4)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset" => "first"})) do |msg|
+            msgs.send msg
+            msg.ack
+          end
+          # Nacked: it would be lost with the rest when the stream is deleted
+          q.publish_confirm("while failed").should be_false
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { stream.resume! }
+          stream.state.failed?.should be_true
+          select
+          when msgs.receive then fail "delivered a message from a stream that can't be read"
+          when timeout 100.milliseconds
+          end
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { stream.purge }
+        end
+        with_channel(s) do |ch|
+          ch.queue_delete("corrupt-stream")
+          Dir.exists?(data_dir).should be_false
+          q = ch.queue("corrupt-stream", args: args)
+          q.publish_confirm("new").should be_true
+          s.vhosts["/"].queue("corrupt-stream").state.running?.should be_true
+        end
+      end
+    end
+
+    it "fails a stream when a consumer reaches a message that can't be read, refusing publishes" do
+      with_amqp_server do |s|
+        args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("corrupt-read", args: args)
+          3.times { |i| q.publish_confirm "m#{i}" }
+          stream = s.vhosts["/"].queue("corrupt-read").as(LavinMQ::AMQP::Stream)
+          segment = stream.@msg_store.@segments.first_value
+          # The body size of the first message, published to the default exchange
+          write_at(segment.path, 4 + 8 + 1 + 1 + "corrupt-read".bytesize + AMQ::Protocol::Properties.new.bytesize, UInt64::MAX)
+          msgs = Channel(AMQP::Client::DeliverMessage).new(4)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset" => "first"})) do |msg|
+            msgs.send msg
+            msg.ack
+          end
+          should_eventually(be_true) { stream.state.failed? }
+          stream.closed?.should be_false
+          ch.closed?.should be_false
+          q.publish_confirm("new").should be_false
+          expect_raises(LavinMQ::Error::PreconditionFailed, /can't be read/) { stream.purge }
+          stream.message_count.should eq 3
+        end
       end
     end
 
@@ -1491,25 +1641,20 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  describe "Restarting stream" do
+  describe "Restarting the broker" do
     queue_name = Random::Secure.hex
-    it "should restart a closed stream" do
+    it "should load a stream" do
       with_amqp_server do |s|
+        args = {"x-queue-type": "stream"}
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+          q.publish_confirm "test message"
+        end
+        restart_server(s)
         with_channel(s) do |ch|
           ch.prefetch 1
-          args = {"x-queue-type": "stream"}
           q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
           stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-          q.publish_confirm "test message"
-          stream.message_count.should eq 1
-
-          # Close the stream
-          stream.close
-          stream.closed?.should be_true
-
-          # Restart the stream & verify
-          stream.restart!
-          stream.closed?.should be_false
           stream.message_count.should eq 1
 
           msgs = Channel(AMQP::Client::DeliverMessage).new
@@ -1520,7 +1665,7 @@ describe LavinMQ::AMQP::Stream do
           if msg = msgs.receive
             msg.body_io.to_s.should eq "test message"
           else
-            fail("Did not receive message after stream restart")
+            fail("Did not receive message after the restart")
           end
         end
       end
@@ -1538,11 +1683,7 @@ describe LavinMQ::AMQP::Stream do
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
 
-        stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
-        stream.close
-        stream.closed?.should be_true
-        stream.restart!
-        stream.closed?.should be_false
+        restart_server(s)
 
         # should continue from tracked offset
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
@@ -1625,7 +1766,11 @@ describe LavinMQ::AMQP::Stream do
 
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         store.@size.should eq 2
-        env = store.read(seg_id, torn_pos).should_not be_nil
+        offset = LavinMQ::AMQP::StreamOffset::Absolute.new(2)
+        cursor = store.cursor(offset)
+        env = store.shift?(cursor).should_not be_nil
+        env.segment_position.segment.should eq seg_id
+        env.segment_position.position.should eq torn_pos
         String.new(env.message.body).should eq body
         store.close
       end
@@ -1820,7 +1965,7 @@ describe LavinMQ::AMQP::Stream do
             sleep 100.milliseconds # any duplicate redelivery
             stream.@redeliver_count.get.should eq msg_count
             consumer.unacked.should eq msg_count
-            consumer.requeued.should be_empty
+            consumer.cursor.requeued.should be_empty
           end
         end
       end
@@ -1844,21 +1989,25 @@ describe LavinMQ::AMQP::Stream do
             end
             6.times { msgs.receive.ack }
             consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
-            wait_for { consumer.segment != first_seg }
+            wait_for { consumer.cursor.segment != first_seg }
             # Stop the deliver loop so the spec drives the redeliveries
             ch.flow(false)
 
-            env1 = store.read(first_seg, 4u32).should_not be_nil
-            sp1 = env1.segment_position
-            env2 = store.read(first_seg, 4u32 + sp1.bytesize).should_not be_nil
-            sp2 = env2.segment_position
-            consumer.requeued.push(sp1)
-            consumer.requeued.push(sp2)
+            sp1, sp2 = stream.@msg_store_lock.synchronize do
+              cursor = store.cursor(LavinMQ::AMQP::StreamOffset::First.new)
+              sps = Array.new(2) { store.shift?(cursor).not_nil!.segment_position }
+              cursor.close
+              sps
+            end
+            sp1.segment.should eq first_seg
+            sp2.segment.should eq first_seg
+            consumer.cursor.requeue(sp1)
+            consumer.cursor.requeue(sp2)
 
-            stream.@msg_store_lock.synchronize { store.shift?(consumer) }
-            mapped_rss_kb(first.path).should be > 0
-            stream.@msg_store_lock.synchronize { store.shift?(consumer) }
-            mapped_rss_kb(first.path).should eq 0
+            stream.@msg_store_lock.synchronize { store.shift?(consumer.cursor) }
+            StreamSpecHelpers.mapped_rss_kb(first.path).should be > 0
+            stream.@msg_store_lock.synchronize { store.shift?(consumer.cursor) }
+            StreamSpecHelpers.mapped_rss_kb(first.path).should eq 0
           end
         end
       end
@@ -1936,7 +2085,7 @@ describe LavinMQ::AMQP::Stream do
             store = stream.stream_msg_store
             first = store.@segments.first_value
             vm_flags(first.path).should contain "rr"
-            stream.@msg_store_lock.synchronize { store.find_offset(1i64) }
+            stream.@msg_store_lock.synchronize { store.find_offset(LavinMQ::AMQP::StreamOffset::Absolute.new(1)) }
             vm_flags(first.path).should_not contain "rr"
             vm_flags(first.path).should_not contain "sr"
           end
@@ -1991,6 +2140,320 @@ describe LavinMQ::AMQP::Stream do
           wait_for { store.@segment_readers == {seg => 1u32} }
         end
       end
+    end
+  end
+end
+
+describe LavinMQ::AMQP::StreamOffset do
+  describe ".from_amqp" do
+    it "parses first, last and next" do
+      LavinMQ::AMQP::StreamOffset.from_amqp("first").should eq LavinMQ::AMQP::StreamOffset::First.new
+      LavinMQ::AMQP::StreamOffset.from_amqp("last").should eq LavinMQ::AMQP::StreamOffset::Last.new
+      LavinMQ::AMQP::StreamOffset.from_amqp("next").should eq LavinMQ::AMQP::StreamOffset::Next.new
+    end
+
+    it "parses non-negative integers of any width as absolute offsets" do
+      LavinMQ::AMQP::StreamOffset.from_amqp(0).should eq LavinMQ::AMQP::StreamOffset::Absolute.new(0)
+      LavinMQ::AMQP::StreamOffset.from_amqp(5u8).should eq LavinMQ::AMQP::StreamOffset::Absolute.new(5)
+      LavinMQ::AMQP::StreamOffset.from_amqp(7i64).should eq LavinMQ::AMQP::StreamOffset::Absolute.new(7)
+    end
+
+    it "parses negative integers as a count from the end" do
+      LavinMQ::AMQP::StreamOffset.from_amqp(-2).should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(2)
+    end
+
+    it "saturates Int64::MIN" do
+      LavinMQ::AMQP::StreamOffset.from_amqp(Int64::MIN).should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(Int64::MAX)
+    end
+
+    it "parses timestamps" do
+      t = Time.unix(1_700_000_000)
+      LavinMQ::AMQP::StreamOffset.from_amqp(t).should eq LavinMQ::AMQP::StreamOffset::Timestamp.new(t)
+    end
+
+    it "returns nil when no offset is given" do
+      LavinMQ::AMQP::StreamOffset.from_amqp(nil).should be_nil
+    end
+
+    it "rejects other values" do
+      ["foo", 1.5, true].each do |value|
+        expect_raises(LavinMQ::Error::PreconditionFailed, /x-stream-offset must be/) do
+          LavinMQ::AMQP::StreamOffset.from_amqp(value)
+        end
+      end
+    end
+  end
+
+  describe ".parse" do
+    it "parses first, last, next and non-negative integers" do
+      LavinMQ::AMQP::StreamOffset.parse("first").should eq LavinMQ::AMQP::StreamOffset::First.new
+      LavinMQ::AMQP::StreamOffset.parse("last").should eq LavinMQ::AMQP::StreamOffset::Last.new
+      LavinMQ::AMQP::StreamOffset.parse("next").should eq LavinMQ::AMQP::StreamOffset::Next.new
+      LavinMQ::AMQP::StreamOffset.parse("12").should eq LavinMQ::AMQP::StreamOffset::Absolute.new(12)
+    end
+
+    it "parses negative integers as a count from the end, like x-stream-offset" do
+      LavinMQ::AMQP::StreamOffset.parse("-2").should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(2)
+      LavinMQ::AMQP::StreamOffset.parse(-2i64).should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(2)
+      LavinMQ::AMQP::StreamOffset.parse(Int64::MIN).should eq LavinMQ::AMQP::StreamOffset::FromEnd.new(Int64::MAX)
+    end
+
+    it "parses integers" do
+      LavinMQ::AMQP::StreamOffset.parse(12i64).should eq LavinMQ::AMQP::StreamOffset::Absolute.new(12)
+    end
+
+    it "parses ISO 8601 timestamps" do
+      time = Time.utc(2026, 11, 17, 15, 4, 38)
+      ["2026-11-17T15:04:38Z", "2026-11-17T16:04:38+01:00"].each do |value|
+        LavinMQ::AMQP::StreamOffset.parse(value).should eq LavinMQ::AMQP::StreamOffset::Timestamp.new(time)
+      end
+    end
+
+    it "defaults to first" do
+      LavinMQ::AMQP::StreamOffset.parse(nil).should eq LavinMQ::AMQP::StreamOffset::First.new
+    end
+
+    it "rejects anything else" do
+      ["foo", "1.5", "", "-", "99999999999999999999", "2026-13-45T00:00:00Z", 1.5, true, [1]].each do |value|
+        expect_raises(LavinMQ::AMQP::StreamOffset::Error, "invalid offset #{value}") do
+          LavinMQ::AMQP::StreamOffset.parse(value)
+        end
+      end
+    end
+  end
+end
+
+describe "LavinMQ::AMQP::StreamMessageStore#find_offset" do
+  t0 = StreamSpecHelpers::T0
+
+  it "resolves offsets within one segment" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 5, 10)
+      store.last_offset.should eq 5
+      find = ->(o : LavinMQ::AMQP::StreamOffset::Any) { store.find_offset(o)[0] }
+      find.call(LavinMQ::AMQP::StreamOffset::First.new).should eq 1
+      find.call(LavinMQ::AMQP::StreamOffset::Last.new).should eq 1 # first message of the last segment
+      find.call(LavinMQ::AMQP::StreamOffset::Next.new).should eq 6
+      find.call(LavinMQ::AMQP::StreamOffset::Absolute.new(0)).should eq 1
+      find.call(LavinMQ::AMQP::StreamOffset::Absolute.new(3)).should eq 3
+      find.call(LavinMQ::AMQP::StreamOffset::Absolute.new(5)).should eq 5
+      find.call(LavinMQ::AMQP::StreamOffset::Absolute.new(100)).should eq 6
+      find.call(LavinMQ::AMQP::StreamOffset::FromEnd.new(1)).should eq 5
+      find.call(LavinMQ::AMQP::StreamOffset::FromEnd.new(2)).should eq 4
+      find.call(LavinMQ::AMQP::StreamOffset::FromEnd.new(100)).should eq 1
+      find.call(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 - 1.second)).should eq 1
+      find.call(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 + 2.seconds)).should eq 3
+      find.call(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 + 2500.milliseconds)).should eq 4
+      find.call(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 + 1.minute)).should eq 6
+      store.close
+    end
+  end
+
+  it "returns the segment and position of the offset" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 2, 10)
+      first_seg = store.@segments.first_key
+      store.find_offset(LavinMQ::AMQP::StreamOffset::First.new).should eq({1i64, first_seg, 4u32})
+      _, seg, pos = store.find_offset(LavinMQ::AMQP::StreamOffset::Absolute.new(2))
+      seg.should eq first_seg
+      pos.should be > 4u32
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Next.new).should eq({3i64, first_seg, store.@segments.last_value.size.to_u32})
+      store.close
+    end
+  end
+
+  it "resolves offsets across segments" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 3, LavinMQ::Config.instance.segment_size // 2)
+      store.@segments.size.should be >= 2
+      last_seg = store.@segments.last_key
+      last_first_offset = store.@segment_first_offset[last_seg]
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Last.new).should eq({last_first_offset, last_seg, 4u32})
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Absolute.new(3))[0].should eq 3
+      store.find_offset(LavinMQ::AMQP::StreamOffset::FromEnd.new(1))[0].should eq 3
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Timestamp.new(t0 + 1.second))[0].should eq 2
+      store.close
+    end
+  end
+
+  it "resolves offsets below a segment dropped by retention to the first retained" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 3, LavinMQ::Config.instance.segment_size // 2)
+      store.max_length = 1
+      store.drop_overflow
+      first_retained = store.@segment_first_offset[store.@segments.first_key]
+      first_retained.should be > 1
+      store.find_offset(LavinMQ::AMQP::StreamOffset::Absolute.new(1))[0].should eq first_retained
+      store.find_offset(LavinMQ::AMQP::StreamOffset::First.new)[0].should eq first_retained
+      store.find_offset(LavinMQ::AMQP::StreamOffset::FromEnd.new(100))[0].should eq first_retained
+      store.close
+    end
+  end
+
+  it "raises ClosedError when the store is closed" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      store.close
+      expect_raises(LavinMQ::MessageStore::ClosedError) do
+        store.find_offset(LavinMQ::AMQP::StreamOffset::First.new)
+      end
+    end
+  end
+end
+
+describe LavinMQ::AMQP::StreamCursor do
+  big = LavinMQ::Config.instance.segment_size // 2
+  first = LavinMQ::AMQP::StreamOffset::First.new
+
+  offsets = ->(store : LavinMQ::AMQP::StreamMessageStore, cursor : LavinMQ::AMQP::StreamCursor) do
+    result = [] of Int64
+    while env = store.shift?(cursor)
+      result << StreamSpecHelpers.offset_from_headers(env.message.properties.headers)
+    end
+    result
+  end
+
+  it "reads messages in order across segments, with their offsets" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 3, big)
+      store.@segments.size.should be >= 2
+      cursor = store.cursor(first)
+      offsets.call(store, cursor).should eq [1, 2, 3]
+      cursor.offset.should eq 4
+      StreamSpecHelpers.push(store, 1)
+      offsets.call(store, cursor).should eq [4]
+      store.close
+    end
+  end
+
+  it "is caught up at first/last on an empty stream" do
+    [first, LavinMQ::AMQP::StreamOffset::Last.new].each do |start|
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        cursor = store.cursor(start)
+        cursor.caught_up?.should be_true
+        StreamSpecHelpers.push(store, 1)
+        offsets.call(store, cursor).should eq [1]
+        store.close
+      end
+    end
+  end
+
+  it "starts at the resolved offset" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 5)
+      cursor = store.cursor(LavinMQ::AMQP::StreamOffset::FromEnd.new(2))
+      offsets.call(store, cursor).should eq [4, 5]
+      store.close
+    end
+  end
+
+  it "steps over messages not matching its filter one shift at a time" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      foo = AMQ::Protocol::Table.new({"x-stream-filter-value": "foo"})
+      bar = AMQ::Protocol::Table.new({"x-stream-filter-value": "bar"})
+      StreamSpecHelpers.push(store, 1, headers: bar)
+      StreamSpecHelpers.push(store, 1, headers: foo)
+      filter = LavinMQ::AMQP::ConsumerFilter.from_arguments(AMQ::Protocol::Table.new({"x-stream-filter": "foo"}))
+      cursor = store.cursor(first, filter)
+      store.shift?(cursor).should be_nil
+      cursor.offset.should eq 2
+      env = store.shift?(cursor).should_not be_nil
+      StreamSpecHelpers.offset_from_headers(env.message.properties.headers).should eq 2
+      cursor.caught_up?.should be_true
+      store.close
+    end
+  end
+
+  it "redelivers requeued messages first" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 3)
+      cursor = store.cursor(first)
+      sp = store.shift?(cursor).should_not be_nil
+      store.shift?(cursor)
+      cursor.requeue(sp.segment_position)
+      env = store.shift?(cursor).should_not be_nil
+      env.redelivered.should be_true
+      StreamSpecHelpers.offset_from_headers(env.message.properties.headers).should eq 1
+      env = store.shift?(cursor).should_not be_nil
+      env.redelivered.should be_false
+      StreamSpecHelpers.offset_from_headers(env.message.properties.headers).should eq 3
+      store.close
+    end
+  end
+
+  it "skips requeued messages whose segment was dropped" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      sps = StreamSpecHelpers.push(store, 3, big)
+      cursor = store.cursor(LavinMQ::AMQP::StreamOffset::Absolute.new(3))
+      cursor.requeue(sps.first)
+      store.max_length = 1
+      store.drop_overflow
+      store.@segments.has_key?(sps.first.segment).should be_false
+      offsets.call(store, cursor).should eq [3]
+      store.close
+    end
+  end
+
+  it "continues at the first retained offset when its segment is dropped" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 6, LavinMQ::Config.instance.segment_size // 3) # two per segment
+      cursor = store.cursor(first)
+      store.shift?(cursor) # stays in the first segment
+      store.max_length = 2
+      store.drop_overflow
+      store.@segments.has_key?(cursor.segment).should be_false
+      first_retained = store.@segment_first_offset[store.@segments.first_key]
+      first_retained.should be > 2
+      offsets.call(store, cursor).should eq (first_retained..6).to_a
+      store.close
+    end
+  end
+
+  it "is caught up when there is nothing to read" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 1)
+      cursor = store.cursor(first)
+      cursor.caught_up?.should be_false
+      env = store.shift?(cursor).should_not be_nil
+      cursor.caught_up?.should be_true
+      cursor.requeue(env.segment_position)
+      cursor.caught_up?.should be_false
+      store.close
+    end
+  end
+
+  it "pins its segment from the first shift until closed" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 3, big)
+      first_seg = store.@segments.first_key
+      last_seg = store.@segments.last_key
+      cursor = store.cursor(first)
+      store.@segment_readers.should be_empty
+      store.shift?(cursor)
+      store.@segment_readers.should eq({first_seg => 1u32})
+      offsets.call(store, cursor)
+      store.@segment_readers.should eq({last_seg => 1u32})
+      cursor.close
+      store.@segment_readers.should be_empty
+      cursor.close
+      store.@segment_readers.should be_empty
+      StreamSpecHelpers.push(store, 1)
+      store.shift?(cursor).should be_nil
+      store.@segment_readers.should be_empty
+      store.close
     end
   end
 end
