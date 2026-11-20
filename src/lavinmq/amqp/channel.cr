@@ -881,21 +881,17 @@ module LavinMQ
 
       # Iterate over all unacked messages and see if any has been unacked longer than the queue's consumer timeout
       def check_consumer_timeout
-        @unack_lock.synchronize do
-          queues = Set(Queue).new # only check first delivered message per queue
-          @unacked.each do |unack|
-            if queues.add? unack.queue
-              if timeout = unack.queue.consumer_timeout
-                unacked_ms = RoughTime.instant - unack.delivered_at
-                if unacked_ms > timeout.milliseconds
-                  code = ChannelReplyCode::PRECONDITION_FAILED
-                  send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, "consumer timeout"), 60_u16, 20_u16)
-                  break
-                end
-              end
-            end
+        queues = Set(Queue).new # only check first delivered message per queue
+        timed_out = @unack_lock.synchronize do
+          @unacked.any? do |unack|
+            next false unless queues.add? unack.queue
+            next false unless timeout = unack.queue.consumer_timeout
+            RoughTime.instant - unack.delivered_at > timeout.milliseconds
           end
         end
+        return unless timed_out
+        code = ChannelReplyCode::PRECONDITION_FAILED
+        send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, "consumer timeout"), 60_u16, 20_u16)
       end
 
       def has_capacity? : Bool
