@@ -265,28 +265,86 @@ describe LavinMQ::HTTP::BindingsController do
       end
     end
 
-    it "is not found by the binding routes" do
+    it "lists, adds and removes a session's subscriptions" do
       with_http_server do |http, s|
         declare_mqtt_subscription(s, "mqtt.sub", "a", 1u8)
+        x = LavinMQ::MQTT::EXCHANGE
+        {"/api/exchanges/%2f/#{x}/bindings/source", "/api/bindings/%2f/e/#{x}/q/mqtt.sub"}.each do |path|
+          response = http.get(path)
+          response.status_code.should eq 200
+          JSON.parse(response.body).as_a.map(&.["routing_key"]).should eq ["a"]
+        end
+
+        response = http.post("/api/bindings/%2f/e/#{x}/q/mqtt.sub",
+          body: %({"routing_key": "b/#", "arguments": {"mqtt.qos": 0}}))
+        response.status_code.should eq 201
+        session = s.vhosts["/"].session("mqtt.sub")
+        subscriptions = s.vhosts["/"].session_subscriptions(session)
+        subscriptions.map { |b| {b.routing_key, b.binding_key.qos} }.sort!.should eq [{"a", 1u8}, {"b/#", 0u8}]
+
+        props = URI.encode_path_segment(subscriptions.find!(&.routing_key.== "b/#").binding_key.properties_key)
+        http.get("/api/bindings/%2f/e/#{x}/q/mqtt.sub/#{props}").status_code.should eq 200
+        http.delete("/api/bindings/%2f/e/#{x}/q/mqtt.sub/#{props}").status_code.should eq 204
+        s.vhosts["/"].session_subscriptions(session).map(&.routing_key).should eq ["a"]
+      end
+    end
+
+    it "needs read on it and write on the session to change subscriptions" do
+      with_http_server do |http, s|
+        declare_mqtt_subscription(s, "mqtt.sub", "a", 1u8)
+        session = s.vhosts["/"].session("mqtt.sub")
+        props = URI.encode_path_segment(s.vhosts["/"].session_subscriptions(session).first.binding_key.properties_key)
+        x = LavinMQ::MQTT::EXCHANGE
+        {
+          "noread"  => {/^$/, /.*/, "User doesn't have read permissions to exchange '#{x}'"},
+          "nowrite" => {/.*/, /^$/, "User doesn't have write permissions to queue 'mqtt.sub'"},
+        }.each do |name, (read, write, reason)|
+          s.users.create(name, "pw", [LavinMQ::Tag::Management])
+          s.users.add_permission(name, "/", /.*/, read, write)
+          hdrs = HTTP::Headers{"Authorization" => "Basic #{Base64.strict_encode("#{name}:pw")}"}
+          {
+            http.post("/api/bindings/%2f/e/#{x}/q/mqtt.sub", headers: hdrs, body: %({"routing_key": "b"})),
+            http.delete("/api/bindings/%2f/e/#{x}/q/mqtt.sub/#{props}", headers: hdrs),
+          }.each do |response|
+            response.status_code.should eq 403
+            JSON.parse(response.body)["reason"].should eq reason
+          end
+        end
+        s.vhosts["/"].session_subscriptions(session).map(&.routing_key).should eq ["a"]
+      end
+    end
+
+    it "can't be bound to an AMQP queue" do
+      with_http_server do |http, s|
+        v = s.vhosts["/"]
+        v.declare_queue("q1", false, false)
+        response = http.post("/api/bindings/%2f/e/#{LavinMQ::MQTT::EXCHANGE}/q/q1", body: %({"routing_key": "a"}))
+        response.status_code.should eq 403
+        v.queue_bindings(v.queue("q1")).map(&.source).should eq [""]
+      end
+    end
+
+    it "has no bindings to or from exchanges" do
+      with_http_server do |http, s|
         s.vhosts["/"].declare_exchange("be1", "topic", false, false)
         x = LavinMQ::MQTT::EXCHANGE
         binding = %({"routing_key": "b", "arguments": {}})
         {
-          "GET source"        => http.get("/api/exchanges/%2f/#{x}/bindings/source"),
-          "GET destination"   => http.get("/api/exchanges/%2f/#{x}/bindings/destination"),
-          "GET e/q"           => http.get("/api/bindings/%2f/e/#{x}/q/mqtt.sub"),
-          "POST e/q"          => http.post("/api/bindings/%2f/e/#{x}/q/mqtt.sub", body: binding),
-          "DELETE e/q"        => http.delete("/api/bindings/%2f/e/#{x}/q/mqtt.sub/a"),
-          "POST e/e source"   => http.post("/api/bindings/%2f/e/#{x}/e/be1", body: binding),
-          "DELETE e/e source" => http.delete("/api/bindings/%2f/e/#{x}/e/be1/b"),
-          "POST e/e dest"     => http.post("/api/bindings/%2f/e/be1/e/#{x}", body: binding),
-          "DELETE e/e dest"   => http.delete("/api/bindings/%2f/e/be1/e/#{x}/b"),
-        }.each do |route, response|
+          "GET destination"   => {http.get("/api/exchanges/%2f/#{x}/bindings/destination"), 200},
+          "GET e/e source"    => {http.get("/api/bindings/%2f/e/#{x}/e/be1"), 200},
+          "GET e/e dest"      => {http.get("/api/bindings/%2f/e/be1/e/#{x}"), 200},
+          "GET e/e missing"   => {http.get("/api/bindings/%2f/e/#{x}/e/missing"), 404},
+          "POST e/e source"   => {http.post("/api/bindings/%2f/e/#{x}/e/be1", body: binding), 403},
+          "POST e/e dest"     => {http.post("/api/bindings/%2f/e/be1/e/#{x}", body: binding), 400},
+          "GET e/e props"     => {http.get("/api/bindings/%2f/e/#{x}/e/be1/b"), 404},
+          "DELETE e/e source" => {http.delete("/api/bindings/%2f/e/#{x}/e/be1/b"), 404},
+          "DELETE e/e dest"   => {http.delete("/api/bindings/%2f/e/be1/e/#{x}/b"), 400},
+        }.each do |route, (response, status)|
           # The route is in the tuple so a failure says which one it was.
-          {route, response.status_code}.should eq({route, 404})
+          {route, response.status_code}.should eq({route, status})
+          JSON.parse(response.body).as_a.should be_empty if status == 200
         end
-        session = s.vhosts["/"].session("mqtt.sub")
-        s.vhosts["/"].session_subscriptions(session).map(&.routing_key).should eq ["a"]
+        s.vhosts["/"].exchange("be1").bindings_details.should be_empty
       end
     end
   end

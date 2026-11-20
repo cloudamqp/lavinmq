@@ -98,7 +98,7 @@ Internally, MQTT is implemented on top of LavinMQ's AMQP infrastructure:
 
 - A dedicated MQTT exchange handles topic routing
 - Each MQTT session is an AMQP queue
-- MQTT subscriptions are listed as the session queue's bindings from the MQTT exchange. The exchange itself isn't exposed in the HTTP API
+- MQTT subscriptions are shown as bindings from the MQTT exchange, `mqtt.default`, to the session queue. The HTTP API can list, add and remove them through the routes with `mqtt.default` in the path. `/api/exchanges` doesn't list the exchange, and `/api/bindings` doesn't list the subscriptions
 - The MQTT topic is used unchanged as the routing key: `/` is not translated to `.`, also not for messages delivered to AMQP consumers through an [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp)
 - Message properties are mapped between protocols (e.g., `delivery_mode` maps to QoS, `mqtt.retain` header tracks retain flag)
 
@@ -121,7 +121,7 @@ Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-
 - An `x-mqtt-topic` exchange carries all MQTT traffic in the vhost, so declaring one also needs read permission on `mqtt.default`. Binding to it needs read permission on the exchange and write permission on the queue. [Topic permissions](#topic-permissions) are not applied to AMQP destinations: read on an `x-mqtt-topic` exchange gives all MQTT topics in the vhost, so grant it with care
 - [Retained messages](#retained-messages) are not replayed when a binding is created
 - Exchanges can be bound too, see [MQTT Topic Exchange](exchanges.md#mqtt-topic-exchange)
-- `mqtt.default`, the exchange MQTT publishes go through, isn't an AMQP exchange. AMQP and the HTTP API report it as not found, so it can't be bound to or from, or used as a dead-letter exchange. Bind an `x-mqtt-topic` exchange instead
+- `mqtt.default`, the exchange MQTT publishes go through, isn't an AMQP exchange. AMQP reports it as not found, so it can't be bound to or from, or used as a dead-letter exchange. The HTTP API only binds it to MQTT sessions. Bind an `x-mqtt-topic` exchange instead
 
 ## Configuration
 

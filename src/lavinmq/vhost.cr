@@ -52,6 +52,7 @@ module LavinMQ
         unacked += q.unacked_count
       end
       each_exchange(&.update_rates(interval))
+      mqtt_exchange.update_rates(interval)
       each_session do |s|
         s.update_rates(interval)
         ready += s.message_count
@@ -625,9 +626,7 @@ module LavinMQ
     # take other locks, e.g. a federation-upstream policy reconciles its link.
     def apply_policies(resources : Array(Queue | Exchange)? = nil)
       policies, operator_policies, generation = @policy_snapshot_lock.synchronize do
-        {@policies.values.sort_by!(&.priority).reverse,
-         @operator_policies.values.sort_by!(&.priority).reverse,
-         @policy_generation += 1}
+        {*sorted_policies, @policy_generation += 1}
       end
       if r = resources
         r.each do |resource|
@@ -644,6 +643,19 @@ module LavinMQ
       end
     rescue ex : TypeCastError
       @log.error { "Invalid policy. #{ex.message}" }
+    end
+
+    # The policies `apply_policies` would apply to an exchange named *name*
+    def exchange_policies(name : String) : Tuple(Policy?, OperatorPolicy?)
+      policies, operator_policies = @policy_snapshot_lock.synchronize { sorted_policies }
+      {policies.find(&.match_exchange?(name)), operator_policies.find(&.match_exchange?(name))}
+    end
+
+    # Highest priority first, the order policies are matched in.
+    # Call with @policy_snapshot_lock held.
+    private def sorted_policies : Tuple(Array(Policy), Array(OperatorPolicy))
+      {@policies.values.sort_by!(&.priority).reverse,
+       @operator_policies.values.sort_by!(&.priority).reverse}
     end
 
     private def apply_parameters(parameter : Parameter? = nil)
