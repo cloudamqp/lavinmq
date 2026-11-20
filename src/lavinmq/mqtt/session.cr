@@ -153,7 +153,7 @@ module LavinMQ
       # A resend keeps the packet id the client already knows [MQTT-4.4.0-1],
       # unless that id is still in flight - reissuing it would overwrite the
       # `@unacked` entry holding it - or is `0`, which may not go on the wire
-      # [MQTT-2.3.1-5]. Both fall back to a fresh id.
+      # [MQTT-2.3.1-1]. Both fall back to a fresh id.
       private def delivery_id(sp : SegmentPosition) : UInt16?
         if id = @msg_store.packet_id?(sp)
           return id unless id.zero? || @unacked.has_key?(id)
@@ -258,6 +258,9 @@ module LavinMQ
         return true if msg.properties.delivery_mode == 0 && @client.nil?
         return false if @deleted || closed?
         @msg_store_lock.synchronize do
+          # Again under the lock: the fiber that held it can close the session
+          # before this one runs, and raising here would fail the whole fan-out
+          return false if closed?
           @msg_store.push(msg)
           drop_overflow
         end
@@ -299,6 +302,7 @@ module LavinMQ
             end
             delete_message(sp)
           else
+            booked = false
             begin
               id = delivery_id(sp)
               unless id
@@ -311,6 +315,11 @@ module LavinMQ
                 return false
               end
               packet = build_packet(env, id)
+              # Booked before the send, which yields: the client can ack
+              # before it returns, and an ack that finds no entry closes the
+              # connection.
+              @unacked[id] = sp
+              booked = true
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
               yield packet, sp.bytesize
@@ -320,13 +329,18 @@ module LavinMQ
                 @deliver_count.add(1, :relaxed)
                 @deliver_get_count.add(1, :relaxed)
               end
-              @unacked[id] = sp
               @msg_store.forget_packet_id(sp)
               refresh_capacity
             rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              @unacked_count.sub(1, :relaxed)
-              @unacked_bytesize.sub(sp.bytesize, :relaxed)
+              # Nothing to unbook if the client already acked it: the message
+              # is deleted and the counters are settled.
+              if !booked
+                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+              elsif @unacked.delete(id)
+                @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+                @unacked_count.sub(1, :relaxed)
+                @unacked_bytesize.sub(sp.bytesize, :relaxed)
+              end
               raise ex
             end
           end
@@ -396,15 +410,15 @@ module LavinMQ
 
       private def next_id : UInt16?
         return if @unacked.size == Config.instance.max_inflight_messages
-        start_id = @count
-        next_id : UInt16 = start_id &+ 1_u16
-        while @unacked.has_key?(next_id)
-          next_id &+= 1u16
-          next_id = 1u16 if next_id == 0
-          return if next_id == start_id
+        next_id = @count
+        # Tries each of 1..65535 once, starting after `@count`, so a non-zero
+        # `@count` comes last: it can be the only id left. Packet id 0 is
+        # illegal [MQTT-2.3.1-1].
+        UInt16::MAX.times do
+          next_id = next_id == UInt16::MAX ? 1u16 : next_id + 1u16
+          next if @unacked.has_key?(next_id)
+          return @count = next_id
         end
-        @count = next_id
-        next_id
       end
 
       private def delete_message(sp : SegmentPosition) : Nil

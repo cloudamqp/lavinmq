@@ -77,6 +77,15 @@ module LavinMQ::AMQP
       @consumers.size
     end
 
+    # False for a standby consumer of a single active consumer queue
+    def deliver_to?(consumer : Client::Channel::Consumer) : Bool
+      return true unless @single_active_consumer_queue
+      @consumers_lock.synchronize do
+        sac = @single_active_consumer
+        sac.nil? || sac == consumer
+      end
+    end
+
     def consumers_empty? : Bool
       @consumers.empty?
     end
@@ -225,7 +234,6 @@ module LavinMQ::AMQP
     getter state = QueueState::Running
     getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
-    getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
     @single_active_consumer_queue = false
     @data_dir : String
     Log = LavinMQ::Log.for "queue"
@@ -367,7 +375,6 @@ module LavinMQ::AMQP
       @message_ttl_change = ::Channel(Nil).new
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
-      @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
       @deliver_loop_wg = WaitGroup.new
       reset_queue_stats
     end
@@ -737,8 +744,12 @@ module LavinMQ::AMQP
 
     private def ensure_consumers_deliver_loops : Nil
       @consumers_lock.synchronize do
-        @consumers.each do |consumer|
-          consumer.ensure_deliver_loop
+        if sac = @single_active_consumer
+          sac.ensure_deliver_loop
+        else
+          @consumers.each do |consumer|
+            consumer.ensure_deliver_loop
+          end
         end
       end
     end
@@ -1003,7 +1014,9 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit
+      # The message may have been counted before its delivery-limit
+      # policy was removed
+      @deliveries.delete(sp) unless @deliveries.empty?
       @msg_store_lock.synchronize do
         @msg_store.delete(sp)
       end
@@ -1047,6 +1060,7 @@ module LavinMQ::AMQP
 
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
+      active = false
       @consumers_lock.synchronize do
         was_empty = @consumers.empty?
         @consumers << consumer
@@ -1054,8 +1068,10 @@ module LavinMQ::AMQP
           @single_active_consumer = consumer if @single_active_consumer_queue
           notify_consumers_empty(false)
         end
+        sac = @single_active_consumer
+        active = sac.nil? || sac == consumer
       end
-      consumer.ensure_deliver_loop unless @msg_store.empty?
+      consumer.ensure_deliver_loop if active && !@msg_store.empty?
       @exclusive_consumer = true if consumer.exclusive?
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
@@ -1076,8 +1092,7 @@ module LavinMQ::AMQP
           if @single_active_consumer == consumer
             @single_active_consumer = @consumers.first?
             if new_consumer = @single_active_consumer
-              while @single_active_consumer_change.try_send? new_consumer
-              end
+              new_consumer.ensure_deliver_loop unless @msg_store.empty?
             end
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
@@ -1104,9 +1119,9 @@ module LavinMQ::AMQP
       if unacked_count == 0 && max_count >= message_count
         # If there's no unacked and we're purging all messages, we can purge faster by deleting files
         delete_count = message_count
-        @msg_store_lock.synchronize { @msg_store.purge_all }
+        @msg_store_lock.synchronize { @msg_store.purge_all { |sp| @deliveries.delete(sp) unless @deliveries.empty? } }
       else
-        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) { |sp| @deliveries.delete(sp) unless @deliveries.empty? } }
       end
       @log.info { "Purged #{delete_count} messages" }
       # Signal expire loop to recalculate wait time for next message, and

@@ -213,5 +213,16 @@ module MqttSpecs
         server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
       end
     end
+
+    it "closes a client that sends a SUBSCRIBE with packet id 0 [MQTT-2.3.1-1]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: [subtopic("a/b")], packet_id: 0u16, expect_response: false)
+          io.should be_closed
+        end
+        server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
+      end
+    end
   end
 end

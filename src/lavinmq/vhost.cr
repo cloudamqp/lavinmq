@@ -36,8 +36,8 @@ module LavinMQ
     getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users, replicator
     getter mqtt_permission_service : MQTT::PermissionService
     getter closed = BoolChannel.new(true)
-    property max_connections : Int32?
-    property max_queues : Int32?
+    getter max_connections : Int32?
+    getter max_queues : Int32?
 
     @flow = true
     @direct_reply_consumers = DirectReplyConsumerStore.new
@@ -251,8 +251,8 @@ module LavinMQ
       @persister.enqueue_ack(channel, msgid)
     end
 
-    def max_connections=(value : Int32) : Nil
-      value = nil if value < 0
+    def max_connections=(value : Int32?) : Nil
+      value = nil if value && value < 0
       @max_connections = value
       store_limits
     end
@@ -261,8 +261,8 @@ module LavinMQ
       @max_connections.try { |max| connections_size >= max } || false
     end
 
-    def max_queues=(value : Int32) : Nil
-      value = nil if value < 0
+    def max_queues=(value : Int32?) : Nil
+      value = nil if value && value < 0
       @max_queues = value
       store_limits
     end

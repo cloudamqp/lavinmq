@@ -3,7 +3,7 @@ require "./mqtt_client_spec"
 require "../../spec_helper"
 
 module MqttHelpers
-  GENERATOR = (0u16..).each
+  GENERATOR = (1u16..).each
 
   def next_packet_id
     GENERATOR.next.as(UInt16)

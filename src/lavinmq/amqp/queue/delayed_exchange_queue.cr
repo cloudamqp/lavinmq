@@ -64,6 +64,9 @@ module LavinMQ::AMQP
 
     # simplify the message expire loop, as this queue can't have consumers or message-ttl
     private def message_expire_loop
+      # Messages restored from disk can be overdue already, but must not be
+      # released before the vhost has loaded the bindings they route through
+      @vhost.closed.when_false.receive?
       loop do
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
@@ -138,8 +141,10 @@ module LavinMQ::AMQP
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
+      result = @vhost.exchange(@exchange_name).route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      # A destination refused it while the vhost closes, the restart releases it again
+      return if (result.closed? || result.overflowed?) && @vhost.closed?
       delete_message sp
     end
 
