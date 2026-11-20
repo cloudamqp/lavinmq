@@ -354,6 +354,22 @@ describe LavinMQ::Etcd::Lease do
     server.try &.close
   end
 
+  it "schedules the next keepalive from when the previous one was sent" do
+    sent = Channel(Time::Instant).new(2)
+    etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) do
+      sent.send(Time.instant) rescue nil
+      sleep 0.6.seconds # a slow answer
+      3
+    end)
+    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+    first = sent.receive
+    # A third of the TTL is 1 s, counted from the answer it would be 1.6 s
+    (sent.receive - first).should be_close(1.second, 0.3.seconds)
+  ensure
+    sent.try &.close
+    lease.try &.release
+  end
+
   it "expires when etcd reports the lease gone" do
     etcd = RecordingEtcd.new("127.0.0.1:1")
     lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)

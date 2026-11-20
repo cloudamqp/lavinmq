@@ -95,6 +95,7 @@ module LavinMQ
 
     # Returns {ID, TTL}
     def lease_grant(ttl = 10, id = 0) : Lease
+      requested = Time.instant # etcd's TTL counts from the grant
       begin
         json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
       rescue LeaseAlreadyExists
@@ -102,11 +103,12 @@ module LavinMQ
         expires_in = lease_ttl(id) + 2
         Log.warn { "Cluster ID #{id.to_s(36)} already leased, waits #{expires_in}s for it to expire" }
         sleep expires_in.seconds
+        requested = Time.instant
         json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
       end
       ttl = json.dig("TTL").as_s.to_i
       id = json.dig("ID").as_s.to_i64
-      Lease.new(self, id, ttl)
+      Lease.new(self, id, ttl, requested)
     end
 
     # An etcd member holds a keepalive for an unresponsive etcd leader ~7 s,
