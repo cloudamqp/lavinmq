@@ -18,13 +18,18 @@ module LavinMQ
       # Hands requests to the broker's controller once there is one
       private class Source
         include ::HTTP::Handler
-        property leader : PrometheusController?
+        # Set from the fiber that starts the broker, read by request fibers
+        @leader = Atomic(PrometheusController?).new(nil)
+
+        def leader=(controller : PrometheusController?) : Nil
+          @leader.set(controller)
+        end
 
         def initialize(@follower : FollowerPrometheusController)
         end
 
         def call(context)
-          (@leader || @follower).call(context)
+          (@leader.get || @follower).call(context)
         end
       end
 

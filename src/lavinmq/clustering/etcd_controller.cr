@@ -6,7 +6,8 @@ require "./etcd_coordinator"
 class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   getter coordinator : EtcdCoordinator
 
-  @lease : Etcd::Lease? = nil
+  # Granted by #run for each term, released by #stop from the shutdown fiber
+  @lease = Atomic(Etcd::Lease?).new(nil)
   # Makes ending a term's following and the follower monitor setting a
   # replication client one step each, see #stop_following
   @follow_lock = Mutex.new
@@ -31,7 +32,8 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     # they see a leader, and a watch for it would miss a write made meanwhile
     @coordinator.password
     loop do
-      lease = @lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
+      lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
+      @lease.set(lease)
       if @stopping.get # #stop released the previous lease, if any
         lease.release rescue nil
         return
@@ -93,10 +95,17 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   end
 
   def stop
-    @stopping.set(true)
+    client = @follow_lock.synchronize do
+      @stopping.set(true)
+      @repli_client.swap(nil)
+    end
     @stopped.close
-    @repli_client.get.try &.close
-    @lease.try &.release
+    client.try &.close
+    begin
+      @lease.get.try &.release
+    rescue ex
+      Log.warn(exception: ex) { "Failed to release lease while stopping, it will expire on its own" }
+    end
   end
 
   # Captures the fencing token. False if stopped first: the campaign is a
@@ -139,8 +148,9 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
         if repli_client.follows? uri
           next # if lost connection to etcd we continue follow the leader as is
         else
-          repli_client.close
-          @repli_client.compare_and_set(repli_client, nil)
+          # #run or #stop may have taken it, and closes it then
+          taken = @follow_lock.synchronize { @repli_client.compare_and_set(repli_client, nil)[1] }
+          repli_client.close if taken
           leader_changed
         end
       end
@@ -206,7 +216,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     # revokes the just-won leadership at once instead of leaving the cluster
     # leaderless until the lease TTL expires.
     begin
-      @lease.try &.release
+      @lease.get.try &.release
     rescue ex
       Log.warn(exception: ex) { "Failed to release lease while stepping down, it will expire on its own" }
     end
