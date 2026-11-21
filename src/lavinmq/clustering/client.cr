@@ -66,6 +66,8 @@ module LavinMQ
 
       @closed = false
       @closing = Channel(Nil).new # closed by #close, cuts the reconnect wait short
+      # #close may run on more than one thread at once, only one closes
+      @close_lock = Mutex.new
       @close_done = Channel(Nil).new
       # Read by #follows? from the controller's fiber while #follow sets it
       @leader = Atomic(Leader?).new(nil)
@@ -894,11 +896,14 @@ module LavinMQ
       # client, and the leader starts as soon as its call returns, so a call
       # made while another is closing waits for it to finish with the data dir.
       def close
-        if @closed
+        closing = @close_lock.synchronize do
+          next false if @closed
+          @closed = true
+        end
+        unless closing
           @close_done.receive?
           return
         end
-        @closed = true
         @closing.close
         @files.each_value &.close
         @socket.try &.close

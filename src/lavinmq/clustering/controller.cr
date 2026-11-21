@@ -38,6 +38,7 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # state, see RaftController.
   def initialize(@config : Config, @id : Int32)
     @advertised_uri = Controller.advertised_uri(@config)
+    Log.info { "ID: #{@id.to_s(36)}" }
   end
 
   abstract def coordinator : Coordinator

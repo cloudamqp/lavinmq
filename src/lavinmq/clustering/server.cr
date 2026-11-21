@@ -53,7 +53,6 @@ module LavinMQ
       @member_removed : Int32 ->
 
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
-        Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
         @password = password
