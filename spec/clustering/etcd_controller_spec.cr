@@ -17,37 +17,61 @@ private class SelfLeaderEtcd < LavinMQ::Etcd
 end
 
 private class SelfLeaderController < LavinMQ::Clustering::EtcdController
-  def follow_leader_public
-    follow_leader
+  # A follower monitor of the term of *elected*
+  def follow_leader_public(elected : BoolChannel)
+    follow_leader { follow_leader_changes(elected) }
   end
 
-  def mark_elected_for_spec
-    @elected_leader.set(true)
+  def repli_client : LavinMQ::Clustering::Client?
+    @repli_client.get
   end
 end
 
-# Waits in #get, as an etcd slow to answer, until *gate* is closed
-private class SlowSecretEtcd < LavinMQ::Etcd
-  getter getting = Channel(Nil).new(1)
-  getter gate = Channel(Nil).new
+# Observes the leaders a spec sends
+private class ScriptedEtcd < LavinMQ::Etcd
+  getter leaders = Channel(String).new
 
-  def initialize(@leader_uri : String)
+  def initialize
     super("localhost:1")
   end
 
   def elect_listen(_name, &)
-    yield @leader_uri
+    while uri = @leaders.receive?
+      yield uri
+    end
   end
 
   def get(_key) : String?
-    @getting.send nil
-    @gate.receive?
     "secret"
+  end
+end
+
+# The clustering secret is only there once a spec sends it
+private class SecretlessEtcd < ScriptedEtcd
+  getter watching = Channel(Nil).new(1)
+  getter secret = Channel(String).new
+
+  def get(_key) : String?
+  end
+
+  def watch(_key, &)
+    @watching.send nil
+    yield @secret.receive
   end
 end
 
 # No follower monitor: a replication client set with #following_for_spec is
 # left to #run, as when this node is elected before the monitor sees it
+# Revoking a lease hangs, as while etcd is unavailable, until *gate* is closed
+private class HangingRevokeEtcd < LavinMQ::Etcd
+  getter gate = Channel(Nil).new
+
+  def lease_revoke(id) : Nil
+    @gate.receive?
+    super
+  end
+end
+
 private class UnmonitoredController < LavinMQ::Clustering::EtcdController
   def following_for_spec(client : LavinMQ::Clustering::Client) : Nil
     @repli_client.set(client)
@@ -57,7 +81,7 @@ private class UnmonitoredController < LavinMQ::Clustering::EtcdController
     @lease.set(lease)
   end
 
-  private def follow_leader_changes
+  private def follow_leader_changes(elected)
   end
 end
 
@@ -102,69 +126,6 @@ ensure
 end
 
 describe LavinMQ::Clustering::EtcdController do
-  # It would replicate from the old leader while this node serves
-  it "makes no replication client once elected while it waited for the secret" do
-    with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
-      config.amqp_port = config.http_port = config.mqtt_port = 0
-      config.metrics_http_port = -1
-      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
-      etcd = SlowSecretEtcd.new("tcp://192.0.2.10:5679")
-      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
-      done = Channel(Nil).new
-      spawn(name: "follower monitor") do
-        controller.follow_leader_public
-        done.close
-      end
-      etcd.getting.receive
-      controller.mark_elected_for_spec
-      etcd.gate.close
-      select
-      when done.receive?
-      when timeout(5.seconds)
-        fail "the follower monitor didn't return"
-      end
-      controller.@repli_client.get.should be_nil
-    ensure
-      if c = controller
-        c.@repli_client.get.try &.close
-      end
-    end
-  end
-
-  it "makes no replication client once stopped while it waited for the secret" do
-    with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
-      config.amqp_port = config.http_port = config.mqtt_port = 0
-      config.metrics_http_port = -1
-      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
-      etcd = SlowSecretEtcd.new("tcp://192.0.2.10:5679")
-      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
-      done = Channel(Nil).new
-      spawn(name: "follower monitor") do
-        controller.follow_leader_public
-        done.close
-      end
-      etcd.getting.receive
-      controller.stop
-      etcd.gate.close
-      select
-      when done.receive?
-      when timeout(5.seconds)
-        fail "the follower monitor didn't return"
-      end
-      controller.@repli_client.get.should be_nil
-    ensure
-      if c = controller
-        c.@repli_client.get.try &.close
-      end
-    end
-  end
-
   # The SIGTERM handler would never get to exit
   it "stops when releasing its lease fails" do
     with_datadir do |data_dir|
@@ -188,9 +149,8 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config1.clustering_etcd_endpoints = "localhost:12379"
     config1.clustering_advertised_uri = "tcp://localhost:5681"
     config1.clustering_port = 5681
-    # A follower's proxies forward to the leader's ports, on this host the
-    # follower's own when they're the same, until out of file descriptors
-    config1.amqp_port = config1.mqtt_port = config1.http_port = 0
+    config1.amqp_port = 5671
+    config1.http_port = 15671
     controller1 = LavinMQ::Clustering::EtcdController.new(config1)
 
     config2 = LavinMQ::Config.new
@@ -198,7 +158,8 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config2.clustering_etcd_endpoints = "localhost:12379"
     config2.clustering_advertised_uri = "tcp://localhost:5682"
     config2.clustering_port = 5682
-    config2.amqp_port = config2.mqtt_port = config2.http_port = 0
+    config2.amqp_port = 5672
+    config2.http_port = 15672
     controller2 = LavinMQ::Clustering::EtcdController.new(config2)
 
     listen = Channel(String?).new
@@ -222,21 +183,18 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     sleep 0.1.seconds
     leader = listen.receive
     case leader
-    when .try &.starts_with?(config1.clustering_advertised_uri.to_s)
+    when /1$/
       controller1.stop
-      listen.receive.to_s.should start_with config2.clustering_advertised_uri.to_s
+      listen.receive.should match /2$/
       sleep 0.1.seconds
       controller2.stop
-    when .try &.starts_with?(config2.clustering_advertised_uri.to_s)
+    when /2$/
       controller2.stop
-      listen.receive.to_s.should start_with config1.clustering_advertised_uri.to_s
+      listen.receive.should match /1$/
       sleep 0.1.seconds
       controller1.stop
     else fail("no leader elected")
     end
-  ensure
-    controller1.try &.stop rescue nil
-    controller2.try &.stop rescue nil
   end
 
   it "steps down if it wins the election while not in the ISR" do
@@ -244,9 +202,6 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config1.data_dir = "/tmp/isr-stepdown1"
     config1.clustering_etcd_endpoints = "localhost:12379"
     config1.clustering_advertised_uri = "tcp://localhost:5683"
-    # A follower's proxies would bind the default ports, and forward to the
-    # leader's, the same ones on this host, until out of file descriptors
-    config1.amqp_port = config1.mqtt_port = config1.http_port = 0
     FileUtils.rm_rf config1.data_dir
     controller1 = LavinMQ::Clustering::EtcdController.new(config1)
 
@@ -254,7 +209,6 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config2.data_dir = "/tmp/isr-stepdown2"
     config2.clustering_etcd_endpoints = "localhost:12379"
     config2.clustering_advertised_uri = "tcp://localhost:5684"
-    config2.amqp_port = config2.mqtt_port = config2.http_port = 0
     FileUtils.rm_rf config2.data_dir
     controller2 = LavinMQ::Clustering::EtcdController.new(config2)
 
@@ -298,9 +252,92 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
     served2.should be_false
   ensure
-    controller2.try &.stop rescue nil # closes the replication client, its lease is gone
     FileUtils.rm_rf "/tmp/isr-stepdown1"
     FileUtils.rm_rf "/tmp/isr-stepdown2"
+  end
+
+  it "stops serving when its lease expires, and leads again without exiting" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5686"
+      config.clustering_etcd_lease_ttl = 3 # keepalive every second
+      controller = LavinMQ::Clustering::EtcdController.new(config)
+      demoted = Channel(Proc(Nil)?).new(1)
+      controller.on_demote { |hand_over| demoted.send hand_over }
+      served = Channel(Nil).new(2)
+      done = Channel(Int32?).new(1)
+      spawn(name: "lease expiry controller") do
+        controller.run { served.send nil }
+        done.send nil
+      rescue ex : SpecExit
+        done.send ex.code
+      end
+      select
+      when served.receive
+      when timeout(10.seconds)
+        fail "wasn't elected"
+      end
+      LavinMQ::Etcd.new("localhost:12379").lease_revoke(controller.id)
+      select
+      when hand_over = demoted.receive
+        hand_over.should be_nil # lost, not handed over
+      when code = done.receive
+        fail "exited with #{code.inspect} instead of stopping to serve"
+      when timeout(10.seconds)
+        fail "didn't stop serving when its lease expired"
+      end
+      select
+      when served.receive
+      when code = done.receive
+        fail "exited with #{code.inspect} instead of leading again"
+      when timeout(10.seconds)
+        fail "wasn't elected again"
+      end
+      controller.stop
+      select
+      when code = done.receive
+        code.should be_nil
+      when timeout(5.seconds)
+        fail "run didn't return after stop"
+      end
+    end
+  end
+
+  # Revoking the lost lease retries while etcd is unavailable, which is when
+  # leases are lost, and a node that isn't the leader must not keep serving
+  it "stops serving when its lease expires, also while the lease can't be revoked" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5696"
+      config.clustering_etcd_lease_ttl = 3 # keepalive every second
+      etcd = HangingRevokeEtcd.new("localhost:12379")
+      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      demoted = Channel(Nil).new(1)
+      controller.on_demote { demoted.send nil }
+      served = Channel(Nil).new(2)
+      spawn(name: "hanging revoke controller") do
+        controller.run { served.send nil }
+      rescue SpecExit
+      end
+      select
+      when served.receive
+      when timeout(10.seconds)
+        fail "wasn't elected"
+      end
+      LavinMQ::Etcd.new("localhost:12379").lease_revoke(controller.id)
+      select
+      when demoted.receive
+      when timeout(10.seconds)
+        fail "kept serving while revoking the lost lease"
+      end
+    ensure
+      etcd.try &.gate.close
+      controller.try &.stop rescue nil # the lease is gone
+    end
   end
 
   it "stops without exiting while waiting to be in sync" do
@@ -467,16 +504,17 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
       controller = SelfLeaderController.new(config, etcd, coordinator)
       done = Channel(Exception?).new(1)
+      elected = BoolChannel.new(false)
 
       spawn(name: "self leader follower monitor spec") do
-        controller.follow_leader_public
+        controller.follow_leader_public(elected)
         done.send nil
       rescue ex
         done.send ex
       end
 
       etcd.observed.receive
-      controller.mark_elected_for_spec
+      elected.set(true)
 
       select
       when ex = done.receive
@@ -484,6 +522,98 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       when timeout(500.milliseconds)
         fail "follower monitor kept waiting after this node won the election"
       end
+    end
+  end
+
+  # A short term can end before its monitor sees this node's own URI, the
+  # next term has a monitor of its own
+  it "doesn't follow from a follower monitor of a term that has ended" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      own_uri = config.clustering_advertised_uri = "tcp://localhost:5688"
+      etcd = ScriptedEtcd.new
+      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      elected = BoolChannel.new(false)
+      elected.set(true) # this node was elected in that term
+      [own_uri, "tcp://127.0.0.1:1"].each do |leader|
+        done = Channel(Exception?).new(1)
+        spawn(name: "follower monitor of an ended term") do
+          controller.follow_leader_public(elected)
+          done.send nil
+        rescue ex
+          done.send ex
+        end
+        etcd.leaders.send leader
+        select
+        when ex = done.receive
+          ex.should be_nil
+        when timeout(5.seconds)
+          fail "follower monitor of an ended term kept following"
+        end
+        controller.repli_client.should be_nil
+      end
+    end
+  end
+
+  # A replication client takes over checksums.sha1 when it's made
+  it "makes no replication client in a term that ended while it waited for the secret" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_advertised_uri = "tcp://localhost:5689"
+      checksums = File.join(data_dir, "checksums.sha1")
+      File.write(checksums, "#{Digest::SHA1.digest("a").hexstring} 1 *a\n")
+      etcd = SecretlessEtcd.new
+      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      elected = BoolChannel.new(false)
+      done = Channel(Exception?).new(1)
+      spawn(name: "follower monitor waiting for the secret") do
+        controller.follow_leader_public(elected)
+        done.send nil
+      rescue ex
+        done.send ex
+      end
+      etcd.leaders.send "tcp://127.0.0.1:1"
+      etcd.watching.receive
+      elected.set(true) # this node was elected meanwhile
+      etcd.secret.send "secret"
+      select
+      when ex = done.receive
+        ex.should be_nil
+      when timeout(5.seconds)
+        fail "follower monitor didn't return"
+      end
+      controller.repli_client.should be_nil
+      File.read(checksums).should_not be_empty
+    end
+  end
+
+  it "makes no replication client once stopped while it waited for the secret" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_advertised_uri = "tcp://localhost:5689"
+      etcd = SecretlessEtcd.new
+      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      done = Channel(Exception?).new(1)
+      spawn(name: "follower monitor waiting for the secret") do
+        controller.follow_leader_public(BoolChannel.new(false))
+        done.send nil
+      rescue ex
+        done.send ex
+      end
+      etcd.leaders.send "tcp://127.0.0.1:1"
+      etcd.watching.receive
+      controller.stop
+      etcd.secret.send "secret"
+      select
+      when ex = done.receive
+        ex.should be_nil
+      when timeout(5.seconds)
+        fail "follower monitor didn't return"
+      end
+      controller.repli_client.should be_nil
     end
   end
 

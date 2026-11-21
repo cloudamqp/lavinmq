@@ -4,6 +4,7 @@ require "./mfile"
 require "./filesystem"
 require "./clustering/replicator"
 require "./clustering/follower"
+require "./clustering/coordinator"
 require "sync/exclusive"
 require "../stdlib/isolated_wait_for"
 
@@ -44,7 +45,7 @@ module LavinMQ
       getter paths = Set(String).new
       getter? syncfs = false
       # Callers of #sync, released by the drain that synced for them
-      getter waiters = Array(::Channel(Nil)).new
+      getter waiters = Array(::Channel(Bool)).new
       # Emptied segments to unlink once this batch is synced, and the callers
       # of #sync_marked, released after those unlinks
       getter unlinks = Array(Unlink).new
@@ -172,18 +173,30 @@ module LavinMQ
     # Block until everything written so far is durable, on the leader and on
     # the in-sync followers. Used by transaction commits, which also have to
     # persist their acks, so it syncs the whole filesystem.
+    # Raises Clustering::Coordinator::StaleLeadership if it can't be made
+    # durable on the followers, see Clustering::Replicator#fenced?
     def sync : Nil
-      waiter = ::Channel(Nil).new
+      # Gets true once synced, or is closed when it wasn't
+      waiter = ::Channel(Bool).new(1)
       @pending.lock &.waiters.push(waiter)
       begin
         @publish_confirm_requested.try_send true
       rescue ::Channel::ClosedError
+        raise_if_fenced
         # The loop has exited (shutdown), and its final drain may have run
         # before our waiter was added. Its fd may be closed by now.
         File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) } if Config.instance.sync?
         return
       end
-      waiter.receive?
+      waiter.receive? || raise stale_leadership
+    end
+
+    private def raise_if_fenced : Nil
+      raise stale_leadership if @replicator.try &.fenced?
+    end
+
+    private def stale_leadership : Clustering::Coordinator::StaleLeadership
+      Clustering::Coordinator::StaleLeadership.new("Not the leader anymore, nothing can be made durable")
     end
 
     # Unlinks an emptied segment and its ack file once everything marked
@@ -315,6 +328,14 @@ module LavinMQ
         end
       end
       return unless batch
+      replicator = @replicator
+      if replicator.try &.fenced?
+        # Never confirmed, the waiters raise. Unflagged so a later write
+        # registers the files again, as below
+        batch.files.each &.clear_needs_msync!
+        discard(batch)
+        return
+      end
 
       # Clear the flags before syncing: a write after this re-registers the
       # file for the next drain, instead of being missed by this one
@@ -325,7 +346,6 @@ module LavinMQ
                (@unmarked_writes && batch.after_sync?) ||
                batch.files.size + batch.paths.size + dirs.size > Config.instance.syncfs_threshold
       paths = batch.files.map(&.path).concat(batch.paths).concat(dirs) unless syncfs
-      replicator = @replicator
       if replicator
         # Requested before our own sync so the followers persist and ack
         # while it runs. Buffered for each follower's flush fiber to write:
@@ -369,7 +389,16 @@ module LavinMQ
       # the coordinator is unreachable confirms stall (publishers time out,
       # message state stays uncertain — never falsely confirmed), and if it
       # stays unreachable the leader's lease expires and the process exits.
-      replicator.try &.wait_for_followers
+      begin
+        replicator.try &.wait_for_followers
+      rescue Clustering::Coordinator::StaleLeadership
+        # A new leader decides what's in sync now, so nothing waiting here
+        # can be confirmed. Clients see their connections closed when this
+        # node steps down, and resend what wasn't confirmed.
+        Log.warn { "Not the leader anymore, not confirming pending publishes" }
+        discard(batch)
+        return
+      end
 
       if batch.after_sync?
         @synced.lock &.push(Synced.new(batch.unlinks, batch.unlink_waiters))
@@ -381,7 +410,22 @@ module LavinMQ
       batch.acks.each do |target, id|
         target.enqueue_confirm_ack(id)
       end
+      batch.waiters.each &.send(true)
+    end
+
+    # Leadership was lost, so nothing in *batch* is durable on the in-sync
+    # followers: its waiters raise, and its emptied segments aren't unlinked,
+    # as what they were emptied into may not have reached the new leader. The
+    # full sync from the new leader settles them. The callers of #sync_marked
+    # are released, so that nothing waits for unlinks that won't happen.
+    private def discard(batch : Batch) : Nil
       batch.waiters.each &.close
+      batch.unlinks.each do |unlink|
+        unlink.segment.close
+        unlink.acks.try &.close
+        unlinked(File.dirname(unlink.segment.path))
+      end
+      batch.unlink_waiters.each &.close
     end
 
     # Returns whether it fell back to syncing the whole filesystem

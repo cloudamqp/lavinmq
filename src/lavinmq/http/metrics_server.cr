@@ -21,7 +21,7 @@ module LavinMQ
         # Set from the fiber that starts the broker, read by request fibers
         @leader = Atomic(PrometheusController?).new(nil)
 
-        def leader=(controller : PrometheusController) : Nil
+        def leader=(controller : PrometheusController?) : Nil
           @leader.set(controller)
         end
 
@@ -49,6 +49,11 @@ module LavinMQ
       # Reports the broker's metrics from now on
       def amqp_server=(server : LavinMQ::Server) : Nil
         @source.leader = PrometheusController.new(server, require_authentication: false, metrics: @metrics)
+      end
+
+      # Back to reporting as a follower, once this node stopped serving
+      def stop_reporting_broker : Nil
+        @source.leader = nil
       end
 
       def bind_tcp(address, port)
