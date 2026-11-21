@@ -343,9 +343,8 @@ class LavinMQCtl
 
   @[Cmd("Creates a new user (password is read from stdin if omitted)", "<username> [password]", section: "User Management")]
   private def add_user
-    username = ARGV.shift?
-    password = ARGV.shift? || read_password
-    abort @banner unless username && password
+    abort @banner unless username = ARGV.shift?
+    abort @banner unless password = ARGV.shift? || read_password
     resp = http.put "/api/users/#{username}", @headers, {password: password}.to_json
     handle_response(resp, 201, 204)
   end
@@ -353,9 +352,9 @@ class LavinMQCtl
   private def read_password : String?
     input = @input
     password = if input.is_a?(IO::FileDescriptor) && input.tty?
-                 @err_io.print "Password: "
+                 @io.print "Password: "
                  line = input.noecho &.gets(chomp: true)
-                 @err_io.puts
+                 @io.puts
                  line
                else
                  input.gets(chomp: true)
@@ -382,9 +381,8 @@ class LavinMQCtl
 
   @[Cmd("Change the user password (read from stdin if omitted)", "<username> [new_password]", section: "User Management")]
   private def change_password
-    username = ARGV.shift?
-    pwd = ARGV.shift? || read_password
-    abort @banner unless username && pwd
+    abort @banner unless username = ARGV.shift?
+    abort @banner unless pwd = ARGV.shift? || read_password
     resp = http.put "/api/users/#{username}", @headers, {password: pwd}.to_json
     handle_response(resp, 204)
   end
