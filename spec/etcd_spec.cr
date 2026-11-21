@@ -282,15 +282,30 @@ end
 describe LavinMQ::Etcd::Lease do
   it "revokes the lease before signaling expiry on release" do
     etcd = RecordingEtcd.new("127.0.0.1:1")
-    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    lease = etcd.lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
     lease.release
     etcd.expired_before_revoke.should be_false
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end
 
+  it "keeps no file descriptors once released" do
+    etcd = RecordingEtcd.new("127.0.0.1:1")
+    open_fds = -> { Dir.children("/dev/fd").size }
+    LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10).release
+    before = open_fds.call
+    20.times do |i|
+      lease = LavinMQ::Etcd::Lease.grant(etcd, i.to_i64 + 2, 10)
+      sleep 10.milliseconds # its keepalive waits for the next one
+      lease.release
+    end
+    sleep 100.milliseconds
+    # A leak is three per lease, other specs' fibers may hold a few meanwhile
+    (open_fds.call - before).should be < 20
+  end
+
   it "signals expiry when the revoke fails" do
     etcd = RecordingEtcd.new("127.0.0.1:1", revoke_error: LavinMQ::Etcd::Error.new("etcd unreachable"))
-    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    lease = etcd.lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
     expect_raises(LavinMQ::Etcd::Error, "etcd unreachable") { lease.release }
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end

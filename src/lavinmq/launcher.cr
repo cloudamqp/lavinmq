@@ -10,9 +10,7 @@ require "./http/http_server"
 require "./http/metrics_server"
 require "./data_dir_lock"
 require "./pidfile"
-require "./etcd"
 require "./clustering/controller"
-require "./clustering/etcd_coordinator"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -27,8 +25,12 @@ module LavinMQ
     @first_shutdown_attempt = true
     @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
-    @closed = false
+    # Set when #stop starts, from the shutdown fiber, read by #run
+    @closed = Atomic(Bool).new(false)
+    # Closed when #stop is done
+    @stopped = Channel(Nil).new
     @replicator : Clustering::Server?
+    @runner : Runner
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
@@ -47,16 +49,8 @@ module LavinMQ
       acquire_data_dir_lock if @config.data_dir_lock?
       print_data_dir_read_ahead
 
-      @metrics_server = LavinMQ::HTTP::MetricsServer.new unless @config.metrics_http_port == -1
-
-      if @config.clustering?
-        etcd = Etcd.new(@config.clustering_etcd_endpoints)
-        coordinator = Clustering::EtcdCoordinator.new(@config, etcd)
-        @runner = controller = Clustering::Controller.new(@config, etcd, coordinator, @metrics_server)
-        @replicator = Clustering::Server.new(@config, coordinator, controller.id)
-      else
-        @runner = StandaloneRunner.new
-      end
+      @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
+      @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
 
       if @config.tls_configured?
         @amqp_tls_context = create_tls_context
@@ -71,14 +65,15 @@ module LavinMQ
 
     private def start : self
       started_at = Time.instant
+      @replicator = @runner.new_replicator
       @server = server = LavinMQ::Server.new(@config, @replicator)
       load_definitions(server)
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
-      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, metrics: runner_metrics)
       start_listeners(amqp_server, mqtt_server, http_server)
-      @metrics_server.try &.leader = server
+      @metrics_server.try &.amqp_server = server
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
@@ -93,23 +88,30 @@ module LavinMQ
       @runner.run do
         start
       end
-      @replicator.try &.close
+      # The runner returns once a shutdown has started, e.g. when its lease
+      # expires meanwhile, and the broker may still be closing
+      @stopped.receive? if @closed.get
+      @replicator.try &.close # only a serving leader has one
       @data_dir_lock.try &.release
     ensure
       @run_done.close
     end
 
     def stop
-      return if @closed
-      @closed = true
-      Log.warn { "Stopping" }
-      SystemD.notify_stopping
-      @http_server.try &.close rescue nil
-      @amqp_server.try &.close rescue nil
-      @mqtt_server.try &.close rescue nil
-      @server.try &.close rescue nil
-      @metrics_server.try &.close rescue nil
-      @runner.stop
+      return if @closed.swap(true)
+      begin
+        Log.warn { "Stopping" }
+        SystemD.notify_stopping
+        @runner.stopping
+        @http_server.try &.close rescue nil
+        @amqp_server.try &.close rescue nil
+        @mqtt_server.try &.close rescue nil
+        @server.try &.close rescue nil
+        @metrics_server.try &.close rescue nil
+        @runner.stop
+      ensure
+        @stopped.close
+      end
     end
 
     # Exits if another process holds the lock, before the server or the
@@ -203,6 +205,10 @@ module LavinMQ
     rescue ex
       Log.error(exception: ex) { "Failed to load definitions from '#{path}'" }
       exit 1
+    end
+
+    private def runner_metrics : Proc(HTTP::PrometheusWriter, Nil)
+      ->@runner.write_metrics(HTTP::PrometheusWriter)
     end
 
     # Bound once, before the node knows its role, and kept until shutdown so
