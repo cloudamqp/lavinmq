@@ -22,10 +22,12 @@ end
 # meanwhile, and takes a while to stop
 private class EarlyReturnRunner < LavinMQ::Runner
   getter? stopped = false
+  getter started = Channel(Nil).new
   @stopping = Channel(Nil).new
 
   def run(&)
     yield
+    @started.close
     @stopping.receive?
   end
 
@@ -116,7 +118,7 @@ describe LavinMQ::Launcher do
         launcher.run
         done.close
       end
-      wait_for { launcher.@server }
+      runner.started.receive?
       spawn(name: "shutdown") { launcher.stop }
       select
       when done.receive?
