@@ -96,7 +96,7 @@ module LavinMQ
       end
 
       private def exchange : MQTT::Exchange
-        @vhost.mqtt_exchange
+        @vhost.mqtt.exchange
       end
     end
   end
