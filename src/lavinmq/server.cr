@@ -74,6 +74,10 @@ module LavinMQ
       @replicator.try(&.all_followers) || Array(Clustering::Follower).new
     end
 
+    def follower_address?(address : String) : Bool
+      @replicator.try(&.follower_address?(address)) || false
+    end
+
     def stop
       return if @closed.swap(true)
       close_log_exchange

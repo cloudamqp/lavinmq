@@ -17,6 +17,8 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   def initialize(config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
     super(config, Controller.clustering_id(config))
     @elected_leader = BoolChannel.new(false)
+    # Closed by #stop
+    @stopped = Channel(Nil).new
     # Once elected, see #run, or stopped, the follower monitor makes no
     # replication client
     @follow_lock = Mutex.new
@@ -31,11 +33,12 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync(lease)
     return if @stopping.get
-    @coordinator.campaign(@advertised_uri, @id) # blocks until becoming leader, captures the fencing token
+    return unless campaign # blocks until becoming leader, or stopped
     @elected_leader.set(true)
     ensure_in_isr!
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @follow_lock.synchronize { @repli_client.swap(nil) }.try &.close
+    leader_changed # connections wait for this node to serve
     yield
     loop do
       lease.wait(1.hour) # blocks until the lease expires (raises Expired)
@@ -59,11 +62,32 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
       @stopping.set(true)
       @repli_client.swap(nil)
     end
+    @stopped.close
     client.try &.close
     begin
       @lease.get.try &.release
     rescue ex
       Log.warn(exception: ex) { "Failed to release lease while stopping, it will expire on its own" }
+    end
+  end
+
+  # Captures the fencing token. False if stopped first: the campaign is a
+  # long poll that releasing the lease doesn't end, as etcd waits for the
+  # current leader's key, not ours. The process exits after #run returns.
+  private def campaign : Bool
+    result = Channel(Exception?).new(1)
+    spawn(name: "Leader campaign") do
+      @coordinator.campaign(@advertised_uri, @id)
+      result.send nil
+    rescue ex
+      result.send ex
+    end
+    select
+    when ex = result.receive
+      raise ex if ex
+      true
+    when @stopped.receive?
+      false
     end
   end
 
@@ -77,6 +101,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
           # #run or #stop may have taken it, and closes it then
           taken = @follow_lock.synchronize { @repli_client.compare_and_set(repli_client, nil)[1] }
           repli_client.close if taken
+          leader_changed
         end
       end
       if uri.nil? # no leader yet
@@ -105,7 +130,10 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
       end
       r = @follow_lock.synchronize do
         next if @elected_leader.value || @stopping.get # e.g. while waiting for the secret
-        Clustering::Client.new(@config, @id, secret).tap { |c| @repli_client.set(c) }
+        Clustering::Client.new(@config, @id, secret).tap do |c|
+          c.on_leader_change = ->leader_changed
+          @repli_client.set(c)
+        end
       end
       return unless r
       spawn r.follow(uri), name: "Clustering client #{uri}"

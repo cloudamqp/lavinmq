@@ -60,10 +60,12 @@ module LavinMQ
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
 
-      def negotiate!(password) : Nil
+      # *on_authenticated* is called once the follower is authenticated,
+      # before it's told so
+      def negotiate!(password, on_authenticated : Proc(Nil)? = nil) : Nil
         @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         validate_header!
-        authenticate!(password)
+        authenticate!(password, on_authenticated)
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
         Config.instance.apply_tcp_keepalive(@socket)
         @socket.read_timeout = nil # assumed authed followers are well behaving
@@ -206,10 +208,11 @@ module LavinMQ
         end
       end
 
-      private def authenticate!(password) : Nil
+      private def authenticate!(password, on_authenticated) : Nil
         len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
         client_password = @socket.read_string(len)
         if Crypto::Subtle.constant_time_compare(password, client_password)
+          on_authenticated.try &.call
           @socket.write_byte 0u8
         else
           @socket.write_byte 1u8

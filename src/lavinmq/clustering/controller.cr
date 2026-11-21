@@ -19,6 +19,8 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # Set by #stopping and #stop from the shutdown fiber, read by #run's and
   # the HTTP API's fibers
   @stopping = Atomic(Bool).new(false)
+  # See #on_leader_change, set before #run
+  @leader_change : Proc(Nil)? = nil
 
   # *id*: this node's unique id, for tracking the ISR, e.g. the one in
   # .clustering_id, see .clustering_id
@@ -104,15 +106,26 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   rescue ex : Error
     Log.fatal { ex.message }
     exit 36 # 36 for CF (Cluster Follower)
-  rescue ex : Socket::BindError
-    Log.fatal { ex.message }
-    exit 36 # 36 for CF (Cluster Follower)
   rescue ex
     Log.fatal(exception: ex) { "Unhandled exception while following leader" }
     exit 36 # 36 for CF (Cluster Follower)
   end
 
   private abstract def follow_leader_changes
+
+  # The leader it replicates from, which client connections are forwarded to
+  def leader : Client::Leader?
+    @repli_client.get.try &.leader
+  end
+
+  def on_leader_change(&block : ->) : Nil
+    @leader_change = block
+  end
+
+  # After a change of the replication client, or of its leader host
+  private def leader_changed : Nil
+    @leader_change.try &.call
+  end
 
   # The replication client's while following
   def write_metrics(writer) : Nil
