@@ -171,7 +171,7 @@ module LavinMQ
         dispatch(l, client)
       end
     rescue ex : IO::Error
-      Log.error(exception: ex) { "#{l.kind} listener failed" } unless @closed
+      Log.error(exception: ex) { "#{l.kind} listener failed" } unless @lock.synchronize { @closed }
     end
 
     private def dispatch(l : Listener, io : IO) : Nil
@@ -186,6 +186,8 @@ module LavinMQ
           end
           return
         in Clustering::Client::Leader
+          # Serving or closed meanwhile: it goes where things go now
+          next unless track(client)
           leader = dest
           spawn(name: "Forward #{l.kind} to the leader") { forward(l, client, leader) }
           return
@@ -204,8 +206,6 @@ module LavinMQ
         Log.debug { "Closing a #{l.kind} connection to #{l.address}, no port to forward it to" }
         return client.close
       end
-      # Tracks the TCP socket, closing it also ends a TLS session over it
-      return client.close unless track(client)
       # A client that stops reading must not keep the connection open: the
       # copy from the leader would block in its write forever, and never see
       # that the leader closed the connection after its own tcp_send_timeout
@@ -304,7 +304,8 @@ module LavinMQ
       l.target_port.try { |own| leader.forward_port(l.target_protocol, own) }
     end
 
-    # False if closed or serving meanwhile
+    # Tracks the TCP socket, closing it also ends a TLS session over it.
+    # False if closed or serving meanwhile.
     private def track(client : IO) : Bool
       @lock.synchronize do
         return false if @closed || @brokers

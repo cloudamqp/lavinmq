@@ -43,6 +43,9 @@ module LavinMQ
       @starting = false
       @api_lock = Mutex.new
       @bound = false
+      # #bind! from the fiber that starts the broker, #close from the shutdown
+      # fiber
+      @bind_lock = Mutex.new
 
       def initialize(@path : String)
         @http = ::HTTP::Server.new { |context| handle(context) }
@@ -51,16 +54,19 @@ module LavinMQ
       # Binds and listens, only for the owner and its group. Raises if it
       # can't, e.g. when another process on this machine serves the socket.
       def bind! : Nil
-        return if @bound || @http.closed?
-        ControlSocket.prepare(@path)
-        addr = @http.bind_unix(@path)
-        begin
-          File.chmod(@path, 0o660)
-        rescue ex
-          File.delete?(@path) # rather than left open to anyone
-          raise ex
+        addr = @bind_lock.synchronize do
+          return if @bound || @http.closed?
+          ControlSocket.prepare(@path)
+          bound = @http.bind_unix(@path)
+          begin
+            File.chmod(@path, 0o660)
+          rescue ex
+            File.delete?(@path) # rather than left open to anyone
+            raise ex
+          end
+          @bound = true
+          bound
         end
-        @bound = true
         Log.info { "Bound to #{addr}" }
         spawn(name: "Control socket listener") do
           @http.listen
@@ -92,10 +98,12 @@ module LavinMQ
         @api_lock.synchronize { @starting = true }
       end
 
+      # Closing the server deletes the socket file it bound
       def close : Nil
-        @http.close unless @http.closed?
-        File.delete?(@path) if @bound
-        @bound = false
+        @bind_lock.synchronize do
+          @http.close unless @http.closed?
+          @bound = false
+        end
       end
 
       private def handle(context : ::HTTP::Server::Context) : Nil
