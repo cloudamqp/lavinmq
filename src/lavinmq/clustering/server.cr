@@ -45,7 +45,6 @@ module LavinMQ
       @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
       def initialize(config : Config, @coordinator : Coordinator, @id : Int32)
-        Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
         @password = password

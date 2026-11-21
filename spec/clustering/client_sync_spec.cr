@@ -1366,3 +1366,38 @@ module ClientSyncSpec
     end
   end
 end
+
+describe LavinMQ::Clustering::Client do
+  # A leader elected meanwhile binds the control socket next
+  it "binds nothing when closed before it starts following" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+      config.amqp_port = config.http_port = config.mqtt_port = 0
+      control_path = File.join(data_dir, "control.sock")
+      original_control_path = LavinMQ::Config.instance.control_unix_path
+      LavinMQ::Config.instance.control_unix_path = control_path
+      client = LavinMQ::Clustering::Client.new(config, 1, "secret")
+      closed = Channel(Nil).new
+      spawn(name: "closing client") do
+        client.close
+        closed.close
+      end
+      wait_for { client.@closed }
+      client.follow("192.0.2.10", 5679)
+      select
+      when closed.receive?
+      when timeout(5.seconds)
+        fail "close didn't return"
+      end
+      client.@internal_http_server.should be_nil
+      File.exists?(control_path).should be_false
+    ensure
+      if c = client
+        c.@internal_http_server.try &.close
+      end
+      LavinMQ::Config.instance.control_unix_path = original_control_path if original_control_path
+    end
+  end
+end

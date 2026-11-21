@@ -14,10 +14,12 @@ end
 # meanwhile, and takes a while to stop
 private class EarlyReturnRunner < LavinMQ::Runner
   getter? stopped = false
+  getter started = Channel(Nil).new
   @stopping = Channel(Nil).new
 
   def run(&)
     yield
+    @started.close
     @stopping.receive?
   end
 
@@ -100,6 +102,8 @@ describe LavinMQ::Launcher do
       config.amqp_port = config.amqps_port = config.http_port = config.https_port = -1
       config.mqtt_port = config.mqtts_port = config.metrics_http_port = -1
       config.control_unix_path = File.join(data_dir, "control.sock")
+      original_config = LavinMQ::Config.instance
+      LavinMQ::Config.instance = config # the HTTP server reads the control socket path from it
       launcher = LavinMQ::Launcher.new(config)
       runner = EarlyReturnRunner.new
       launcher.runner_for_spec = runner
@@ -108,7 +112,7 @@ describe LavinMQ::Launcher do
         launcher.run
         done.close
       end
-      wait_for { launcher.@server }
+      runner.started.receive?
       spawn(name: "shutdown") { launcher.stop }
       select
       when done.receive?
@@ -116,6 +120,8 @@ describe LavinMQ::Launcher do
         fail "run didn't return"
       end
       runner.stopped?.should be_true
+    ensure
+      LavinMQ::Config.instance = original_config if original_config
     end
   end
 

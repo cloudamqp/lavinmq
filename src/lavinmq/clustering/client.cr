@@ -65,6 +65,10 @@ module LavinMQ
       end
 
       @closed = false
+      # Makes #close, which may run on another thread, and #follow binding the
+      # listeners one step each, so only one caller closes and nothing is
+      # bound after it
+      @listen_lock = Mutex.new
       @close_done = Channel(Nil).new
       # Read by #follows? from the controller's fiber while #follow sets it
       @leader = Atomic(Leader?).new(nil)
@@ -162,8 +166,11 @@ module LavinMQ
         port = leader.port
         Log.info { "Following #{host}:#{port}" }
         @leader.set(leader)
-        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
-        start_proxies(leader)
+        @listen_lock.synchronize do
+          return if @closed # by #close before this fiber started
+          @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
+          start_proxies(leader)
+        end
         loop do
           hash_local_files
           return if @closed
@@ -829,21 +836,25 @@ module LavinMQ
       # client, and the controller binds the listeners as soon as its call
       # returns, so a call made while another is closing waits for it to finish.
       def close
-        if @closed
+        closing = @listen_lock.synchronize do
+          next false if @closed
+          @closed = true
+          @internal_http_server.try &.close
+          @amqp_proxy.try &.close
+          @http_proxy.try &.close
+          @mqtt_proxy.try &.close
+          @amqps_proxy.try &.close
+          @https_proxy.try &.close
+          @mqtts_proxy.try &.close
+          @unix_amqp_proxy.try &.close
+          @unix_http_proxy.try &.close
+          @unix_mqtt_proxy.try &.close
+          true
+        end
+        unless closing
           @close_done.receive?
           return
         end
-        @closed = true
-        @internal_http_server.try &.close
-        @amqp_proxy.try &.close
-        @http_proxy.try &.close
-        @mqtt_proxy.try &.close
-        @amqps_proxy.try &.close
-        @https_proxy.try &.close
-        @mqtts_proxy.try &.close
-        @unix_amqp_proxy.try &.close
-        @unix_http_proxy.try &.close
-        @unix_mqtt_proxy.try &.close
         @files.each_value &.close
         @socket.try &.close
         # Wait for follower loop to exit (with timeout to prevent hanging)

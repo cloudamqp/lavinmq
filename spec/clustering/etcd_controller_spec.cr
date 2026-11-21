@@ -67,7 +67,26 @@ private class UnmonitoredController < LavinMQ::Clustering::EtcdController
     @repli_client.set(client)
   end
 
+  def lease_for_spec=(lease : LavinMQ::Etcd::Lease)
+    @lease.set(lease)
+  end
+
   private def follow_leader_changes
+  end
+end
+
+# Revoking a lease fails, as when etcd is unreachable
+private class FailingRevokeEtcd < LavinMQ::Etcd
+  def initialize
+    super("localhost:1")
+  end
+
+  def lease_keepalive(id) : Int32
+    10
+  end
+
+  def lease_revoke(id) : Nil
+    raise LavinMQ::Etcd::Error.new("etcd unreachable")
   end
 end
 
@@ -157,6 +176,19 @@ describe LavinMQ::Clustering::EtcdController do
       if c = controller
         c.@repli_client.get.try &.close
       end
+    end
+  end
+
+  # The SIGTERM handler would never get to exit
+  it "stops when releasing its lease fails" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
+      etcd = FailingRevokeEtcd.new
+      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      controller.lease_for_spec = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
+      controller.stop
     end
   end
 
@@ -561,7 +593,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
           rescue SpecExit
           end
           # The metrics server is pointed at the leader at the end of startup
-          wait_for { launcher.@metrics_server.try { |metrics| metrics.@source.leader } }
+          wait_for { launcher.@metrics_server.try { |metrics| metrics.@source.@leader.get } }
 
           # Exiting from the signal handler while #run still closed the replicator
           # closed the log backend under it, and the leader exited with code 1

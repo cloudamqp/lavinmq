@@ -207,12 +207,12 @@ module LavinMQ
       exit 1
     end
 
-    # Bound once, before the node knows its role, and kept until shutdown so
-    # that the port isn't rebound when a follower becomes leader
     private def runner_metrics : Proc(HTTP::PrometheusWriter, Nil)
       ->@runner.write_metrics(HTTP::PrometheusWriter)
     end
 
+    # Bound once, before the node knows its role, and kept until shutdown so
+    # that the port isn't rebound when a follower becomes leader
     private def start_metrics_server
       return unless metrics_server = @metrics_server
       metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
