@@ -1,6 +1,7 @@
 require "uri"
 require "../controller"
 require "../binding_helpers"
+require "../mqtt_exchange_compat"
 require "../../unacked_message"
 require "../../name_validator"
 
@@ -141,7 +142,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             queue = find_queue(context, params, vhost)
-            page(context, queue.bindings)
+            page(context, MQTTExchangeCompat.queue_bindings(queue))
           end
         end
 

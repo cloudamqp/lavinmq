@@ -44,6 +44,7 @@ module LavinMQ
           RequireUserHandler.new,
           PrometheusController.new(@server, require_authentication: true),
           ApiDefaultsHandler.new,
+          MQTTExchangeController.new(@server),
           MainController.new(@server, @amqp_server, @mqtt_server),
           DefinitionsController.new(@server),
           ConnectionsController.new(@server),

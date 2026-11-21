@@ -1,6 +1,7 @@
 require "uri"
 require "../controller"
 require "../binding_helpers"
+require "../mqtt_exchange_compat"
 
 module LavinMQ
   module HTTP
@@ -21,14 +22,14 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/exchanges" do |context, _params|
-          itr = vhosts(user(context)).flat_map &.exchanges
+          itr = vhosts(user(context)).flat_map { |v| MQTTExchangeCompat.exchanges(v) }
           page(context, itr)
         end
 
         get "/api/exchanges/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.exchanges)
+            page(context, MQTTExchangeCompat.exchanges(vhost))
           end
         end
 

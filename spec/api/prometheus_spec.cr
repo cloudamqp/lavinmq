@@ -59,6 +59,18 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should count MQTT subscriptions as bindings" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("pmthmqtt")
+        vhost.declare_queue("mqtt.sub", true, false, LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+        vhost.bind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b", LavinMQ::MQTT.qos_arguments(1u8))
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+        bindings = parsed_metrics.find { |m| m[:key] == "lavinmq_bindings" }
+        bindings.should_not be_nil
+        bindings.try(&.[:value].should eq 1)
+      end
+    end
+
     it "should count all delivered messages (both get and deliver)" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|
@@ -240,6 +252,14 @@ describe LavinMQ::HTTP::PrometheusController do
   end
 
   describe "GET /metrics/detailed" do
+    it "lists the MQTT exchange first in exchange_metrics" do
+      with_metrics_server do |http, _s|
+        lines = http.get("/metrics/detailed?family=exchange_metrics").body.lines
+        dedup = lines.select(&.starts_with?("lavinmq_detailed_exchange_deduplication{"))
+        dedup.first.should eq %(lavinmq_detailed_exchange_deduplication{exchange="mqtt.default", vhost="/"} 0)
+      end
+    end
+
     it "writes a body larger than the writer buffer completely" do
       with_metrics_server do |http, s|
         vhost = s.vhosts.create("chunked")

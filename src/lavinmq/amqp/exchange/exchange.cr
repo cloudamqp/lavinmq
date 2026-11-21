@@ -185,33 +185,6 @@ module LavinMQ
         @vhost.upstreams.try &.exchange_unbound(self, binding)
       end
 
-      # This outer macro will add a finished macro hook to all inherited classes
-      # in LavinMQ::AMQP namespace.
-      macro inherited
-        {% if @type.name.starts_with?("LavinMQ::AMQP::") %}
-          # This macro will find the "bind" method of classes inheriting from this class
-          # and redefine them to raise AccessRefused exception if the first argument
-          # isn't a type in LavinMQ::AMQP namespace.
-          #
-          # TODO remove this when LavinMQ::MQTT::Session no longer inherit from
-          # LavinMQ::AMQP::Queue and LavinMQ::MQTT::Exchange no longer inherit from
-          # lavinMQ::AMQP::Exchange
-        macro finished
-          \{% if (m = @type.methods.find(&.name.== "bind"))  %}
-            def bind(\{{ m.args.map(&.id).join(",").id}}) : Bool
-              unless \{{m.args[0].name.id}}.class.name.starts_with?("LavinMQ::AMQP::")
-                # Names the destination when it's an exchange, e.g.
-                # mqtt.default: binding to it is what's refused, not this one
-                refused = \{{m.args[0].name.id}}.as?(LavinMQ::Exchange) || self
-                raise AccessRefused.new(refused)
-              end
-              \{{ m.body }}
-          end
-         \{% end %}
-        end
-        {% end %}
-      end
-
       def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
         raise AccessRefused.new(self)
       end
@@ -231,16 +204,14 @@ module LavinMQ
       abstract def type : String
 
       # Whether messages routed in from AMQP, e.g. dead-lettered, reach
-      # destinations. MQTT exchanges only route MQTT publishes.
+      # destinations. x-mqtt-topic exchanges only route MQTT publishes.
       def routes_amqp_messages? : Bool
         true
       end
 
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
-      # No return-type restriction: AMQP exchanges return `Array(AMQP::BindingDetails)`
-      # while `MQTT::Exchange` overrides this to return `Array(MQTT::SubscriptionDetails)`.
-      abstract def bindings_details
+      abstract def bindings_details : Array(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
 
       # Number of bindings on this exchange. Counted cheaply, without allocating

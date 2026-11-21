@@ -1,4 +1,3 @@
-require "../amqp/exchange"
 require "./consts"
 require "./subscription_tree"
 require "./session"
@@ -8,16 +7,17 @@ require "./publish_context"
 
 module LavinMQ
   module MQTT
-    class Exchange < AMQP::Exchange
+    class Exchange
+      include Stats
+
       @tree : MQTT::SubscriptionTree(MQTT::Subscriber)
 
-      def type : String
-        "mqtt"
-      end
+      getter vhost, name
 
-      def initialize(vhost : VHost, name : String)
+      rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
+
+      def initialize(@vhost : VHost, @name : String)
         @tree = vhost.mqtt_subscription_tree
-        super(vhost, name, false, false, true)
       end
 
       def publish(packet : Protocol::Publish, ctx : PublishContext) : UInt32
@@ -46,13 +46,10 @@ module LavinMQ
         count
       end
 
-      # The tree is shared with x-mqtt-topic exchanges, so only MQTT::Session
-      # entries are this exchange's own bindings.
       def bindings_details : Array(SubscriptionDetails)
         result = Array(SubscriptionDetails).new
-        @tree.each_entry do |subscriber, qos, filter|
-          next unless session = subscriber.as?(MQTT::Session)
-          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(filter, qos), session)
+        each_subscription do |session, topic_filter, qos|
+          result << SubscriptionDetails.new(name, vhost.name, SubscriptionKey.new(topic_filter, qos), session)
         end
         result
       end
@@ -65,54 +62,33 @@ module LavinMQ
         count
       end
 
-      def routes_amqp_messages? : Bool
-        false
-      end
-
-      # Only here to make superclass happy
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : (LavinMQ::Queue | LavinMQ::Exchange) ->)
-      end
-
-      def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
-        qos = MQTT.qos(arguments)
-        @tree.subscribe(routing_key, destination, qos)
-        destination.subscription_bound(routing_key, qos)
+      def subscribe(session : MQTT::Session, topic_filter : String, qos : UInt8) : Bool
+        @tree.subscribe(topic_filter, session, qos)
+        session.subscription_bound(topic_filter, qos)
         true
       end
 
-      def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
-        @tree.unsubscribe(routing_key, destination)
-        destination.subscription_unbound(routing_key)
-        delete if @auto_delete && @tree.empty?
+      def unsubscribe(session : MQTT::Session, topic_filter : String) : Bool
+        @tree.unsubscribe(topic_filter, session)
+        session.subscription_unbound(topic_filter)
         true
       end
 
-      # For a session delete: walks the session's own filters rather than the
-      # tree, and changes the session's hash only after the walk
-      def unbind_all(session : MQTT::Session) : Nil
-        session.each_subscription { |filter, _qos| @tree.unsubscribe(filter, session) }
+      # Walks the session's own filters rather than the tree, and changes the
+      # session's hash only after the walk
+      def unsubscribe_all(session : MQTT::Session) : Nil
+        session.each_subscription { |topic_filter, _qos| @tree.unsubscribe(topic_filter, session) }
         session.clear_subscriptions
-        delete if @auto_delete && @tree.empty?
       end
 
-      def bind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key : String, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
-      end
-
-      def unbind(destination : LavinMQ::Queue | LavinMQ::Exchange, routing_key, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
-      end
-
-      private def apply_policy_argument(key : String, value : JSON::Any)
-        # mqtt exchange doesn't support policies, make this a noop
-      end
-
-      private def clear_policy_arguments
-        # mqtt exchange doesn't support policies, make this a noop
-      end
-
-      def handle_arguments
-        # mqtt exchange doesn't support arguments, make this a noop
+      # Captured, not yielded: `SubscriptionTree#each_entry` captures its own.
+      # The tree is shared with x-mqtt-topic exchanges, so only sessions are
+      # this exchange's subscriptions.
+      def each_subscription(&block : (MQTT::Session, String, UInt8) ->) : Nil
+        @tree.each_entry do |subscriber, qos, topic_filter|
+          next unless session = subscriber.as?(MQTT::Session)
+          block.call(session, topic_filter, qos)
+        end
       end
     end
   end
