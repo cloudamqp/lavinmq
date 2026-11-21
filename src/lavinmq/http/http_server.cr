@@ -1,4 +1,5 @@
 require "http/server"
+require "../proxy_protocol"
 require "../../stdlib/http_server"
 require "json"
 require "./constants"
@@ -83,7 +84,7 @@ module LavinMQ
         return client.close unless open
         spawn(name: "HTTP client") do
           client.sync = false
-          io = tls ? OpenSSL::SSL::Socket::Server.new(client, tls, sync_close: true) : client
+          io = tls ? tls_handshake(client, tls) : client
           # process(io, io) wraps the IO from Crystal 1.22, losing the remote
           # address, e.g. for the loopback-only default user
           {% if compare_versions(Crystal::VERSION, "1.22.0") >= 0 %}
@@ -98,6 +99,14 @@ module LavinMQ
           client.close rescue nil
           @clients_lock.synchronize { @clients.delete(client) }
         end
+      end
+
+      # A client that never completes the handshake mustn't hold the fiber
+      private def tls_handshake(client : Socket, tls : OpenSSL::SSL::Context::Server) : OpenSSL::SSL::Socket::Server
+        client.read_timeout = ProxyProtocol::HANDSHAKE_TIMEOUT
+        ssl = OpenSSL::SSL::Socket::Server.new(client, tls, sync_close: true)
+        client.read_timeout = nil
+        ssl
       end
 
       def bind_tcp(address, port)

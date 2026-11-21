@@ -376,7 +376,7 @@ module LavinMQ
       private def handle_socket(socket : TCPSocket)
         Log.context.set(follower: socket.remote_address.to_s)
         authenticated = false
-        address = socket.remote_address.address
+        address = Replicator.plain_address(socket.remote_address.address)
         follower = Follower.new(socket, @data_dir, self)
         # Before the follower hears that it authenticated, as it starts to
         # forward client connections then, which the full sync of another
@@ -415,6 +415,7 @@ module LavinMQ
       end
 
       def follower_address?(address : String) : Bool
+        address = Replicator.plain_address(address)
         @lock.synchronize { @follower_addresses.has_key?(address) }
       end
 

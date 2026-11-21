@@ -281,6 +281,27 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: "slo
     replicator.try &.close
   end
 
+  # A dual-stack client listener reports the follower as ::ffff:127.0.0.1, the
+  # IPv4 replication listener as 127.0.0.1
+  it "trusts a follower's PROXY header on a dual-stack listener when it replicates over an IPv4 one" do
+    config = LavinMQ::Config.instance.dup
+    FileUtils.mkdir_p(config.data_dir)
+    replicator = LavinMQ::Clustering::Server.new(config, NullCoordinator.new, 0)
+    listener = TCPServer.new("127.0.0.1", 0)
+    spawn(replicator.listen(listener), name: "leader clustering")
+    password = replicator.password
+    socket = TCPSocket.new("127.0.0.1", listener.local_address.port)
+    socket.read_timeout = 5.seconds
+    socket.write LavinMQ::Clustering::StartV2
+    socket.write_byte password.bytesize.to_u8
+    socket.write password.to_slice
+    socket.read_byte.should eq 0u8
+    replicator.follower_address?("::ffff:127.0.0.1").should be_true
+  ensure
+    socket.try &.close rescue nil
+    replicator.try &.close
+  end
+
   it "forwards client connections while the leader syncs another follower" do
     leader_config = LavinMQ::Config.instance.dup
     FileUtils.mkdir_p(leader_config.data_dir)
