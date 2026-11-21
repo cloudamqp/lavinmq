@@ -29,6 +29,7 @@ module LavinMQ
       # as the direct user. *metrics* writes the runner's own metrics, see
       # Runner#write_metrics.
       def initialize(@server : LavinMQ::Server, @amqp_server : LavinMQ::AMQP::Server, @mqtt_server : LavinMQ::MQTT::Server,
+                     cluster : Clustering::ClusterAdmin? = nil,
                      control_path = Config.instance.control_unix_path,
                      metrics : Proc(PrometheusWriter, Nil)? = nil)
         handlers = [
@@ -59,6 +60,7 @@ module LavinMQ
           ParametersController.new(@server),
           ShovelsController.new(@server),
           NodesController.new(@server),
+          ClusterController.new(@server, cluster),
           LogsController.new(@server),
         ].select(::HTTP::Handler) # drops nil entries and types the array to Array(::HTTP::Handler)
         @handler = ::HTTP::Server.build_middleware(handlers)

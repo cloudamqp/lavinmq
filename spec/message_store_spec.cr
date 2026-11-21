@@ -1100,63 +1100,59 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  it "loads as failed when a segment has a corrupt schema version with replicator", tags: "etcd" do
-    with_etcd do
-      mktmpdir do |dir|
-        # Create a valid store with a message, then close it
-        store = LavinMQ::MessageStore.new(dir, nil)
-        store.push(LavinMQ::Message.new("ex", "rk", "body"))
-        store.close
+  it "loads as failed when a segment has a corrupt schema version with replicator" do
+    mktmpdir do |dir|
+      # Create a valid store with a message, then close it
+      store = LavinMQ::MessageStore.new(dir, nil)
+      store.push(LavinMQ::Message.new("ex", "rk", "body"))
+      store.close
 
-        # Corrupt the schema version at the start of the segment file
-        seg_file = Dir.children(dir).find!(&.starts_with?("msgs."))
-        File.open(File.join(dir, seg_file), "r+") { |f| f.write("abcd".to_slice) }
+      # Corrupt the schema version at the start of the segment file
+      seg_file = Dir.children(dir).find!(&.starts_with?("msgs."))
+      File.open(File.join(dir, seg_file), "r+") { |f| f.write("abcd".to_slice) }
 
-        # The store stays open, to be purged
-        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
-        begin
-          store = LavinMQ::MessageStore.new(dir, replicator)
-          store.failed?.should be_true
-          store.closed.should be_false
-        ensure
-          replicator.close
-        end
+      # The store stays open, to be purged
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+      begin
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        store.failed?.should be_true
+        store.closed.should be_false
+      ensure
+        replicator.close
       end
     end
   end
 
-  it "loads as failed when a middle segment is corrupt with replicator", tags: "etcd" do
-    with_etcd do
-      mktmpdir do |dir|
-        # Create a store with multiple segments (one message per segment)
-        store = LavinMQ::MessageStore.new(dir, nil)
-        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
-        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
-        3.times { store.push(msg) }
-        store.@segments.size.should eq 3
-        store.close
+  it "loads as failed when a middle segment is corrupt with replicator" do
+    mktmpdir do |dir|
+      # Create a store with multiple segments (one message per segment)
+      store = LavinMQ::MessageStore.new(dir, nil)
+      msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+      msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+      3.times { store.push(msg) }
+      store.@segments.size.should eq 3
+      store.close
 
-        # Corrupt the schema version of the second segment
-        seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
-        File.open(File.join(dir, seg_files[1]), "r+") { |f| f.write("abcd".to_slice) }
+      # Corrupt the schema version of the second segment
+      seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+      File.open(File.join(dir, seg_files[1]), "r+") { |f| f.write("abcd".to_slice) }
 
-        # The store stays open, so that what was delivered can still be acked
-        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
-        begin
-          store = LavinMQ::MessageStore.new(dir, replicator)
-          store.failed?.should be_true
-          store.closed.should be_false
-          # Every segment is registered, also the one that can't be loaded and
-          # the ones after it, so that a follower's full sync keeps them
-          registered = replicator.@file_index.lock { |files, _| files.keys }
-          # Registered relative to the data dir, the way the replicator strips paths
-          strip = LavinMQ::Config.instance.data_dir.bytesize + 1
-          seg_files.each do |f|
-            registered.should contain File.join(dir, f)[strip..]
-          end
-        ensure
-          replicator.close
+      # The store stays open, so that what was delivered can still be acked
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, NullCoordinator.new, 0)
+      begin
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        store.failed?.should be_true
+        store.closed.should be_false
+        # Every segment is registered, also the one that can't be loaded and
+        # the ones after it, so that a follower's full sync keeps them
+        registered = replicator.@file_index.lock { |files, _| files.keys }
+        # Registered relative to the data dir, the way the replicator strips paths
+        strip = LavinMQ::Config.instance.data_dir.bytesize + 1
+        seg_files.each do |f|
+          registered.should contain File.join(dir, f)[strip..]
         end
+      ensure
+        replicator.close
       end
     end
   end

@@ -4,13 +4,22 @@ require "../../src/lavinmq/clustering/client"
 require "lz4"
 
 # Records the ISR sets the Server writes, so specs can assert ISR membership
-# changes without a real etcd. Can be made to fail (coordinator unreachable)
+# changes without a real raft cluster. Can be made to fail (coordinator unreachable)
 # to assert that publish confirms stall until the ISR write succeeds.
 class SpyCoordinator < LavinMQ::Clustering::Coordinator
   @lock = Mutex.new
   @failing = false
   @stale = false
   getter isr_updates = Array(Set(Int32)).new
+  getter member_removed_listeners = Array(Int32 ->).new
+
+  def add_member_removed_listener(listener : Int32 ->) : Nil
+    @lock.synchronize { @member_removed_listeners << listener }
+  end
+
+  def remove_member_removed_listener(listener : Int32 ->) : Nil
+    @lock.synchronize { @member_removed_listeners.delete(listener) }
+  end
 
   def update_isr(synced_node_ids : Set(Int32)) : Nil
     @lock.synchronize do
@@ -20,7 +29,7 @@ class SpyCoordinator < LavinMQ::Clustering::Coordinator
     end
   end
 
-  # Not the leader anymore, as the coordinator reports it
+  # Not the leader anymore, as the raft backend reports it
   def stale=(value : Bool)
     @lock.synchronize { @stale = value }
   end
@@ -220,6 +229,18 @@ describe LavinMQ::Clustering::Server do
   end
 
   describe "once closed" do
+    # A node makes a new server for each term it leads, a listener left
+    # behind would keep every closed one reachable
+    it "stops listening for removed members" do
+      coordinator = SpyCoordinator.new
+      server = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, coordinator, 0)
+      coordinator.member_removed_listeners.size.should eq 1
+      server.close
+      coordinator.member_removed_listeners.should be_empty
+    ensure
+      server.try &.close
+    end
+
     # E.g. the target of a leadership handover, which must stay in the ISR
     it "doesn't take the followers it disconnects out of the ISR" do
       data_dir = LavinMQ::Config.instance.data_dir
