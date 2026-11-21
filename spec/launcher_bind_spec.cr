@@ -39,9 +39,18 @@ end
 # Serves with a StoreOrderServer as the replicator
 private class StoreOrderRunner < LavinMQ::StandaloneRunner
   getter replicator : StoreOrderServer
+  # Closed once the broker has started
+  getter started = Channel(Nil).new
 
   def initialize(config : LavinMQ::Config)
     @replicator = StoreOrderServer.new(config, NullCoordinator.new, 1)
+  end
+
+  def run(&)
+    super do
+      yield
+      @started.close
+    end
   end
 
   def new_replicator : LavinMQ::Clustering::Server?
@@ -152,13 +161,19 @@ describe LavinMQ::Launcher do
       launcher = LavinMQ::Launcher.new(config)
       runner = StoreOrderRunner.new(config)
       launcher.runner_for_spec = runner
-      spawn(name: "launcher run") { launcher.run }
-      wait_for { launcher.@server }
+      done = Channel(Nil).new
+      spawn(name: "launcher run") do
+        launcher.run
+      ensure
+        done.close
+      end
+      runner.started.receive?
       runner.replicator.broker = launcher.@server
       launcher.demote_for_spec(nil)
       runner.replicator.broker_closed_at_store.should be_true
     ensure
       launcher.try &.stop
+      done.try &.receive? # before the data dir is removed
     end
   end
 
