@@ -28,9 +28,9 @@ end
 describe OpenSSL::SSL::Socket do
   it "frees the SSL object when it closes, once" do
     tls_pair do |server, _client|
-      server.@ssl_freed.get.should be_false
+      server.@ssl_refs.get.should eq 1
       server.close
-      server.@ssl_freed.get.should be_true
+      server.@ssl_refs.get.should eq 0
       server.finalize # what the GC would call: must not free it again
     end
   end
@@ -50,11 +50,21 @@ describe OpenSSL::SSL::Socket do
 
   it "keeps the SSL object while another call is still in OpenSSL" do
     tls_pair do |server, _client|
-      server.@ssl_calls.add(1) # as if another fiber were suspended in SSL_read
+      server.@ssl_refs.add(1) # as if another fiber were suspended in SSL_read
       server.close
-      server.@ssl_freed.get.should be_false
-      server.@ssl_calls.sub(1)
+      server.@ssl_refs.get.should eq 1
       server.finalize
+    end
+  end
+
+  it "refuses a call once the last reference is dropped, even if a second close is attempted" do
+    tls_pair do |server, _client|
+      server.close
+      server.unbuffered_close # must not release the socket's reference twice
+      server.@ssl_refs.get.should eq 0
+      expect_raises(IO::Error, "Closed stream") { server.unbuffered_read(Bytes.new(1)) }
+      expect_raises(IO::Error, "Closed stream") { server.unbuffered_write(Bytes.new(1)) }
+      server.@ssl_refs.get.should eq 0
     end
   end
 
@@ -76,12 +86,10 @@ describe OpenSSL::SSL::Socket do
       end
       Fiber.yield
       server.closed?.should be_true
-      server.@ssl_calls.get.should eq 2
-      server.@ssl_freed.get.should be_false
+      server.@ssl_refs.get.should eq 2 # the socket's own, held by the close, and the read's
       client.close
       2.times { done.receive }
-      server.@ssl_calls.get.should eq 0
-      server.@ssl_freed.get.should be_true
+      server.@ssl_refs.get.should eq 0
     end
   end
 end

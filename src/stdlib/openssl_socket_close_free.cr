@@ -4,59 +4,61 @@ require "./gc"
 
 # Free the SSL object on close rather than in the finalizer, and drop the finalizer.
 # A fiber can be suspended inside SSL_read or SSL_write when another closes the
-# socket, so the last call to leave OpenSSL after the close frees it.
+# socket, so the SSL object is reference counted: the open socket holds one
+# reference, every call into OpenSSL takes one, and whoever drops the last frees it.
 abstract class OpenSSL::SSL::Socket < IO
-  @ssl_calls = Atomic(Int32).new(0)
-  @ssl_freed = Atomic(Bool).new(false)
+  @ssl_refs = Atomic(Int32).new(1)
+  @ssl_close_started = Atomic(Bool).new(false)
 
   def unbuffered_read(slice : Bytes) : Int32
-    @ssl_calls.add(1)
-    begin
-      previous_def
-    ensure
-      leave_ssl
-    end
+    with_ssl { previous_def }
   end
 
   def unbuffered_write(slice : Bytes) : Nil
-    @ssl_calls.add(1)
-    begin
-      previous_def
-    ensure
-      leave_ssl
-    end
+    with_ssl { previous_def }
   end
 
   def unbuffered_close : Nil
-    return if @closed
-    @ssl_calls.add(1)
+    return if @ssl_close_started.swap(true)
     begin
       previous_def
     ensure
-      leave_ssl
+      release_ssl # the socket's own reference
     end
   end
 
   # These read the SSL object too, which is gone once closed
   {% for method in %w[alpn_protocol hostname cipher tls_version peer_certificate ktls_send? ktls_recv?] %}
     def {{ method.id }}
-      @ssl_calls.add(1)
-      begin
-        raise IO::Error.new("Closed stream") if @ssl_freed.get
-        previous_def
-      ensure
-        leave_ssl
-      end
+      with_ssl { previous_def }
     end
   {% end %}
 
   def finalize
-    LibSSL.ssl_free(@ssl) unless @ssl_freed.swap(true)
+    LibSSL.ssl_free(@ssl) unless @ssl_refs.swap(0) == 0
   end
 
-  private def leave_ssl : Nil
-    return unless @ssl_calls.sub(1) == 1 && @closed
-    return if @ssl_freed.swap(true)
+  private def with_ssl(&)
+    acquire_ssl
+    begin
+      yield
+    ensure
+      release_ssl
+    end
+  end
+
+  # Fails once the last reference is gone, in the same step as taking one
+  private def acquire_ssl : Nil
+    refs = @ssl_refs.get
+    loop do
+      raise IO::Error.new("Closed stream") if refs == 0
+      refs, taken = @ssl_refs.compare_and_set(refs, refs + 1)
+      break if taken
+    end
+  end
+
+  private def release_ssl : Nil
+    return unless @ssl_refs.sub(1) == 1
     LibSSL.ssl_free(@ssl)
     GC.remove_finalizer(self)
   end
