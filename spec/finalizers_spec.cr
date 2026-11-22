@@ -19,8 +19,14 @@ module FinalizerSpy
     @@recording = false
   end
 
+  # Made once per thread, which the runtime may start at any time
+  PER_THREAD = {"Thread::ConditionVariable", "Crystal::ValueWithFinalizer(Pointer(LibPCRE2::MatchData))",
+                "Crystal::ValueWithFinalizer(Pointer(LibPCRE2::JITStack))"}
+
   def self.add(object : Reference) : Nil
-    @@objects << {object.as(Void*), object.class.name} if @@recording
+    return unless @@recording
+    name = object.class.name
+    @@objects << {object.as(Void*), name} unless PER_THREAD.includes?(name)
   end
 
   # Class names of recorded objects whose finalizer is still registered
