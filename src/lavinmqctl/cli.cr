@@ -352,9 +352,9 @@ class LavinMQCtl
   private def read_password : String?
     input = @input
     password = if input.is_a?(IO::FileDescriptor) && input.tty?
-                 @io.print "Password: "
+                 @err_io.print "Password: "
                  line = input.noecho &.gets(chomp: true)
-                 @io.puts
+                 @err_io.puts
                  line
                else
                  input.gets(chomp: true)
