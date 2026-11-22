@@ -426,14 +426,17 @@ describe LavinMQ::AMQP::Queue do
             consumers = Array.new(3) do |j|
               frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, name, "c#{j}",
                 false, false, false, false, AMQ::Protocol::Table.new)
-              LavinMQ::AMQP::Consumer.new(server_ch, q, frame).tap { |c| server_ch.@consumers << c }
+              LavinMQ::AMQP::Consumer.new(server_ch, q, frame)
             end
             race.call(ctx, 4, ->(j : Int32) do
               if j == 0
                 q.close
               else
                 begin
-                  q.add_consumer(consumers[j - 1])
+                  c = consumers[j - 1]
+                  q.add_consumer(c) do
+                    server_ch.@consumers_lock.synchronize { server_ch.@consumers[c.tag] = c }
+                  end
                 rescue LavinMQ::AMQP::Queue::ClosedError
                   # the close won the race
                 end
@@ -1681,11 +1684,11 @@ describe LavinMQ::AMQP::Queue do
           tag = q.subscribe(no_ack: true) { }
 
           conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
-          conn.@exclusive_queues.size.should eq 1
+          conn.@exclusive_queues.lock(&.size).should eq 1
 
           ch.basic_cancel(tag) # last consumer leaves -> auto-delete fires
 
-          should_eventually(eq 0) { conn.@exclusive_queues.size }
+          should_eventually(eq 0) { conn.@exclusive_queues.lock(&.size) }
         end
       end
     end
@@ -1699,7 +1702,7 @@ describe LavinMQ::AMQP::Queue do
           ch = c
           5.times { c.queue("", exclusive: true, auto_delete: true) }
           conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
-          conn.@exclusive_queues.size.should eq 5
+          conn.@exclusive_queues.lock(&.size).should eq 5
         end
         # Connection closed by `with_channel`. All 5 queues should be gone,
         # not just every other one.
@@ -1714,9 +1717,9 @@ describe LavinMQ::AMQP::Queue do
             args: AMQP::Client::Arguments.new({"x-expires" => 100}))
 
           conn = s.vhosts["/"].connections.first.as(LavinMQ::AMQP::Client)
-          conn.@exclusive_queues.size.should eq 1
+          conn.@exclusive_queues.lock(&.size).should eq 1
 
-          should_eventually(eq 0) { conn.@exclusive_queues.size }
+          should_eventually(eq 0) { conn.@exclusive_queues.lock(&.size) }
         end
       end
     end

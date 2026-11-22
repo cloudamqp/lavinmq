@@ -1,5 +1,6 @@
 require "openssl"
 require "socket"
+require "sync/exclusive"
 require "./channel"
 require "../client"
 require "../error"
@@ -31,7 +32,7 @@ module LavinMQ
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @actual_channel_max : UInt16
-      @exclusive_queues = Array(Queue).new
+      @exclusive_queues = Sync::Exclusive(Set(Queue)).new(Set(Queue).new, :unchecked)
       @heartbeat_interval_ms : Int64?
       @running = true
       @last_recv_frame = RoughTime.instant
@@ -566,8 +567,8 @@ module LavinMQ
         close_channels
         # Iterate a snapshot because Queue#close deletes exclusive queues,
         # which calls back into #exclusive_queue_deleted.
-        @exclusive_queues.dup.each(&.close)
-        @exclusive_queues.clear
+        @exclusive_queues.lock(&.to_a).each(&.close)
+        @exclusive_queues.lock &.clear
         case user = @user
         when Auth::OAuthUser
           user.cleanup
@@ -688,6 +689,10 @@ module LavinMQ
       def send_resource_locked(frame, text)
         @log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
         send_channel_close(frame, ChannelReplyCode::RESOURCE_LOCKED, text)
+      end
+
+      def send_not_allowed(frame, text)
+        send_connection_close(frame, ConnectionReplyCode::NOT_ALLOWED, text)
       end
 
       def send_precondition_failed(frame, text)
@@ -815,18 +820,18 @@ module LavinMQ
         else
           size = q.message_count
           @vhost.apply(frame)
-          @exclusive_queues.delete(q) if q.exclusive?
+          exclusive_queue_deleted(q) if q.exclusive?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
         end
       end
 
       def queue_exclusive_to_other_client?(q)
-        q.exclusive? && !@exclusive_queues.includes?(q)
+        q.exclusive? && !@exclusive_queues.lock(&.includes?(q))
       end
 
       # Called by Queue#delete on the queue's exclusive owner
       def exclusive_queue_deleted(q : Queue) : Nil
-        @exclusive_queues.delete(q)
+        @exclusive_queues.lock &.delete(q)
       end
 
       private def declare_queue(frame)
@@ -890,7 +895,7 @@ module LavinMQ
         @last_queue_name = frame.queue_name
         if frame.exclusive
           q = @vhost.queue(frame.queue_name)
-          @exclusive_queues << q
+          @exclusive_queues.lock &.add(q)
           q.exclusive_owner = self
         end
         unless frame.no_wait

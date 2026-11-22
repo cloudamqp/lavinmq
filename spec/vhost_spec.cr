@@ -259,6 +259,27 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "visits each registered connection once even when the callback removes it" do
+    with_amqp_server do |s|
+      with_channel(s) do
+        with_channel(s) do
+          clients = s.vhosts["/"].connections
+          clients.size.should eq 2
+          store = LavinMQ::ConnectionStore.new
+          clients.each { |client| 2.times { store.add(client) } }
+
+          visited = [] of LavinMQ::Client
+          store.each do |client|
+            visited << client
+            store.delete(client)
+          end
+          visited.should eq clients
+          store.should be_empty
+        end
+      end
+    end
+  end
+
   # A closed connection removes itself from the vhost, which must not make
   # the close skip the next one: that one would be served by a closed vhost
   it "closes every connection, also when they're removed while closing" do

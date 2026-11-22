@@ -2,6 +2,52 @@ require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 
 describe LavinMQ::Client::Channel::Consumer do
+  it "rejects a consumer tag already in use on the same channel" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        first = ch.queue("first")
+        second = ch.queue("second")
+        first.subscribe("tag") { }
+        expect_raises(AMQP::Client::Connection::ClosedException, /NOT_ALLOWED.*530/) do
+          second.subscribe("tag") { }
+        end
+      end
+    end
+  end
+
+  it "allows the same consumer tag on two channels of one connection" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("shared-tag")
+        q.subscribe("tag") { }
+        ch.@connection.channel do |other|
+          delivered = Channel(String).new(1)
+          other.basic_consume(q.name, "tag") { |msg| delivered.send(msg.body_io.to_s) }
+          ch.basic_cancel("tag")
+          q.publish("other channel")
+          delivered.receive.should eq "other channel"
+        end
+      end
+    end
+  end
+
+  it "keeps a replacement consumer when a stale cancellation uses its tag" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("reuse-tag")
+        q.subscribe("tag") { }
+        queue = s.vhosts["/"].queue(q.name)
+        old = queue.consumers.first
+        ch.basic_cancel("tag")
+        delivered = Channel(String).new(1)
+        q.subscribe("tag") { |msg| delivered.send(msg.body_io.to_s) }
+        old.cancel
+        q.publish("replacement")
+        delivered.receive.should eq "replacement"
+      end
+    end
+  end
+
   describe "without x-priority" do
     it "should round-robin" do
       with_amqp_server do |s|
@@ -95,6 +141,24 @@ describe LavinMQ::Client::Channel::Consumer do
   end
 
   describe "with x-priority" do
+    it "tracks nonzero priorities until the last such consumer is removed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("priority-count")
+          queue = s.vhosts["/"].queue(q.name)
+          q.subscribe("normal") { }
+          q.subscribe("low", args: AMQP::Client::Arguments.new({"x-priority": -1})) { }
+          q.subscribe("high", args: AMQP::Client::Arguments.new({"x-priority": 1})) { }
+          ch.basic_cancel("high")
+          wait_for { queue.consumers_size == 2 }
+          queue.has_priority_consumers?.should be_true
+          ch.basic_cancel("low")
+          wait_for { queue.consumers_size == 1 }
+          queue.has_priority_consumers?.should be_false
+        end
+      end
+    end
+
     it "should respect priority" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
