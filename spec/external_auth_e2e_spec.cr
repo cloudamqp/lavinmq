@@ -1,14 +1,15 @@
 require "./spec_helper"
 
-# End-to-end test of the SASL EXTERNAL mechanism over mTLS. amqp-client only
-# speaks PLAIN, so the AMQP handshake is driven by hand.
+# End-to-end test of the SASL EXTERNAL mechanism over mTLS. The AMQP handshake
+# is driven by hand, as the amqp-client version LavinMQ depends on only speaks
+# PLAIN.
 describe "EXTERNAL authentication over mTLS" do
   it "authenticates an AMQP connection using the client certificate CN" do
     with_external_auth_amqp_server do |port, s|
       LavinMQ::Config.instance.external_auth_login_from = "common_name"
       user = s.@users.create("anders", "irrelevant-password")
       s.@users.add_permission(user, "/", /.*/, /.*/, /.*/)
-      external_amqp_handshake_succeeds?(port).should be_true
+      external_amqp_handshake(port).should be_a AMQ::Protocol::Frame::Connection::OpenOk
     end
   end
 
@@ -21,22 +22,103 @@ describe "EXTERNAL authentication over mTLS" do
       LavinMQ::Config.instance.external_auth_san_index = 2
       user = s.@users.create("localhost", "irrelevant-password")
       s.@users.add_permission(user, "/", /.*/, /.*/, /.*/)
-      external_amqp_handshake_succeeds?(port).should be_true
+      external_amqp_handshake(port).should be_a AMQ::Protocol::Frame::Connection::OpenOk
+    end
+  end
+
+  it "advertises EXTERNAL when enabled and the client certificate is verified" do
+    with_external_auth_amqp_server do |port, _s|
+      LavinMQ::Config.instance.external_auth_login_from = "common_name"
+      advertised_mechanisms(port).split(' ').should contain "EXTERNAL"
+    end
+  end
+
+  it "doesn't advertise EXTERNAL when not enabled" do
+    with_external_auth_amqp_server do |port, _s|
+      advertised_mechanisms(port).split(' ').should_not contain "EXTERNAL"
+    end
+  end
+
+  it "doesn't advertise EXTERNAL without a client certificate" do
+    with_external_auth_amqp_server(require_client_cert: false) do |port, _s|
+      LavinMQ::Config.instance.external_auth_login_from = "common_name"
+      advertised_mechanisms(port, client_cert: false).split(' ').should_not contain "EXTERNAL"
+    end
+  end
+
+  it "refuses EXTERNAL without a client certificate" do
+    with_external_auth_amqp_server(require_client_cert: false) do |port, s|
+      LavinMQ::Config.instance.external_auth_login_from = "common_name"
+      s.@users.create("anders", "irrelevant-password")
+      frame = external_amqp_handshake(port, client_cert: false)
+      frame = frame.should be_a AMQ::Protocol::Frame::Connection::Close
+      frame.reply_code.should eq 403
+    end
+  end
+
+  it "refuses EXTERNAL when not enabled" do
+    with_external_auth_amqp_server do |port, s|
+      s.@users.create("anders", "irrelevant-password")
+      frame = external_amqp_handshake(port)
+      frame = frame.should be_a AMQ::Protocol::Frame::Connection::Close
+      frame.reply_code.should eq 403
+    end
+  end
+
+  it "refuses EXTERNAL when no user matches the certificate" do
+    with_external_auth_amqp_server do |port, _s|
+      LavinMQ::Config.instance.external_auth_login_from = "common_name"
+      frame = external_amqp_handshake(port)
+      frame = frame.should be_a AMQ::Protocol::Frame::Connection::Close
+      frame.reply_code.should eq 403
+    end
+  end
+
+  describe "behind a PROXY protocol header" do
+    it "authenticates when LavinMQ terminates TLS, as for a connection a follower proxies" do
+      with_external_auth_amqp_server do |port, s|
+        LavinMQ::Config.instance.external_auth_login_from = "common_name"
+        user = s.@users.create("anders", "irrelevant-password")
+        s.@users.add_permission(user, "/", /.*/, /.*/, /.*/)
+        header = LavinMQ::ProxyProtocol::V1.new(
+          Socket::IPAddress.new("203.0.113.7", 40000), Socket::IPAddress.new("127.0.0.1", port))
+        frame = external_amqp_handshake(port, proxy_header: header)
+        frame.should be_a AMQ::Protocol::Frame::Connection::OpenOk
+      end
+    end
+
+    it "ignores a client certificate CN sent in the header" do
+      with_external_auth_amqp_server(require_client_cert: false) do |port, s|
+        LavinMQ::Config.instance.external_auth_login_from = "common_name"
+        s.@users.create("anders", "irrelevant-password")
+        # SSL TLV: client used TLS and sent a certificate, verify: 0 (ok), CN: anders
+        ssl_tlv = Bytes[0x03, 0, 0, 0, 0, 0x22, 0x00, 0x06] + "anders".to_slice
+        header = LavinMQ::ProxyProtocol::V2.new(
+          Socket::IPAddress.new("203.0.113.7", 40000), Socket::IPAddress.new("127.0.0.1", port),
+          [LavinMQ::ProxyProtocol::V2::TLV.new(0x20_u8, ssl_tlv)])
+        frame = external_amqp_handshake(port, client_cert: false, proxy_header: header)
+        frame = frame.should be_a AMQ::Protocol::Frame::Connection::Close
+        frame.reply_code.should eq 403
+      end
     end
   end
 end
 
-# Starts an mTLS-enabled AMQP server that requires a client certificate and
-# yields the bound port and the server.
-def with_external_auth_amqp_server(&)
+# Starts an mTLS-enabled AMQP server and yields the bound port and the server.
+# The client certificate is verified against the test CA, and by default
+# required. PROXY protocol headers from localhost are accepted.
+def with_external_auth_amqp_server(require_client_cert = true, &)
   config = LavinMQ::Config.new
+  config.tcp_proxy_protocol = true
+  config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("127.0.0.1")
   LavinMQ::Config.instance = init_config(config)
 
   server_ctx = OpenSSL::SSL::Context::Server.new
   server_ctx.certificate_chain = "spec/resources/server_certificate.pem"
   server_ctx.private_key = "spec/resources/server_key.pem"
   server_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
-  server_ctx.verify_mode = OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT
+  server_ctx.verify_mode = OpenSSL::SSL::VerifyMode::PEER
+  server_ctx.verify_mode |= OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT if require_client_cert
 
   tcp_server = TCPServer.new("127.0.0.1", 0)
   port = tcp_server.local_address.port
@@ -53,21 +135,41 @@ def with_external_auth_amqp_server(&)
   end
 end
 
-# Drives a manual AMQP 0-9-1 handshake using SASL EXTERNAL over mTLS.
-# Returns true if the server replies with Connection::OpenOk.
-def external_amqp_handshake_succeeds?(port) : Bool
+def with_external_auth_client_stream(port, client_cert = true, proxy_header = nil, &)
   tcp = TCPSocket.new("127.0.0.1", port)
+  if proxy_header
+    tcp.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
+    tcp.flush
+  end
   client_ctx = OpenSSL::SSL::Context::Client.new
-  client_ctx.certificate_chain = "spec/resources/client_certificate.pem"
-  client_ctx.private_key = "spec/resources/client_key.pem"
+  if client_cert
+    client_ctx.certificate_chain = "spec/resources/client_certificate.pem"
+    client_ctx.private_key = "spec/resources/client_key.pem"
+  end
   client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
   ssl = OpenSSL::SSL::Socket::Client.new(tcp, client_ctx, hostname: "localhost", sync_close: true)
   begin
     stream = AMQ::Protocol::Stream.new(ssl)
     stream.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
     stream.flush
-    return false unless stream.next_frame.is_a?(AMQ::Protocol::Frame::Connection::Start)
+    start = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Start)
+    yield stream, start
+  ensure
+    ssl.close rescue nil
+  end
+end
 
+# The mechanisms the server offers in Connection.Start (amq-protocol has no
+# getter for it).
+def advertised_mechanisms(port, client_cert = true) : String
+  with_external_auth_client_stream(port, client_cert) { |_stream, start| start.@mechanisms }
+end
+
+# Drives an AMQP 0-9-1 handshake using SASL EXTERNAL over mTLS. Returns the
+# server's reply to Connection.Open (OpenOk), or the Connection.Close the server
+# sent to refuse the connection.
+def external_amqp_handshake(port, client_cert = true, proxy_header = nil) : AMQ::Protocol::Frame
+  with_external_auth_client_stream(port, client_cert, proxy_header) do |stream, _start|
     props = AMQ::Protocol::Table.new({
       "capabilities" => AMQ::Protocol::Table.new({"authentication_failure_close" => true}),
     })
@@ -76,16 +178,11 @@ def external_amqp_handshake_succeeds?(port) : Bool
     stream.flush
 
     tune = stream.next_frame
-    return false unless tune.is_a?(AMQ::Protocol::Frame::Connection::Tune)
+    next tune unless tune.is_a?(AMQ::Protocol::Frame::Connection::Tune)
     stream.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(tune.channel_max, tune.frame_max, 0_u16),
       IO::ByteFormat::NetworkEndian
     stream.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
     stream.flush
-
-    stream.next_frame.is_a?(AMQ::Protocol::Frame::Connection::OpenOk)
-  rescue
-    false
-  ensure
-    ssl.close rescue nil
+    stream.next_frame
   end
 end

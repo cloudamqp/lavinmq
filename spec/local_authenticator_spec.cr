@@ -19,6 +19,15 @@ describe LavinMQ::Auth::LocalAuthenticator do
         authenticator.authenticate(ctx).should be_nil
       end
     end
+
+    it "keeps the default user to loopback connections" do
+      with_amqp_server do |s|
+        authenticator = LavinMQ::Auth::LocalAuthenticator.new(s.@users)
+        default_user = LavinMQ::Config.instance.default_user
+        ctx = LavinMQ::Auth::Context.new(default_user, Bytes.empty, mechanism: "EXTERNAL", loopback: false)
+        authenticator.authenticate(ctx).should be_nil
+      end
+    end
   end
 
   describe "PLAIN mechanism" do

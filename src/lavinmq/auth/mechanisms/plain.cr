@@ -11,7 +11,7 @@ module LavinMQ
           if i = response.index(NUL, 1)
             {response[1...i], response[(i + 1)..-1]}
           else
-            raise "Invalid authentication response"
+            raise Error.new("Invalid authentication response")
           end
         end
       end

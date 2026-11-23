@@ -21,6 +21,9 @@ describe LavinMQ::AMQP::ConnectionFactory do
         LavinMQ::Config.instance.external_auth_login_from = "common_name"
         factory = LavinMQ::AMQP::ConnectionFactory.new(s.authenticator, s.vhosts)
         ci = LavinMQ::ConnectionInfo.local
+        ci.ssl = true
+        ci.tls_terminated = true
+        ci.ssl_verify = true
         ci.ssl_cn = "anders"
         start_ok = start_ok_frame("EXTERNAL", "")
         factory.credentials(start_ok, ci).should eq({"anders", ""})
@@ -32,7 +35,7 @@ describe LavinMQ::AMQP::ConnectionFactory do
         factory = LavinMQ::AMQP::ConnectionFactory.new(s.authenticator, s.vhosts)
         ci = LavinMQ::ConnectionInfo.local
         start_ok = start_ok_frame("KERBEROS", "")
-        expect_raises(Exception, /Unsupported authentication mechanism/) do
+        expect_raises(LavinMQ::Auth::Mechanisms::Error, /Unsupported authentication mechanism/) do
           factory.credentials(start_ok, ci)
         end
       end

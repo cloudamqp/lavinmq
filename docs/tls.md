@@ -46,7 +46,7 @@ Configure the verify flag and CA bundle on the SNI section that should require c
 | `tls_verify_peer` | `[sni:hostname]` | `false` | Require the client to present a certificate during the handshake |
 | `tls_ca_cert` | `[sni:hostname]` | (empty) | CA bundle used to validate client certificates |
 
-mTLS only proves that the connecting peer holds a private key trusted by the configured CA. It does not by itself authenticate a LavinMQ user; the client still needs to authenticate via the configured authentication chain (PLAIN credentials, JWT, etc.) once the TLS session is established.
+mTLS only proves that the connecting peer holds a private key trusted by the configured CA. It does not by itself authenticate a LavinMQ user; the client still needs to authenticate via the configured authentication chain (PLAIN credentials, JWT, etc.) once the TLS session is established. AMQP clients can use the verified certificate itself as their credentials, see [Client Certificate Authentication](authentication.md#client-certificate-authentication-sasl-external).
 
 ## SNI (Server Name Indication)
 

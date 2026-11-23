@@ -78,20 +78,20 @@ describe LavinMQ::ConnectionInfo do
     end
 
     it "extracts the SAN values" do
-      entries = ci.extract_subject_alternative_name_entries(client_cert).not_nil!
+      entries = ci.extract_subject_alternative_name_entries(client_cert).should_not be_nil
       entries.map(&.value).should contain "localhost"
     end
 
     it "extracts the type of each entry" do
       # The test client certificate only carries DNS SANs.
-      entries = ci.extract_subject_alternative_name_entries(client_cert).not_nil!
+      entries = ci.extract_subject_alternative_name_entries(client_cert).should_not be_nil
       entries.should_not be_empty
       entries.map(&.type).uniq!.should eq ["DNS"]
     end
 
-    it "indexes entries in order" do
-      entries = ci.extract_subject_alternative_name_entries(client_cert).not_nil!
-      entries.map(&.index).should eq (0...entries.size).to_a
+    it "keeps the entries in certificate order" do
+      entries = ci.extract_subject_alternative_name_entries(client_cert).should_not be_nil
+      entries.map(&.value).should eq ["anders", "anders", "localhost"]
     end
   end
 end

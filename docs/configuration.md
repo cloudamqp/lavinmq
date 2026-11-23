@@ -147,6 +147,16 @@ A reload reads the file on top of the running configuration, so a setting remove
 | `audience` | String | (none) | Expected JWT audience. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | Int (seconds) | `3600` | JWKS cache TTL |
 
+## [external_auth] Section
+
+Settings for the SASL `EXTERNAL` mechanism, which authenticates AMQP clients by their TLS client certificate. See [Client Certificate Authentication](authentication.md#client-certificate-authentication-sasl-external).
+
+| INI Key | Type | Default | Description |
+|---------|------|---------|-------------|
+| `login_from` | String | (none) | Certificate field used as the username: `common_name` or `subject_alternative_name`. `EXTERNAL` is disabled when unset |
+| `san_type` | String | (none) | With `subject_alternative_name`: only consider entries of this type, e.g. `DNS`, `email` or `URI` (case-insensitive). When unset, all entries are considered |
+| `san_index` | Int | `0` | With `subject_alternative_name`: zero-based index among the entries that match `san_type` |
+
 ## [experimental] Section
 
 | INI Key | Type | Default | Description |

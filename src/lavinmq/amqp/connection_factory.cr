@@ -23,7 +23,7 @@ module LavinMQ
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           stream = AMQ::Protocol::Stream.new(socket)
-          if start_ok = start(stream, logger)
+          if start_ok = start(stream, connection_info, logger)
             if user = authenticate(stream, connection_info, start_ok, logger)
               if tune_ok = tune(stream, logger)
                 if vhost = open(stream, user, logger)
@@ -80,8 +80,10 @@ module LavinMQ
         },
       })
 
-      def start(socket, log : Logger)
-        start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
+      def start(socket, connection_info : ConnectionInfo, log : Logger)
+        start = AMQP::Frame::Connection::Start.new(
+          server_properties: SERVER_PROPERTIES,
+          mechanisms: Auth::Mechanisms.advertised(connection_info))
         socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
         socket.flush
         start_ok = socket.next_frame.as(AMQP::Frame::Connection::StartOk)
@@ -93,12 +95,16 @@ module LavinMQ
       end
 
       def credentials(start_ok, connection_info) : Tuple(String, String)
-        Log.debug { "credentials start_ok.mechanism=#{start_ok.mechanism}" }
         Auth::Mechanisms[start_ok.mechanism].credentials(start_ok.response, connection_info)
       end
 
       def authenticate(socket, connection_info : ConnectionInfo, start_ok, log)
-        username, password = credentials(start_ok, connection_info)
+        begin
+          username, password = credentials(start_ok, connection_info)
+        rescue ex : Auth::Mechanisms::Error
+          log.info { "Authentication failure (#{start_ok.mechanism}): #{ex.message}" }
+          return refuse_authentication(socket, start_ok)
+        end
         context = Auth::Context.new(
           username,
           password.to_slice,
@@ -109,6 +115,10 @@ module LavinMQ
         return user if user
 
         log.info { "Authentication failure for user \"#{username}\"" }
+        refuse_authentication(socket, start_ok)
+      end
+
+      private def refuse_authentication(socket, start_ok) : Nil
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)

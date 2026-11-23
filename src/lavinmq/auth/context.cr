@@ -25,7 +25,7 @@ module LavinMQ
       end
 
       def external_authentication?
-        @mechanism === "EXTERNAL"
+        @mechanism == "EXTERNAL"
       end
     end
   end
