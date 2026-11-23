@@ -359,6 +359,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       end
       sleep 0.5.seconds # campaigning
       runner.stop
+      runner.broker_closed
       select
       when code = done.receive
         code.should be_nil
@@ -466,6 +467,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         end
       ensure
         runner.stop
+        runner.broker_closed
       end
     end
   end
