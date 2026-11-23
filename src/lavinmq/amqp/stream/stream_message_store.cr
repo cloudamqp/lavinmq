@@ -232,6 +232,7 @@ module LavinMQ::AMQP
       if consumer.pos == rfile.size # EOF
         return if rfile == @wfile
         rfile = next_segment(consumer) || return
+        return if consumer.pos == rfile.size # an empty segment, e.g. opened at load
       end
       begin
         msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
@@ -271,6 +272,11 @@ module LavinMQ::AMQP
         release_segment(consumer)
         consumer.segment = seg_id
         consumer.pos = 4u32
+        # Offsets are kept across a segment deleted at load (#2800), so take
+        # the segment's first offset instead of counting on from the last one
+        if first = @segment_first_offset[seg_id]?
+          consumer.offset = first
+        end
         acquire_segment(consumer)
         @segments[seg_id]
       end
