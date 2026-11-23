@@ -32,7 +32,8 @@ module LavinMQ
       # Wait until lease expires (if leader, leadership is lost)
       # Raises `Expired` if lease expired, otherwise returns after `timeout`.
       # Also raises once no keepalive has succeeded within the TTL, as a
-      # keepalive can block for long in Etcd#with_tcp's retries.
+      # keepalive can block for long in Etcd#with_tcp's retries. That doesn't
+      # stop the keepalive loop, so the caller must give up the lease.
       def wait(timeout : Time::Span) : Nil
         wait_until = Time.instant + timeout
         loop do
