@@ -310,7 +310,6 @@ describe LavinMQ::Etcd do
   ensure
     lease.try &.release
   end
-
 end
 
 describe LavinMQ::Etcd::Lease do
@@ -570,16 +569,17 @@ end
 private class LastSecondEtcd < LavinMQ::Etcd
   getter grants = 0
 
-  private def post(path, body) : JSON::Any
-    case path
-    when "/v3/lease/grant"
-      @grants += 1
-      raise LavinMQ::Etcd::LeaseAlreadyExists.new("lease already exists") if @grants == 1
-      JSON.parse(%({"ID":"7","TTL":"10"}))
-    when "/v3/lease/timetolive"
-      JSON.parse(%({"ID":"7","grantedTTL":"10"}))
-    else
-      JSON.parse("{}")
-    end
+  private def post_timed(path, body, read_timeout : Time::Span? = nil) : {JSON::Any, Time::Instant}
+    json = case path
+           when "/v3/lease/grant"
+             @grants += 1
+             raise LavinMQ::Etcd::LeaseAlreadyExists.new("lease already exists") if @grants == 1
+             JSON.parse(%({"ID":"7","TTL":"10"}))
+           when "/v3/lease/timetolive"
+             JSON.parse(%({"ID":"7","grantedTTL":"10"}))
+           else
+             JSON.parse("{}")
+           end
+    {json, Time.instant}
   end
 end
