@@ -37,7 +37,7 @@ module LavinMQ
         wait_until = Time.instant + timeout
         loop do
           now = Time.instant
-          deadline = @started + @deadline.get.nanoseconds
+          deadline = self.deadline
           raise Expired.new("No keepalive succeeded within the lease TTL") if now >= deadline
           return if now >= wait_until
           select
@@ -46,6 +46,15 @@ module LavinMQ
           when timeout({wait_until, deadline}.min - now)
           end
         end
+      end
+
+      # The local lease deadline, never later than etcd's expiry
+      private def deadline : Time::Instant
+        @started + @deadline.get.nanoseconds
+      end
+
+      private def past_deadline? : Bool
+        Time.instant >= deadline
       end
 
       # Keepalives go out a third of the TTL after the previous one was sent,
@@ -72,7 +81,7 @@ module LavinMQ
             # Only etcd's word that the lease is gone ends it before the
             # deadline, any other error (e.g. "no leader" during an etcd
             # leader election, or EOF while a member restarts) is retried
-            raise ex if ex.is_a?(LeaseNotFound | LeaseExpired) || Time.instant > @started + @deadline.get.nanoseconds
+            raise ex if ex.is_a?(LeaseNotFound | LeaseExpired) || past_deadline?
             failures += 1
             if failures == 1
               Log.warn { "Lease #{@id} keepalive failed, retrying: #{ex.message}" }
