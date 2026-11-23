@@ -331,6 +331,38 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
+  it "wakes a consumer at the end of the stream after publishes whose segment couldn't be created" do
+    with_amqp_server do |s|
+      body = "a" * (LavinMQ::Config.instance.segment_size // 2)
+      with_channel(s) do |ch|
+        ch.prefetch 1
+        q = ch.queue("no-segment", args: stream_queue_args)
+        q.publish_confirm(body).should be_true
+        stream = s.vhosts["/"].queue("no-segment").as(LavinMQ::AMQP::Stream)
+        offsets = Channel(Int64).new(4)
+        q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset" => "first"})) do |msg|
+          offsets.send StreamSpecHelpers.offset_from_headers(msg.properties.headers)
+          msg.ack
+        end
+        offsets.receive.should eq 1
+        # Waiting for a new message
+        wait_for { stream.unacked_count.zero? }
+        # MFile can't open a directory, as when out of file descriptors
+        next_segment = File.join(stream.@data_dir, "msgs.0000000002")
+        Dir.mkdir(next_segment)
+        3.times do
+          expect_raises(File::Error) { stream.publish(LavinMQ::Message.new("", "no-segment", body)) }
+        end
+        Dir.delete(next_segment)
+        q.publish_confirm(body).should be_true
+        select
+        when offset = offsets.receive then offset.should eq 2
+        when timeout(5.seconds) then fail "the consumer wasn't woken"
+        end
+      end
+    end
+  end
+
   describe "deliver loop scheduling" do
     it "yields to other fibers after yield_each_delivered_bytes during a replay" do
       config = LavinMQ::Config.instance
@@ -1111,6 +1143,24 @@ describe LavinMQ::AMQP::Stream do
         count_before = MFile.mmap_count
         expect_raises(File::Error) { LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil) }
         MFile.mmap_count.should eq count_before
+      end
+    end
+
+    it "doesn't count an offset for a push whose segment can't be created" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        bodysize = LavinMQ::Config.instance.segment_size // 2
+        StreamSpecHelpers.push(store, 2, bodysize)
+        # MFile can't open a directory, as when out of file descriptors
+        next_segment = File.join(data_dir, "msgs.0000000003")
+        Dir.mkdir(next_segment)
+        expect_raises(Exception) { StreamSpecHelpers.push(store, 1, bodysize) }
+        Dir.delete(next_segment)
+        StreamSpecHelpers.push(store, 1, bodysize)
+        store.last_offset.should eq 3
+        store.@segment_first_offset[3].should eq 3
+      ensure
+        store.try &.close
       end
     end
 

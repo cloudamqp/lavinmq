@@ -294,8 +294,8 @@ module LavinMQ::AMQP
 
     def push(msg) : SegmentPosition
       raise ClosedError.new if @closed
-      @last_offset += 1
       sp = write_to_disk(msg)
+      @last_offset += 1
       @bytesize += sp.bytesize
       @size += 1
       @segment_last_ts[sp.segment] = msg.timestamp
@@ -313,7 +313,7 @@ module LavinMQ::AMQP
         @persister.try &.sync_soon(finished, meta_file_name(finished))
         @expiry_changed.try_send?(nil)
         drop_overflow
-        @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
+        @segment_first_offset[@segments.last_key] = @last_offset + 1
         @segment_first_ts[@segments.last_key] = RoughTime.unix_ms
       end
     end
@@ -468,7 +468,6 @@ module LavinMQ::AMQP
     private def store_offset_after_dropped_segment : Nil
       return if @closed || @size.zero? || @segments.size == 1 || @segments.has_key?(@segments.last_key - 1)
       open_new_segment
-      @segment_first_offset[@segments.last_key] = @last_offset + 1 # no push has counted its first message
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
