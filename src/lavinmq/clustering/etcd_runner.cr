@@ -1,9 +1,9 @@
 require "../etcd"
-require "./controller"
+require "./runner"
 require "./etcd_coordinator"
 
 # Leader election and ISR storage in an external etcd cluster.
-class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
+class LavinMQ::Clustering::EtcdRunner < LavinMQ::Clustering::Runner
   getter coordinator : EtcdCoordinator
 
   # Granted by #run, released by #stop from the shutdown fiber
@@ -15,7 +15,7 @@ class LavinMQ::Clustering::EtcdController < LavinMQ::Clustering::Controller
   end
 
   def initialize(config : Config, @etcd : Etcd, @coordinator : EtcdCoordinator)
-    super(config, Controller.clustering_id(config))
+    super(config, Runner.clustering_id(config))
     @elected_leader = BoolChannel.new(false)
     # Closed by #stop
     @stopped = Channel(Nil).new
