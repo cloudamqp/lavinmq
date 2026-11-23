@@ -10,7 +10,7 @@ require "./http/http_server"
 require "./http/metrics_server"
 require "./data_dir_lock"
 require "./pidfile"
-require "./clustering/controller"
+require "./clustering/runner"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -49,7 +49,7 @@ module LavinMQ
       acquire_data_dir_lock if @config.data_dir_lock?
       print_data_dir_read_ahead
 
-      @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
+      @runner = @config.clustering? ? Clustering::Runner.create(@config) : StandaloneRunner.new
       @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
 
       if @config.tls_configured?

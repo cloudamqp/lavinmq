@@ -1,7 +1,7 @@
 require "log/spec"
 require "../spec_helper"
 require "../../src/lavinmq/launcher"
-require "../../src/lavinmq/clustering/controller"
+require "../../src/lavinmq/clustering/runner"
 
 private class SelfLeaderEtcd < LavinMQ::Etcd
   getter observed = Channel(Nil).new(1)
@@ -16,7 +16,7 @@ private class SelfLeaderEtcd < LavinMQ::Etcd
   end
 end
 
-private class SelfLeaderController < LavinMQ::Clustering::EtcdController
+private class SelfLeaderRunner < LavinMQ::Clustering::EtcdRunner
   def follow_leader_public
     follow_leader
   end
@@ -62,7 +62,7 @@ end
 
 # No follower monitor: a replication client set with #following_for_spec is
 # left to #run, as when this node is elected before the monitor sees it
-private class UnmonitoredController < LavinMQ::Clustering::EtcdController
+private class UnmonitoredRunner < LavinMQ::Clustering::EtcdRunner
   def following_for_spec(client : LavinMQ::Clustering::Client) : Nil
     @repli_client.set(client)
   end
@@ -115,7 +115,7 @@ ensure
   LavinMQ::Config.instance.control_unix_path = control_unix_path if control_unix_path
 end
 
-describe LavinMQ::Clustering::EtcdController do
+describe LavinMQ::Clustering::EtcdRunner do
   # Its proxies would hold the client ports the broker binds next
   it "makes no replication client once elected while it waited for the secret" do
     with_datadir do |data_dir|
@@ -126,23 +126,23 @@ describe LavinMQ::Clustering::EtcdController do
       config.metrics_http_port = -1
       config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
       etcd = SlowSecretEtcd.new("tcp://192.0.2.10:5679")
-      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      runner = SelfLeaderRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
       done = Channel(Nil).new
       spawn(name: "follower monitor") do
-        controller.follow_leader_public
+        runner.follow_leader_public
         done.close
       end
       etcd.getting.receive
-      controller.mark_elected_for_spec
+      runner.mark_elected_for_spec
       etcd.gate.close
       select
       when done.receive?
       when timeout(5.seconds)
         fail "the follower monitor didn't return"
       end
-      controller.@repli_client.get.should be_nil
+      runner.@repli_client.get.should be_nil
     ensure
-      if c = controller
+      if c = runner
         c.@repli_client.get.try &.close
       end
     end
@@ -157,23 +157,23 @@ describe LavinMQ::Clustering::EtcdController do
       config.metrics_http_port = -1
       config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
       etcd = SlowSecretEtcd.new("tcp://192.0.2.10:5679")
-      controller = SelfLeaderController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      runner = SelfLeaderRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
       done = Channel(Nil).new
       spawn(name: "follower monitor") do
-        controller.follow_leader_public
+        runner.follow_leader_public
         done.close
       end
       etcd.getting.receive
-      controller.stop
+      runner.stop
       etcd.gate.close
       select
       when done.receive?
       when timeout(5.seconds)
         fail "the follower monitor didn't return"
       end
-      controller.@repli_client.get.should be_nil
+      runner.@repli_client.get.should be_nil
     ensure
-      if c = controller
+      if c = runner
         c.@repli_client.get.try &.close
       end
     end
@@ -186,9 +186,9 @@ describe LavinMQ::Clustering::EtcdController do
       config.data_dir = data_dir
       config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
       etcd = FailingRevokeEtcd.new
-      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
-      controller.lease_for_spec = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
-      controller.stop
+      runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      runner.lease_for_spec = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
+      runner.stop
     end
   end
 
@@ -205,10 +205,10 @@ describe LavinMQ::Clustering::EtcdController do
       config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
       etcd = ProxyBindEtcd.new("tcp://192.0.2.10:5679")
       coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
-      controller = SelfLeaderController.new(config, etcd, coordinator)
+      runner = SelfLeaderRunner.new(config, etcd, coordinator)
 
-      Log.capture("lmq.clustering.controller", :fatal) do |logs|
-        ex = expect_raises(SpecExit) { controller.follow_leader_public }
+      Log.capture("lmq.clustering.runner", :fatal) do |logs|
+        ex = expect_raises(SpecExit) { runner.follow_leader_public }
         ex.code.should eq 36
         logs.check(:fatal, /Could not bind to '127\.0\.0\.1:#{blocker.local_address.port}'/)
         logs.entry.to_s.should_not contain "Unhandled exception while following leader"
@@ -219,7 +219,7 @@ describe LavinMQ::Clustering::EtcdController do
   end
 end
 
-describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
+describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
   add_etcd_around_each
 
   it "will failover", tags: "slow" do
@@ -231,7 +231,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     # A follower's proxies forward to the leader's ports, on this host the
     # follower's own when they're the same, until out of file descriptors
     config1.amqp_port = config1.mqtt_port = config1.http_port = 0
-    controller1 = LavinMQ::Clustering::EtcdController.new(config1)
+    runner1 = LavinMQ::Clustering::EtcdRunner.new(config1)
 
     config2 = LavinMQ::Config.new
     config2.data_dir = "/tmp/failover2"
@@ -239,7 +239,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config2.clustering_advertised_uri = "tcp://localhost:5682"
     config2.clustering_port = 5682
     config2.amqp_port = config2.mqtt_port = config2.http_port = 0
-    controller2 = LavinMQ::Clustering::EtcdController.new(config2)
+    runner2 = LavinMQ::Clustering::EtcdRunner.new(config2)
 
     listen = Channel(String?).new
     spawn(name: "etcd elect leader spec") do
@@ -252,31 +252,31 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
     sleep 0.5.seconds
     spawn(name: "failover1") do
-      controller1.run { }
+      runner1.run { }
     rescue SpecExit
     end
     spawn(name: "failover2") do
-      controller2.run { }
+      runner2.run { }
     rescue SpecExit
     end
     sleep 0.1.seconds
     leader = listen.receive
     case leader
     when .try &.starts_with?(config1.clustering_advertised_uri.to_s)
-      controller1.stop
+      runner1.stop
       listen.receive.to_s.should start_with config2.clustering_advertised_uri.to_s
       sleep 0.1.seconds
-      controller2.stop
+      runner2.stop
     when .try &.starts_with?(config2.clustering_advertised_uri.to_s)
-      controller2.stop
+      runner2.stop
       listen.receive.to_s.should start_with config1.clustering_advertised_uri.to_s
       sleep 0.1.seconds
-      controller1.stop
+      runner1.stop
     else fail("no leader elected")
     end
   ensure
-    controller1.try &.stop rescue nil
-    controller2.try &.stop rescue nil
+    runner1.try &.stop rescue nil
+    runner2.try &.stop rescue nil
   end
 
   it "steps down if it wins the election while not in the ISR" do
@@ -288,7 +288,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     # leader's, the same ones on this host, until out of file descriptors
     config1.amqp_port = config1.mqtt_port = config1.http_port = 0
     FileUtils.rm_rf config1.data_dir
-    controller1 = LavinMQ::Clustering::EtcdController.new(config1)
+    runner1 = LavinMQ::Clustering::EtcdRunner.new(config1)
 
     config2 = LavinMQ::Config.new
     config2.data_dir = "/tmp/isr-stepdown2"
@@ -296,7 +296,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     config2.clustering_advertised_uri = "tcp://localhost:5684"
     config2.amqp_port = config2.mqtt_port = config2.http_port = 0
     FileUtils.rm_rf config2.data_dir
-    controller2 = LavinMQ::Clustering::EtcdController.new(config2)
+    runner2 = LavinMQ::Clustering::EtcdRunner.new(config2)
 
     etcd = LavinMQ::Etcd.new("localhost:12379")
     leader1 = Channel(Nil).new
@@ -309,24 +309,24 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
     sleep 0.1.seconds
     spawn(name: "stepdown ctrl1") do
-      controller1.run { }
+      runner1.run { }
     rescue SpecExit
     end
-    leader1.receive # controller1 is leader
+    leader1.receive # runner1 is leader
 
     served2 = false
     stepped_down = Channel(Int32).new(1)
     spawn(name: "stepdown ctrl2") do
-      controller2.run { served2 = true }
+      runner2.run { served2 = true }
     rescue ex : SpecExit
       stepped_down.send ex.code
     end
-    sleep 0.5.seconds # let controller2 queue its election candidacy
+    sleep 0.5.seconds # let runner2 queue its election candidacy
 
-    # controller2 falls out of the ISR (e.g. lagging replication) while its
+    # runner2 falls out of the ISR (e.g. lagging replication) while its
     # candidacy stays queued; the leader then dies.
-    etcd.put("lavinmq/isr", controller1.id.to_s(36))
-    controller1.stop
+    etcd.put("lavinmq/isr", runner1.id.to_s(36))
+    runner1.stop
 
     # Winning the election out of the ISR means it lacks confirmed data:
     # it must step down instead of serving.
@@ -338,7 +338,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     end
     served2.should be_false
   ensure
-    controller2.try &.stop rescue nil # closes the replication client, its lease is gone
+    runner2.try &.stop rescue nil # closes the replication client, its lease is gone
     FileUtils.rm_rf "/tmp/isr-stepdown1"
     FileUtils.rm_rf "/tmp/isr-stepdown2"
   end
@@ -349,17 +349,17 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       config.data_dir = data_dir
       config.clustering_etcd_endpoints = "localhost:12379"
       config.clustering_advertised_uri = "tcp://localhost:5685"
-      controller = LavinMQ::Clustering::EtcdController.new(config)
-      LavinMQ::Etcd.new("localhost:12379").put("lavinmq/isr", (controller.id + 1).to_s(36))
+      runner = LavinMQ::Clustering::EtcdRunner.new(config)
+      LavinMQ::Etcd.new("localhost:12379").put("lavinmq/isr", (runner.id + 1).to_s(36))
       done = Channel(Int32?).new(1)
-      spawn(name: "not in sync controller") do
-        controller.run { fail "served while not in sync" }
+      spawn(name: "not in sync runner") do
+        runner.run { fail "served while not in sync" }
         done.send nil
       rescue ex : SpecExit
         done.send ex.code
       end
       sleep 0.5.seconds # waiting to be in sync
-      controller.stop
+      runner.stop
       select
       when code = done.receive
         code.should be_nil
@@ -381,10 +381,10 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       config.data_dir = data_dir
       config.clustering_etcd_endpoints = "localhost:12379"
       config.clustering_advertised_uri = "tcp://localhost:5697"
-      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
       served = Channel(Nil).new(1)
-      spawn(name: "campaigning controller") do
-        controller.run { served.send nil }
+      spawn(name: "campaigning runner") do
+        runner.run { served.send nil }
       rescue SpecExit
       end
       begin
@@ -397,7 +397,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
         when served.receive
         when timeout(5.seconds)
         end
-        controller.stop
+        runner.stop
       end
     end
   end
@@ -409,15 +409,15 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       config.clustering_etcd_endpoints = "localhost:12379"
       config.clustering_advertised_uri = "tcp://localhost:5686"
       etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
-      controller = UnmonitoredController.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
-      client = LavinMQ::Clustering::Client.new(config, controller.id, "secret", proxy: false)
-      controller.following_for_spec(client)
+      runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      client = LavinMQ::Clustering::Client.new(config, runner.id, "secret", proxy: false)
+      runner.following_for_spec(client)
       # follow was never called, satisfy close's follower-done handshake
       spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
       metrics = Channel(String).new(1)
-      spawn(name: "promoted controller") do
-        controller.run do
-          metrics.send(String.build { |io| LavinMQ::HTTP::PrometheusWriter.open(io, "lavinmq") { |w| controller.write_metrics(w) } })
+      spawn(name: "promoted runner") do
+        runner.run do
+          metrics.send(String.build { |io| LavinMQ::HTTP::PrometheusWriter.open(io, "lavinmq") { |w| runner.write_metrics(w) } })
         end
       rescue SpecExit
       end
@@ -426,10 +426,10 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
         when body = metrics.receive
           body.should_not contain "cluster_received_bytes_total"
         when timeout(5.seconds)
-          fail "controller was not elected leader"
+          fail "runner was not elected leader"
         end
       ensure
-        controller.stop
+        runner.stop
       end
     end
   end
@@ -441,18 +441,18 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       config.clustering_advertised_uri = "tcp://localhost:5685"
       etcd = SelfLeaderEtcd.new(config.clustering_advertised_uri.not_nil!("advertised URI not set"))
       coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
-      controller = SelfLeaderController.new(config, etcd, coordinator)
+      runner = SelfLeaderRunner.new(config, etcd, coordinator)
       done = Channel(Exception?).new(1)
 
       spawn(name: "self leader follower monitor spec") do
-        controller.follow_leader_public
+        runner.follow_leader_public
         done.send nil
       rescue ex
         done.send ex
       end
 
       etcd.observed.receive
-      controller.mark_elected_for_spec
+      runner.mark_elected_for_spec
 
       select
       when ex = done.receive
@@ -513,10 +513,10 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
       config.data_dir = File.join(data_dir, "new")
-      id = LavinMQ::Clustering::EtcdController.new(config).id
+      id = LavinMQ::Clustering::EtcdRunner.new(config).id
       File.read(File.join(config.data_dir, ".clustering_id")).should eq id.to_s(36)
       File.exists?(File.join(config.data_dir, ".clustering_id.tmp")).should be_false
-      LavinMQ::Clustering::EtcdController.new(config).id.should eq id
+      LavinMQ::Clustering::EtcdRunner.new(config).id.should eq id
     end
   end
 
@@ -527,7 +527,7 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       config.clustering_etcd_endpoints = "localhost:12379"
       config.clustering_advertised_uri = "tcp://localhost:5681"
       config.clustering_etcd_lease_ttl = 30
-      controller = LavinMQ::Clustering::EtcdController.new(config)
+      runner = LavinMQ::Clustering::EtcdRunner.new(config)
       lease_id = File.read(File.join(data_dir, ".clustering_id")).to_i(36)
 
       elected = Channel(Nil).new
@@ -537,18 +537,18 @@ describe LavinMQ::Clustering::EtcdController, tags: "etcd" do
       rescue SpecExit
       end
       spawn do
-        controller.run { }
+        runner.run { }
       rescue SpecExit
       end
       begin
         select
         when elected.receive?
         when timeout(5.seconds)
-          fail("controller was not elected leader")
+          fail("runner was not elected leader")
         end
         etcd.lease_ttl(lease_id).should be > 10
       ensure
-        controller.stop
+        runner.stop
       end
     end
   end

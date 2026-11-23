@@ -1,6 +1,6 @@
 module LavinMQ
   # Decides when this node serves clients: StandaloneRunner right away, a
-  # clustering controller (Clustering::Controller) once it leads. The
+  # clustering runner (Clustering::Runner) once it leads. The
   # Launcher only uses it through this, the defaults are for a node without
   # clustering.
   abstract class Runner

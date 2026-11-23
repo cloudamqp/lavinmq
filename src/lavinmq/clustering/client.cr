@@ -70,7 +70,7 @@ module LavinMQ
       # bound after it
       @listen_lock = Mutex.new
       @close_done = Channel(Nil).new
-      # Read by #follows? from the controller's fiber while #follow sets it
+      # Read by #follows? from the runner's fiber while #follow sets it
       @leader = Atomic(Leader?).new(nil)
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
@@ -832,8 +832,8 @@ module LavinMQ
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
-      # On promotion both the leader watcher and the controller close the
-      # client, and the controller binds the listeners as soon as its call
+      # On promotion both the leader watcher and the runner close the
+      # client, and the runner binds the listeners as soon as its call
       # returns, so a call made while another is closing waits for it to finish.
       def close
         closing = @listen_lock.synchronize do

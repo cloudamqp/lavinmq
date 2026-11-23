@@ -5,12 +5,12 @@ require "./coordinator"
 require "../runner"
 
 # Elects the leader and makes the other nodes follow it. Subclasses do the
-# leader election and ISR storage, e.g. with an etcd cluster (EtcdController).
-abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
-  Log = LavinMQ::Log.for "clustering.controller"
+# leader election and ISR storage, e.g. with an etcd cluster (EtcdRunner).
+abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
+  Log = LavinMQ::Log.for "clustering.runner"
 
-  def self.create(config : Config) : Controller
-    EtcdController.new(config)
+  def self.create(config : Config) : Runner
+    EtcdRunner.new(config)
   end
 
   getter id : Int32
@@ -23,7 +23,7 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   # *id*: this node's unique id, for tracking the ISR, e.g. the one in
   # .clustering_id, see .clustering_id
   def initialize(@config : Config, @id : Int32)
-    @advertised_uri = Controller.advertised_uri(@config)
+    @advertised_uri = Runner.advertised_uri(@config)
     Log.info { "ID: #{@id.to_s(36)}" }
   end
 
@@ -58,7 +58,7 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   end
 
   # This method is called by the Launcher#run.
-  # The block will be yielded when the controller's prerequisites for a leader
+  # The block will be yielded when the runner's prerequisites for a leader
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
   abstract def run(&)
@@ -139,4 +139,4 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   class Error < Exception; end
 end
 
-require "./etcd_controller"
+require "./etcd_runner"
