@@ -380,6 +380,36 @@ describe LavinMQ::Etcd::Lease do
     server.try &.close
   end
 
+  # etcd counts the TTL from the grant it answered, not from the first attempt
+  # that Etcd#with_tcp retried
+  it "keeps a lease whose grant succeeded after retrying for longer than the TTL" do
+    started = Time.instant
+    server = HTTP::Server.new do |ctx|
+      ctx.response.content_type = "application/json"
+      case ctx.request.path
+      when "/v3/lease/grant"
+        if Time.instant - started < 3.5.seconds
+          ctx.response.status_code = 503
+          ctx.response.print %({"error":"etcdserver: request timed out"})
+        else
+          ctx.response.print %({"ID":"1","TTL":"3"})
+        end
+      when "/v3/lease/keepalive"
+        ctx.response.print %({"result":{"ID":"1","TTL":"3"}})
+      else
+        ctx.response.print "{}"
+      end
+    end
+    address = server.bind_tcp("127.0.0.1", 0)
+    spawn(name: "fake etcd") { server.listen }
+    etcd = LavinMQ::Etcd.new("127.0.0.1:#{address.port}")
+    lease = etcd.lease_grant(3, 1)
+    lease.wait(1.second) # raised at once when the deadline counted from the first attempt
+  ensure
+    lease.try &.release
+    server.try &.close
+  end
+
   # The keepalive loop gives up too, with the last error, not only Lease#wait
   it "stops sending keepalives and signals expiry when they still fail at the deadline" do
     etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) : Int32 do
