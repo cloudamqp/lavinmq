@@ -19,15 +19,10 @@ module LavinMQ
 
     # Returns true if it collected
     def on_pressure(now : Time::Instant = Time.instant, stats : GC::Stats = GC.stats) : Bool
-      if (last = @last_collect) && now - last < @min_interval
-        Log.debug { "Not collecting, last collection #{(now - last).total_seconds.round(1)}s ago" }
-        return false
+      if last = @last_collect
+        return false if now - last < @min_interval
       end
-      reclaimable = stats.free_bytes + stats.bytes_since_gc
-      if reclaimable < stats.heap_size * @min_reclaim_ratio
-        Log.debug { "Not collecting, only #{reclaimable.humanize_bytes} of #{stats.heap_size.humanize_bytes} heap reclaimable" }
-        return false
-      end
+      return false if stats.free_bytes + stats.bytes_since_gc < stats.heap_size * @min_reclaim_ratio
       @last_collect = now
       collect(stats)
       true
