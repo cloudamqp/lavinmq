@@ -13,8 +13,6 @@ module LavinMQ
     Log = LavinMQ::Log.for "memory_pressure"
 
     @last_collect : Time::Instant? = nil
-    @skipped_interval = 0
-    @skipped_reclaim = 0
 
     def initialize(@min_interval : Time::Span = 30.seconds, @min_reclaim_ratio : Float64 = 0.1)
     end
@@ -22,12 +20,11 @@ module LavinMQ
     # Returns true if it collected
     def on_pressure(now : Time::Instant = Time.instant, stats : GC::Stats = GC.stats) : Bool
       if (last = @last_collect) && now - last < @min_interval
-        @skipped_interval += 1
+        Log.debug { "Not collecting, last collection #{(now - last).total_seconds.round(1)}s ago" }
         return false
       end
       reclaimable = stats.free_bytes + stats.bytes_since_gc
       if reclaimable < stats.heap_size * @min_reclaim_ratio
-        @skipped_reclaim += 1
         Log.debug { "Not collecting, only #{reclaimable.humanize_bytes} of #{stats.heap_size.humanize_bytes} heap reclaimable" }
         return false
       end
@@ -41,12 +38,8 @@ module LavinMQ
       after = GC.stats
       Log.info do
         "Collected and unmapped, heap #{before.heap_size.humanize_bytes} -> #{after.heap_size.humanize_bytes}, " \
-        "unmapped #{before.unmapped_bytes.humanize_bytes} -> #{after.unmapped_bytes.humanize_bytes} " \
-        "(skipped #{@skipped_interval} events within #{@min_interval.total_seconds}s, " \
-        "#{@skipped_reclaim} with too little to reclaim)"
+        "unmapped #{before.unmapped_bytes.humanize_bytes} -> #{after.unmapped_bytes.humanize_bytes}"
       end
-      @skipped_interval = 0
-      @skipped_reclaim = 0
     end
   end
 end
