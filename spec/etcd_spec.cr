@@ -169,6 +169,22 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
+  # A restart within the old lease's TTL waits it out, and etcd counts the new
+  # lease's TTL from the grant after the wait, not from the first attempt
+  it "keeps a lease granted after waiting out the previous one", tags: "slow" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do
+      id = rand(Int32::MAX)
+      # Like a crashed node's lease: granted, then no more keepalives
+      HTTP::Client.post("http://#{cluster.endpoint(0)}/v3/lease/grant", body: %({"TTL":"3","ID":#{id}}))
+      etcd = LavinMQ::Etcd.new(cluster.endpoints)
+      lease = etcd.lease_grant(3, id) # waits ~5 s for the old one to expire
+      lease.wait(1.second)
+    ensure
+      lease.try &.release
+    end
+  end
+
   it "raises LeaseNotFound when using an invalid lease", tags: "slow" do
     cluster = EtcdCluster.new(1)
     cluster.run do
