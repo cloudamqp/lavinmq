@@ -39,18 +39,22 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
           tr.parentNode.removeChild(tr)
           DOM.toast(`Upstream ${item.name} deleted`)
         })
+        .catch(() => {})
     }
   })
 
   const editBtn = DOM.button.edit({
-    click: function () { Form.editItem('#createUpstream', item) }
+    click: function () {
+      Form.editItem('#createUpstream', item)
+      document.getElementById('add-upstream-dialog').showModal()
+    }
   })
 
   buttons.append(editBtn, deleteBtn)
   Table.renderCell(tr, 11, buttons, 'right')
 })
 
-const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], countId: 'links-count' }
+const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'upstream', 'type', 'resource'], countId: 'links-count' }
 
 Table.renderTable('linksTable', linksOpts, (tr, item) => {
   const resourceDiv = document.createElement('span')
@@ -58,7 +62,7 @@ Table.renderTable('linksTable', linksOpts, (tr, item) => {
   resourceDiv.appendChild(document.createElement('br'))
   resourceDiv.appendChild(document.createElement('small')).textContent = item.type
   Table.renderCell(tr, 0, item.vhost)
-  Table.renderCell(tr, 1, item.name)
+  Table.renderCell(tr, 1, item.upstream)
   Table.renderCell(tr, 2, decodeURI(item.uri))
   Table.renderCell(tr, 3, resourceDiv)
   Table.renderCell(tr, 4, item.timestamp)
@@ -89,5 +93,7 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
       upstreamsTable.reload()
       evt.target.reset()
       DOM.toast(`Upstream ${name} saved`)
+      document.getElementById('add-upstream-dialog').close()
     })
+    .catch(() => {})
 })

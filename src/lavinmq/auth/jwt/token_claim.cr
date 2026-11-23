@@ -32,8 +32,6 @@ module LavinMQ
                          payload.sub
                        when "iss"
                          payload.iss
-                       else
-                         nil
                        end
             return username if username
 

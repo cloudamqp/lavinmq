@@ -9,6 +9,13 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "advertises the stats interval on API responses" do
+      with_http_server do |http, _|
+        response = http.get("/api/whoami")
+        response.headers["LavinMQ-Stats-Interval"].should eq LavinMQ::Config.instance.stats_interval.to_s
+      end
+    end
+
     it "is not set on static/HTML responses" do
       with_http_server do |http, _|
         response = ::HTTP::Client.get("#{http.addr}/login")
@@ -17,7 +24,33 @@ describe LavinMQ::HTTP::Server do
     end
   end
 
+  describe "GET /api/livelog" do
+    it "sends the response headers before the event stream" do
+      with_http_server do |http, _|
+        ::HTTP::Client.new(URI.parse http.test_uri("")) do |client|
+          client.read_timeout = 5.seconds
+          client.get("/api/livelog", headers: http.test_headers) do |response|
+            response.status_code.should eq 200
+            response.headers["Content-Type"].should eq "text/event-stream"
+            entry = ::Log::Entry.new("spec", :warn, "livelog", ::Log::Metadata.empty, nil)
+            ::Log::InMemoryBackend.instance.write(entry)
+            response.body_io.read_line.should start_with "id: "
+          end
+        end
+      end
+    end
+  end
+
   describe "GET /api/overview" do
+    it "is sent with Content-Length instead of chunked" do
+      with_http_server do |http, _|
+        response = http.get("/api/overview")
+        response.status_code.should eq 200
+        response.headers["Content-Length"]?.should_not be_nil
+        response.headers["Transfer-Encoding"]?.should be_nil
+      end
+    end
+
     it "should refuse access if no basic auth header" do
       with_http_server do |http, _|
         response = ::HTTP::Client.get("#{http.addr}/api/overview")
@@ -58,6 +91,20 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should count returned unroutable messages in message_stats" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          returned = Channel(Nil).new
+          ch.on_return { |_msg| returned.send nil }
+          ch.basic_publish("m1", "amq.direct", "none", mandatory: true)
+          returned.receive
+        end
+        response = http.get("/api/overview")
+        count = JSON.parse(response.body).dig("message_stats", "return_unroutable")
+        count.should eq 1
+      end
+    end
+
     it "should return sum of all published messages" do
       with_http_server do |http, s|
         response = http.get("/api/overview")
@@ -75,6 +122,21 @@ describe LavinMQ::HTTP::Server do
         response = http.get("/api/overview")
         count = JSON.parse(response.body).dig("message_stats", "publish")
         count.should eq(before_count.as_i + 10)
+      end
+    end
+
+    it "should log queue totals over the same window as the rates" do
+      with_http_server do |http, s|
+        3.times { s.update_stats_rates }
+        with_channel(s) do |ch|
+          ch.queue("totals_q", exclusive: true)
+          s.update_stats_rates
+          body = JSON.parse(http.get("/api/overview").body)
+          rates_size = body.dig("recv_oct_details", "log").size
+          body.dig("queue_totals", "messages_ready_log").size.should eq rates_size
+          body.dig("queue_totals", "messages_unacknowledged_log").size.should eq rates_size
+          body.dig("queue_totals", "messages_log").size.should eq rates_size
+        end
       end
     end
 
@@ -189,7 +251,7 @@ describe LavinMQ::HTTP::Server do
             q1.publish_confirm("m")
           end
           5.times do
-            q1.get(false).not_nil!
+            q1.get(false).should_not be_nil
           end
         end
 
@@ -213,7 +275,7 @@ describe LavinMQ::HTTP::Server do
           q1.publish_confirm("m")
         end
         5.times do
-          q1.get.not_nil!
+          q1.get.should_not be_nil
         end
       end
 
@@ -234,13 +296,50 @@ describe LavinMQ::HTTP::Server do
     end
   end
 
+  describe "PUT /api/vhost-limits/vhost/type" do
+    it "clears max-connections with a negative value" do
+      with_http_server do |http, s|
+        s.vhosts["/"].max_connections = 100
+        response = http.put("/api/vhost-limits/%2f/max-connections", body: %({"value": -1}))
+        response.status_code.should eq 204
+        s.vhosts["/"].max_connections.should be_nil
+        restart_server(s)
+        s.vhosts["/"].max_connections.should be_nil
+      end
+    end
+
+    it "clears max-queues with a negative value" do
+      with_http_server do |http, s|
+        s.vhosts["/"].max_queues = 100
+        response = http.put("/api/vhost-limits/%2f/max-queues", body: %({"value": -1}))
+        response.status_code.should eq 204
+        s.vhosts["/"].max_queues.should be_nil
+        restart_server(s)
+        s.vhosts["/"].max_queues.should be_nil
+      end
+    end
+  end
+
   describe "DELETE /api/vhost-limits/vhost/type" do
-    it "clears the limit" do
+    it "clears max-connections" do
       with_http_server do |http, s|
         s.vhosts["/"].max_connections = 100
         response = http.delete("/api/vhost-limits/%2f/max-connections")
         response.status_code.should eq 204
         s.vhosts["/"].max_connections.should be_nil
+        restart_server(s)
+        s.vhosts["/"].max_connections.should be_nil
+      end
+    end
+
+    it "clears max-queues" do
+      with_http_server do |http, s|
+        s.vhosts["/"].max_queues = 100
+        response = http.delete("/api/vhost-limits/%2f/max-queues")
+        response.status_code.should eq 204
+        s.vhosts["/"].max_queues.should be_nil
+        restart_server(s)
+        s.vhosts["/"].max_queues.should be_nil
       end
     end
   end

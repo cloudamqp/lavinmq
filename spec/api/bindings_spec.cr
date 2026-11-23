@@ -54,14 +54,44 @@ describe LavinMQ::HTTP::BindingsController do
   end
 
   describe "POST /api/bindings/vhost/e/exchange/q/queue" do
+    it "should refuse binding a delayed exchange to its internal queue" do
+      with_http_server do |http, s|
+        args = LavinMQ::AMQP::Table.new({"x-delayed-exchange" => true})
+        s.vhosts["/"].declare_exchange("bindings_delayed", "topic", true, false, arguments: args)
+        internal_q = "amq.delayed-bindings_delayed"
+        s.vhosts["/"].queue?(internal_q).should_not be_nil
+        body = %({ "routing_key": "#" })
+        response = http.post("/api/bindings/%2f/e/bindings_delayed/q/#{internal_q}", body: body)
+        response.status_code.should eq 403
+        bindings = http.get("/api/bindings/%2f/e/bindings_delayed/q/#{internal_q}")
+        JSON.parse(bindings.body).as_a.should be_empty
+      end
+    end
+
+    it "should refuse binding an internal queue to any exchange" do
+      with_http_server do |http, s|
+        args = LavinMQ::AMQP::Table.new({"x-delayed-exchange" => true})
+        s.vhosts["/"].declare_exchange("bindings_delayed2", "topic", true, false, arguments: args)
+        internal_q = "amq.delayed-bindings_delayed2"
+        s.vhosts["/"].queue?(internal_q).should_not be_nil
+        body = %({ "routing_key": "rk" })
+        response = http.post("/api/bindings/%2f/e/amq.direct/q/#{internal_q}", body: body)
+        response.status_code.should eq 403
+        bindings = http.get("/api/bindings/%2f/e/amq.direct/q/#{internal_q}")
+        JSON.parse(bindings.body).as_a.should be_empty
+      end
+    end
+
     it "should create binding" do
       with_http_server do |http, s|
         s.vhosts["/"].declare_exchange("be1", "topic", false, false)
         s.vhosts["/"].declare_queue("bindings_q1", false, false)
-        body = %({
-        "routing_key": "rk",
-        "arguments": {}
-      })
+        body = <<-JSON
+          {
+            "routing_key": "rk",
+            "arguments": {}
+          }
+          JSON
         response = http.post("/api/bindings/%2f/e/be1/q/bindings_q1", body: body)
         response.status_code.should eq 201
         response.headers["Location"].should eq "bindings_q1/rk"
@@ -91,10 +121,12 @@ describe LavinMQ::HTTP::BindingsController do
     it "should return forbidden for the default exchange" do
       with_http_server do |http, s|
         s.vhosts["/"].declare_queue("bindings_q2", false, false)
-        body = %({
-        "routing_key": "rk",
-        "arguments": {}
-      })
+        body = <<-JSON
+          {
+            "routing_key": "rk",
+            "arguments": {}
+          }
+          JSON
         response = http.post("/api/bindings/%2f/e/amq.default/q/bindings_q2", body: body)
         response.status_code.should eq 403
       end
@@ -104,10 +136,12 @@ describe LavinMQ::HTTP::BindingsController do
       with_http_server do |http, s|
         s.vhosts["/"].declare_exchange("ch1", "x-consistent-hash", false, false)
         s.vhosts["/"].declare_queue("bindings_q1", false, false)
-        body = %({
-        "routing_key": "",
-        "arguments": {}
-      })
+        body = <<-JSON
+          {
+            "routing_key": "",
+            "arguments": {}
+          }
+          JSON
         response = http.post("/api/bindings/%2f/e/ch1/q/bindings_q1", body: body)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
@@ -166,10 +200,12 @@ describe LavinMQ::HTTP::BindingsController do
       with_http_server do |http, s|
         s.vhosts["/"].declare_exchange("be1", "topic", false, false)
         s.vhosts["/"].declare_exchange("be2", "topic", false, false)
-        body = %({
-        "routing_key": "rk",
-        "arguments": {}
-      })
+        body = <<-JSON
+          {
+            "routing_key": "rk",
+            "arguments": {}
+          }
+          JSON
         response = http.post("/api/bindings/%2f/e/be1/e/be2", body: body)
         response.status_code.should eq 201
       end
@@ -177,10 +213,12 @@ describe LavinMQ::HTTP::BindingsController do
 
     it "should return forbidden for the default exchange" do
       with_http_server do |http, _|
-        body = %({
-        "routing_key": "rk",
-        "arguments": {}
-      })
+        body = <<-JSON
+          {
+            "routing_key": "rk",
+            "arguments": {}
+          }
+          JSON
         response = http.post("/api/bindings/%2f/e/amq.default/e/amq.direct", body: body)
         response.status_code.should eq 403
       end

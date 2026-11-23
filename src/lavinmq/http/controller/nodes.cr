@@ -13,8 +13,9 @@ module LavinMQ
         messages_unacknowledged = 0_u64
         messages_ready = 0_u64
 
+        deleted_stats = @server.vhosts.deleted_stats
         {% for sm in SERVER_METRICS %}
-          {{ sm.id }} = 0_u64
+          {{ sm.id }} = deleted_stats.{{ sm.id }}
           {{ sm.id }}_rate = 0_f64
           {{ sm.id }}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
         {% end %}
@@ -115,7 +116,7 @@ module LavinMQ
 
       private def register_routes
         get "/api/nodes" do |context, _params|
-          Tuple.new(stats(context)).to_json(context.response)
+          Tuple.new(stats(context)).to_json(context.response.output)
           context
         end
 
@@ -123,13 +124,13 @@ module LavinMQ
         # Registered before the :name route so it isn't matched as a node name.
         get "/api/nodes/gc_stats" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          gc_stats.to_json(context.response)
+          gc_stats.to_json(context.response.output)
           context
         end
 
         get "/api/nodes/:name" do |context, params|
           if params["name"] == System.hostname
-            stats(context).to_json(context.response)
+            stats(context).to_json(context.response.output)
           else
             context.response.status_code = 404
           end

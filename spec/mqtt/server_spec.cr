@@ -48,7 +48,11 @@ describe LavinMQ::MQTT::Server do
       mqtt_server.close
       restart_server(server)
       mqtt_server = LavinMQ::MQTT::Server.new(server)
-      tcp_server = TCPServer.new("127.0.0.1", port)
+      tcp_server = 100.times do
+        break TCPServer.new("127.0.0.1", port)
+      rescue Socket::BindError
+        sleep 10.milliseconds
+      end || raise "Address already in use 127.0.0.1:#{port}"
       mqtt_server.bind_tcp(tcp_server)
       spawn(name: "mqtt restart replacement listen spec") { mqtt_server.listen }
       wait_for { mqtt_server.@listeners.includes?(tcp_server) }

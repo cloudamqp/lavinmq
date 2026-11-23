@@ -32,18 +32,16 @@ Messages without an `x-delay` header are routed immediately (no delay).
 
 Each message's delay is measured independently from when it was published. If you publish one message with `x-delay: 300000` (5 minutes) and another with `x-delay: 600000` (10 minutes) at the same time, the first delivers after 5 minutes and the second after 10 minutes — not 15. Messages do not queue behind each other; the internal store sorts by absolute delivery time, so a later publish with a shorter delay can be delivered before an earlier publish with a longer delay.
 
-## Policy-Based Activation
+## Enabling Delayed Mode
 
-Any existing exchange can be made into a delayed exchange via the `delayed-message` policy. This adds delayed behavior without redeclaring the exchange.
-
-The `x-delayed-exchange` argument on the exchange also enables delayed mode.
+Delayed mode is set when the exchange is declared, with the `x-delayed-exchange` argument or the `x-delayed-message` type. A policy can't enable it, so an existing exchange has to be redeclared.
 
 ## Internal Queue
 
 Each delayed exchange creates an internal queue named `amq.delayed-<exchange_name>` (or `amq.delayed.<exchange_name>` for queues created before this naming convention; both forms continue to work). This queue:
 
 - Delivers messages in expiration order (messages are stored in arrival order on disk; an in-memory index orders them by delivery time)
-- Cannot be consumed from or published to by clients
+- Cannot be operated on by AMQP clients: passive declare, delete, purge, consume, basic get, bind and unbind are refused with `ACCESS_REFUSED` (it stays visible in the management UI and HTTP API)
 - Is automatically deleted when the exchange is deleted
 - Inherits the durability of the exchange
 

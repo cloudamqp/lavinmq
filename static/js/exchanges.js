@@ -16,7 +16,7 @@ HTTP.request('GET', 'api/overview').then(function (response) {
     opt.value = name
     select.add(opt)
   })
-})
+}).catch(() => {})
 
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/exchanges'
@@ -52,7 +52,7 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
       internal.title = 'Internal'
       features.appendChild(internal)
     }
-    if (item.arguments['x-delayed-exchange']) {
+    if (item.arguments['x-delayed-exchange'] === true) {
       const delayed = document.createElement('span')
       delayed.textContent = ' d'
       delayed.title = 'Delayed'
@@ -96,9 +96,7 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
       exchangeTable.reload()
       DOM.toast('Exchange ' + exchange + ' created')
       evt.target.reset()
+      document.getElementById('add-exchange-dialog').close()
     })
-})
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('addExchange', 'arguments', e)
+    .catch(() => {})
 })

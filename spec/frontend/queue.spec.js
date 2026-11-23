@@ -5,27 +5,40 @@ test.describe('queue', _ => {
   const queueName = 'foo'
   const queueVhost = '/'
   const bindingResponse = {
-    "items": [
+    items: [
       {
-        "source": "", "vhost": queueVhost, "destination": queueName,
-        "destination_type": "queue", "routing_key": queueName,
-        "arguments": null, "properties_key": queueName
+        source: '',
+        vhost: queueVhost,
+        destination: queueName,
+        destination_type: 'queue',
+        routing_key: queueName,
+        arguments: null,
+        properties_key: queueName
       },
       {
-        "source": "amq.topic", "vhost": queueVhost, "destination": queueName,
-        "destination_type": "queue", "routing_key": queueName,
-        "arguments": {}, "properties_key": queueName
+        source: 'amq.topic',
+        vhost: queueVhost,
+        destination: queueName,
+        destination_type: 'queue',
+        routing_key: queueName,
+        arguments: {},
+        properties_key: queueName
       }
     ],
-    "filtered_count": 2, "item_count": 2, "page": 1, "page_count": 1, "page_size": 100, "total_count": 2
+    filtered_count: 2,
+    item_count: 2,
+    page: 1,
+    page_count: 1,
+    page_size: 100,
+    total_count: 2
   }
 
   const consumers = [
-    {"queue":{"name":queueName,"vhost":queueVhost},"consumer_tag":"foo_consumer","exclusive":false,"ack_required":true,"prefetch_count":1000,"priority":0,"channel_details":{"peer_host":"127.0.0.1","peer_port":56861,"connection_name":"conn_name","user":"guest","number":1,"name":"channel_name"}}
+    { queue: { name: queueName, vhost: queueVhost }, consumer_tag: 'foo_consumer', exclusive: false, ack_required: true, prefetch_count: 1000, priority: 0, channel_details: { peer_host: '127.0.0.1', peer_port: 56861, connection_name: 'conn_name', user: 'guest', number: 1, name: 'channel_name' } }
   ]
 
   const queueResponse = {
-    "name":queueName,"durable":true,"exclusive":false,"auto_delete":false,"arguments":{},"consumers":0,"vhost":queueVhost,"messages":0,"total_bytes":0,"messages_persistent":0,"ready":0,"messages_ready":0,"ready_bytes":0,"message_bytes_ready":0,"ready_avg_bytes":0,"unacked":0,"messages_unacknowledged":0,"unacked_bytes":0,"message_bytes_unacknowledged":0,"unacked_avg_bytes":0,"state":"running","effective_policy_definition":{},"message_stats":{"ack":0,"ack_details":{"rate":0.0},"deliver":0,"deliver_details":{"rate":0.0},"deliver_get":0,"deliver_get_details":{"rate":0.0},"confirm":0,"confirm_details":{"rate":0.0},"get":0,"get_details":{"rate":0.0},"get_no_ack":0,"get_no_ack_details":{"rate":0.0},"publish":0,"publish_details":{"rate":0.0},"redeliver":0,"redeliver_details":{"rate":0.0},"reject":0,"reject_details":{"rate":0.0},"return_unroutable":0,"return_unroutable_details":{"rate":0.0},"dedup":0,"dedup_details":{"rate":0.0}},"effective_arguments":["x-expires","x-max-length","x-max-length-bytes","x-message-ttl","x-delivery-limit","x-consumer-timeout"],"message_stats":{"ack":0,"ack_details":{"rate":0.0,"log":[]},"deliver":0,"deliver_details":{"rate":0.0,"log":[]},"deliver_get":0,"deliver_get_details":{"rate":0.0,"log":[]},"confirm":0,"confirm_details":{"rate":0.0,"log":[]},"get":0,"get_details":{"rate":0.0,"log":[]},"get_no_ack":0,"get_no_ack_details":{"rate":0.0,"log":[]},"publish":0,"publish_details":{"rate":0.0,"log":[]},"redeliver":0,"redeliver_details":{"rate":0.0,"log":[]},"reject":0,"reject_details":{"rate":0.0,"log":[]},"return_unroutable":0,"return_unroutable_details":{"rate":0.0,"log":[]},"dedup":0,"dedup_details":{"rate":0.0,"log":[]}},"consumer_details":consumers
+    name: queueName, durable: true, exclusive: false, auto_delete: false, arguments: {}, consumers: 0, vhost: queueVhost, messages: 0, total_bytes: 0, messages_persistent: 0, ready: 0, messages_ready: 4, messages_ready_details: { log: [2, 3, 4] }, ready_bytes: 0, message_bytes_ready: 0, ready_avg_bytes: 0, unacked: 0, messages_unacknowledged: 1, messages_unacknowledged_details: { log: [0, 1, 1] }, unacked_bytes: 0, message_bytes_unacknowledged: 0, unacked_avg_bytes: 0, state: 'running', effective_policy_definition: {}, message_stats: { ack: 0, ack_details: { rate: 0.0 }, deliver: 0, deliver_details: { rate: 0.0 }, deliver_get: 0, deliver_get_details: { rate: 0.0 }, confirm: 0, confirm_details: { rate: 0.0 }, get: 0, get_details: { rate: 0.0 }, get_no_ack: 0, get_no_ack_details: { rate: 0.0 }, publish: 0, publish_details: { rate: 0.0 }, redeliver: 0, redeliver_details: { rate: 0.0 }, reject: 0, reject_details: { rate: 0.0 }, return_unroutable: 0, return_unroutable_details: { rate: 0.0 }, dedup: 0, dedup_details: { rate: 0.0 } }, effective_arguments: ['x-expires', 'x-max-length', 'x-max-length-bytes', 'x-message-ttl', 'x-delivery-limit', 'x-consumer-timeout'], message_stats: { ack: 0, ack_details: { rate: 0.0, log: [] }, deliver: 0, deliver_details: { rate: 0.0, log: [] }, deliver_get: 0, deliver_get_details: { rate: 0.0, log: [] }, confirm: 0, confirm_details: { rate: 0.0, log: [] }, get: 0, get_details: { rate: 0.0, log: [] }, get_no_ack: 0, get_no_ack_details: { rate: 0.0, log: [] }, publish: 0, publish_details: { rate: 0.0, log: [] }, redeliver: 0, redeliver_details: { rate: 0.0, log: [] }, reject: 0, reject_details: { rate: 0.0, log: [] }, return_unroutable: 0, return_unroutable_details: { rate: 0.0, log: [] }, dedup: 0, dedup_details: { rate: 0.0, log: [] } }, consumer_details: consumers
   }
 
   // Content is split across tabs (Overview/Consumers/Bindings/Messages); the
@@ -50,8 +63,181 @@ test.describe('queue', _ => {
 
     test('queue is loaded', async ({ page }) => {
       await expect(page.locator('#pagename-label')).toHaveText(new RegExp(`${queueName} .* ${queueVhost}`))
-      await expect(page.locator('#consumer-count')).toHaveText("1")
+      await expect(page.locator('#consumer-count')).toHaveText(queueResponse.consumers.toString())
     })
+
+    test('queued messages chart shows current counts', async ({ page }) => {
+      const legend = page.locator('#msgChart .u-legend-item')
+      await expect(legend).toHaveCount(2)
+      await expect(legend.nth(0)).toContainText('Ready')
+      await expect(legend.nth(0)).toContainText('4 msgs')
+      await expect(legend.nth(1)).toContainText('Unacknowledged')
+      await expect(legend.nth(1)).toContainText('1 msgs')
+    })
+
+    test('automatic retries section is hidden without retries', async ({ page }) => {
+      await expect(page.locator('#q-delayed-retry')).toBeHidden()
+      await expect(page.locator('#q-primary-queue-row')).toBeHidden()
+    })
+  })
+
+  test.describe('state reason', _ => {
+    async function loadQueue (apimap, page, overrides) {
+      const loaded = Promise.all([
+        apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${queueName}`, Object.assign({}, queueResponse, overrides)),
+        apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${queueName}/bindings`, bindingResponse)
+      ])
+      await page.goto(queueUrl('overview'))
+      await loaded
+    }
+
+    test('is hidden for a running queue', async ({ apimap, page }) => {
+      await loadQueue(apimap, page, {})
+      await expect(page.locator('#q-state')).toHaveText('running')
+      await expect(page.locator('#q-state-reason-row')).toBeHidden()
+    })
+
+    test('says what to do with a failed queue', async ({ apimap, page }) => {
+      await loadQueue(apimap, page, { state: 'failed' })
+      await expect(page.locator('#q-state')).toHaveText('failed')
+      await expect(page.locator('#q-state-reason-row')).toBeVisible()
+      await expect(page.locator('#q-state-reason')).toContainText("can't be read. Delete it")
+      await expect(page.locator('#pause-queue-card')).toBeHidden()
+      await expect(page.locator('#purgeQueue')).toBeHidden()
+    })
+
+    test('says to resume a queue paused by a store error', async ({ apimap, page }) => {
+      await loadQueue(apimap, page, { state: 'paused', paused_reason: 'store_error' })
+      await expect(page.locator('#q-state-reason')).toContainText('Resume it to try again')
+    })
+  })
+
+  test.describe('automatic retries', _ => {
+    const retryQueueUrl = name => `/queue#vhost=${encodeURIComponent(queueVhost)}&name=${encodeURIComponent(name)}&tab=overview`
+
+    async function loadRetryApi (apimap, page, name, overrides) {
+      const response = Object.assign({}, queueResponse, { name }, overrides)
+      const loaded = Promise.all([
+        apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${name}`, response),
+        apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${name}/bindings`, bindingResponse)
+      ])
+      await page.goto(retryQueueUrl(name))
+      await loaded
+    }
+
+    test('shows exponential backoff with an explicit delivery limit', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'orders', {
+        delayed_retry: { min: 500, multiplier: 2, max: 30000, delivery_limit: 5, messages_delayed: 3, retry_queue: 'amq.retry-orders' }
+      })
+      await expect(page.locator('#q-delayed-retry')).toBeVisible()
+      await expect(page.locator('#q-retry-min')).toHaveText('500 ms')
+      await expect(page.locator('#q-retry-backoff')).toHaveText('Exponential x2')
+      await expect(page.locator('#q-retry-max')).toHaveText('30,000 ms')
+      await expect(page.locator('#q-retry-delivery-limit')).toHaveText('5')
+      await expect(page.locator('#q-retry-messages-delayed')).toHaveText('3')
+      await expect(page.locator('#q-retry-queue a')).toHaveText('amq.retry-orders')
+      await expect(page.locator('#q-retry-queue a')).toHaveAttribute('href', /queue#vhost=%2F&name=amq.retry-orders$/)
+    })
+
+    test('shows linear backoff, no max delay and no delivery limit', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'orders', {
+        delayed_retry: { min: 1000, multiplier: null, max: null, delivery_limit: null, messages_delayed: 0, retry_queue: 'amq.retry-orders' }
+      })
+      await expect(page.locator('#q-retry-backoff')).toHaveText('Linear')
+      await expect(page.locator('#q-retry-max')).toHaveText('None')
+      await expect(page.locator('#q-retry-delivery-limit')).toHaveText('None')
+    })
+
+    test('shows no retry queue link when the retry queue could not be created', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'orders', {
+        delayed_retry: { min: 1000, multiplier: null, max: null, delivery_limit: null, messages_delayed: 0, retry_queue: null }
+      })
+      await expect(page.locator('#q-retry-queue')).toHaveText('None')
+      await expect(page.locator('#q-retry-queue a')).toHaveCount(0)
+    })
+
+    test('updates the retry settings on poll when a policy changes them', async ({ apimap, page }) => {
+      await page.clock.install()
+      let delayedRetry = { min: 500, multiplier: 2, max: 30000, delivery_limit: 5, messages_delayed: 0, retry_queue: 'amq.retry-orders' }
+      await page.route(url => decodeURIComponent(url.pathname) === `/api/queues/${queueVhost}/orders`, async route => {
+        await route.fulfill({ json: { ...queueResponse, name: 'orders', delayed_retry: delayedRetry } })
+      })
+      const bindingsLoaded = apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/orders/bindings`, bindingResponse)
+      await page.goto(retryQueueUrl('orders'))
+      await bindingsLoaded
+      await expect(page.locator('#q-retry-min')).toHaveText('500 ms')
+      await expect(page.locator('#q-retry-backoff')).toHaveText('Exponential x2')
+      await expect(page.locator('#q-retry-delivery-limit')).toHaveText('5')
+
+      delayedRetry = { ...delayedRetry, min: 2000, multiplier: null, delivery_limit: null }
+      await helpers.pollerSettled(page)
+      await page.clock.runFor(5000)
+      await expect(page.locator('#q-retry-min')).toHaveText('2,000 ms')
+      await expect(page.locator('#q-retry-backoff')).toHaveText('Linear')
+      await expect(page.locator('#q-retry-delivery-limit')).toHaveText('None')
+    })
+
+    test('links a retry queue back to its primary queue', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'amq.retry-orders', { internal: true, primary_queue: 'orders' })
+      await expect(page.locator('#q-delayed-retry')).toBeHidden()
+      await expect(page.locator('#q-primary-queue-row')).toBeVisible()
+      await expect(page.locator('#q-primary-queue a')).toHaveAttribute('href', /queue#vhost=%2F&name=orders$/)
+    })
+
+    test('opens the primary queue from its retry queue', async ({ apimap, page }) => {
+      await loadRetryApi(apimap, page, 'amq.retry-orders', { internal: true, primary_queue: 'orders' })
+      const primaryLoaded = apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/orders`, Object.assign({}, queueResponse, { name: 'orders' }))
+      await page.locator('#q-primary-queue a').click()
+      await primaryLoaded
+      await expect(page.locator('#q-primary-queue-row')).toBeHidden()
+    })
+  })
+
+  test('consumer count stays at the total while loading more and updates on refresh', async ({ apimap, page }) => {
+    let total = 35
+    const allConsumers = Array.from({ length: total }, (_, index) => ({
+      ...consumers[0], consumer_tag: `consumer_${index}`
+    }))
+    await page.route(url => decodeURIComponent(url.pathname) === `/api/queues/${queueVhost}/${queueName}`, async route => {
+      const limit = Number(new URL(route.request().url()).searchParams.get('consumer_list_length'))
+      await route.fulfill({
+        json: {
+          ...queueResponse,
+          consumers: total,
+          consumer_details: allConsumers.slice(0, Math.min(limit, total))
+        }
+      })
+    })
+    const bindingsLoaded = apimap.get(`/api/queues/${encodeURIComponent(queueVhost)}/${queueName}/bindings`, bindingResponse)
+    await page.goto(queueUrl('consumers'))
+    await bindingsLoaded
+
+    const count = page.locator('#consumer-count')
+    const badge = page.locator('[data-tab="consumers"] .badge')
+    const rows = page.locator('#table tbody tr:has(button)')
+    const loadMore = page.locator('#load-more-consumers')
+    await expect(rows).toHaveCount(20)
+    await expect(count).toHaveText('35')
+    await expect(badge).toHaveText('35')
+    await expect(page.locator('#q-consumers')).toHaveText('35')
+    await expect(loadMore).toHaveText('Showing 20 of total 35 consumers, click to load more')
+
+    await loadMore.click()
+    await expect(rows).toHaveCount(30)
+    await expect(count).toHaveText('35')
+    await expect(loadMore).toHaveText('Showing 30 of total 35 consumers, click to load more')
+
+    await loadMore.click()
+    await expect(rows).toHaveCount(35)
+    await expect(count).toHaveText('35')
+    await expect(loadMore).toBeHidden()
+
+    total = 0
+    await page.reload()
+    await expect(rows).toHaveCount(0)
+    await expect(count).toHaveText('0')
+    await expect(badge).toHaveText('0')
+    await expect(loadMore).toBeHidden()
   })
 
   test.describe('consumers tab', _ => {
@@ -98,6 +284,50 @@ test.describe('queue', _ => {
       page.on('dialog', async dialog => await dialog.accept())
       await page.locator('#bindings-table').getByRole('button', { name: /unbind/i }).click()
       await expect(unbindRequest).toBeRequested()
+    })
+
+    test('keeps binding form values and table unchanged when add fails', async ({ page }) => {
+      const errors = []
+      let bindingsReloaded = false
+      const source = 'missing.exchange'
+      const bindingPath = `/api/bindings/${encodeURIComponent(queueVhost)}/e/${source}/q/${queueName}`
+      const bindingsPath = `/api/queues/${encodeURIComponent(queueVhost)}/${queueName}/bindings`
+
+      page.on('pageerror', err => errors.push(err.message))
+      page.on('dialog', dialog => dialog.dismiss())
+      page.on('request', request => {
+        const url = new URL(request.url())
+        if (request.method() === 'GET' && decodeURIComponent(url.pathname) === decodeURIComponent(bindingsPath)) {
+          bindingsReloaded = true
+        }
+      })
+      await page.route(url => decodeURIComponent(url.pathname) === decodeURIComponent(bindingPath), async route => {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'access_refused', reason: 'No permission' })
+        })
+      })
+
+      await helpers.openDialog(page, 'add-binding-dialog')
+      const form = page.locator('#addBinding')
+      await form.getByLabel('From exchange').fill(source)
+      await form.getByLabel('Binding key').fill('rk')
+      await form.getByLabel('Arguments').fill('{"x":1}')
+
+      const failedRequest = page.waitForResponse(response => {
+        const url = new URL(response.url())
+        return response.request().method() === 'POST' && decodeURIComponent(url.pathname) === decodeURIComponent(bindingPath)
+      })
+      await form.getByRole('button', { name: /bind/i }).click()
+      await failedRequest
+      await page.waitForTimeout(100)
+
+      await expect(form.getByLabel('From exchange')).toHaveValue(source)
+      await expect(form.getByLabel('Binding key')).toHaveValue('rk')
+      await expect(form.getByLabel('Arguments')).toHaveValue('{"x":1}')
+      expect(bindingsReloaded).toBe(false)
+      expect(errors).toEqual([])
     })
   })
 

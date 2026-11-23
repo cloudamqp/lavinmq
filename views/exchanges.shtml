@@ -14,6 +14,9 @@
       <section class="card">
         <div class="table-header">
           <h2>Manage exchanges</h2>
+          <div class="btn-holder">
+            <button type="button" class="btn btn-green" command="show-modal" commandfor="add-exchange-dialog">+ Add exchange</button>
+          </div>
         </div>
         <div class="table-subheader">
           <span class="table-page-info"></span>
@@ -36,8 +39,12 @@
           </table>
         </div>
       </section>
-      <form method="put" id="addExchange" class="form card">
-        <h3>Add exchange</h3>
+      <dialog id="add-exchange-dialog" class="dialog" closedby="any">
+        <div class="dialog-header">
+          <h3>Add exchange</h3>
+          <button type="button" class="dialog-close" command="close" commandfor="add-exchange-dialog" aria-label="Close">&#x2715;</button>
+        </div>
+        <form method="put" id="addExchange" class="form">
         <label>
           <span>Virtual host</span>
           <select class="dropdown" name="vhost" required></select>
@@ -89,29 +96,32 @@
         <label>
           <span>Arguments</span>
           <textarea name="arguments" placeholder='{ "key": value }'></textarea>
-          <div id="dataTags" class="label">
+          <div class="arg-helpers" data-helper-for="arguments">
             <a class="arg-tooltip" data-tag="x-alternate-exchange">Alternate Exchange
               <span class="tooltiptext">If messages to this exchange cannot otherwise be routed, send them to the alternate exchange named here.</span>
             </a>
             <a class="arg-tooltip" data-tag="x-message-deduplication" data-value="true">Message deduplication
               <span class="tooltiptext">Enable deduplication for this exchange</span>
-            </a> |
+            </a>
             <a class="arg-tooltip" data-tag="x-cache-size" data-value="100">Deduplication cache size
               <span class="tooltiptext">Deduplication cache size, in number of entries</span>
-            </a> |
+            </a>
             <a class="arg-tooltip" data-tag="x-cache-ttl" data-value="1000">Deduplication cache ttl
               <span class="tooltiptext">How long an entry lives in the deduplication cache, in milliseconds</span>
-            </a> |
+            </a>
             <a class="arg-tooltip" data-tag="x-deduplication-header">Deduplication header
               <span class="tooltiptext">Which header to check for deduplication, defaults to x-deduplication-header</span>
-            </a> |
+            </a>
             <a class="arg-tooltip" data-tag="x-algorithm">Hash Algorithm
               <span class="tooltiptext">Which algorithm to use for the Consistent Hash Exchange (ring or jump)</span>
             </a>
           </div>
         </label>
-        <button type="submit" class="btn btn-green">Add exchange</button>
-      </form>
+        <div class="dialog-footer">
+          <button type="submit" class="btn btn-green btn-inline">Add exchange</button>
+        </div>
+        </form>
+      </dialog>
     </main>
     <!--#include file="partials/footer.shtml" -->
   </body>

@@ -44,6 +44,9 @@ A non-durable, non-exclusive queue is called a transient queue. Its messages are
 | `x-cache-size` | Int (>= 0) | Deduplication cache size |
 | `x-cache-ttl` | Int (>= 0) | Deduplication cache TTL in milliseconds |
 | `x-deduplication-header` | String | Header to use for deduplication key |
+| `x-delayed-retry-min` | Int (>= 1) | Enable automatic retries with this initial backoff delay in milliseconds. See [Automatic Retries](automatic-retries.md). |
+| `x-delayed-retry-multiplier` | Int (>= 1) | Backoff shape: omit for linear, 1 for constant, 2 or more for exponential |
+| `x-delayed-retry-max` | Int (>= 1) | Cap on a single retry delay in milliseconds |
 
 ## Overflow Behavior
 
@@ -89,11 +92,35 @@ A queue can be in one of the following states:
 |-------|-------------|
 | `running` | Normal operation, delivering messages to consumers |
 | `paused` | Queue stops delivering messages but continues accepting publishes. Resume via the API. |
-| `closed` | Queue is closed due to an error. Durable, non-exclusive queues can be restarted via the API. |
+| `failed` | Its message data can't be read. It delivers nothing and nacks publishes until it's deleted, see [Message store errors](#message-store-errors) |
+| `closed` | Queue is being shut down, with the broker or before it is deleted |
 | `deleted` | Queue has been deleted |
 
-Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`.
+Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`), the management UI and `lavinmqctl`. Both routes need `configure` permission on the queue, and are refused with 403 without it. A pause is kept when the broker restarts.
+
+The queue list endpoints (`GET /api/queues` and `GET /api/queues/:vhost`) accept a `state` query parameter to only return queues in the given state(s), comma separated, e.g. `?state=failed` or `?state=paused,failed`.
+
+### Message store errors
+
+A queue whose message store fails isn't closed. Consumers stay connected and get no messages, and `basic.get` returns empty. Which of the two cases below it is shows in the queue's state, and in an error in the log. A queue paused after a store error has the `paused_reason` `store_error` in the HTTP API, one paused through the API has `operator`. Neither state is stored: a restart of the broker loads the queue's data again.
+
+| Cause | State | What to do |
+|-------|-------|------------|
+| A file operation failed, for example an ack couldn't be written or the broker is out of file descriptors | `paused` | Fix the cause and resume the queue. Publishes are still confirmed and stored meanwhile. |
+| Message data can't be read: a corrupt message, or a segment that can't be loaded when the broker starts | `failed` | Delete the queue, and declare it again. In a cluster, a failover to a node with a good copy of the data also works. A resume is refused, with 400 in the HTTP API, and a restart of the broker doesn't help either, it loads the same data. |
+
+A queue with data it can't read nacks publishes, as they would be lost with the rest of its messages when it's deleted. Publishers without confirms lose them silently. Acks of messages delivered before are still taken. A purge is refused, with `PRECONDITION_FAILED` over AMQP and 400 in the HTTP API: what can still be read can't be told from what can't.
+
+A queue's retry queue and the queue of a delayed exchange are paused or failed the same way. They can't be deleted on their own: a retry queue with data it can't read goes when its queue is deleted, the queue of a delayed exchange when the exchange is deleted. Meanwhile a rejected message is requeued at once instead of being delayed, and a publish to the delayed exchange is nacked.
+
+Streams follow the same rule: delete a stream with data it can't read. Its consumer offsets go with it, and a stream declared again starts from offset 1.
+
+MQTT sessions are paused or failed the same way, with their client still connected: resume the session after a failed file operation, delete it if its data can't be read. Publishes to a session with data it can't read aren't stored for it. A client that connects after the delete gets a new session, without its subscriptions. Like a queue, a session can also be paused and resumed through the API and the management UI, and that pause is kept when the broker restarts.
 
 ## Reserved Queue Name Prefixes
 
 Queue names starting with `amq.` or `mqtt.` are reserved for server-internal use. Client queue declarations using these prefixes will be rejected, except for `amq.direct.reply-to.*` queues used for direct reply-to consumers.
+
+## Internal Queues
+
+Some features create internal, broker-managed queues, for example the delayed message exchange (`amq.delayed-<exchange_name>`) and a queue's retry queue (`amq.retry-<queue>`). Internal queues cannot be operated on over AMQP: passive declare, delete, purge, consume, basic get, bind and unbind are all refused with `ACCESS_REFUSED`. They remain visible in the management UI and HTTP API, where operators can inspect and purge them. A delete through the HTTP API is refused with 403: an internal queue is deleted together with the exchange or queue it belongs to. Bindings to internal queues are refused in the HTTP API as well, since messages cannot be published to them and such a binding could never deliver anything.

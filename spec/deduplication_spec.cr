@@ -162,10 +162,9 @@ describe LavinMQ::Deduplication::Deduper do
     end
 
     it "should not reset x-cache-ttl on expire when using delayed exchange" do
-      # RoughTime.unix_ms has 100ms granularity and can lag real time by up to
-      # ~200ms, so a message with a short x-delay can be expired out of the
-      # delayed queue (near) instantly in real time. Pause RoughTime and travel
-      # explicitly (in multiples of 100ms) instead of racing the wall clock.
+      # A message with a short x-delay can be expired out of the delayed queue
+      # before we observe it on a loaded runner. Pause RoughTime and travel
+      # explicitly instead of racing the wall clock.
       cache_ttl = 500
       delay = 100
       x_args = AMQP::Client::Arguments.new({

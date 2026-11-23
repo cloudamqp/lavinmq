@@ -22,7 +22,16 @@ module LavinMQ
 
         get "/api/channels/:name" do |context, params|
           with_channel(context, params) do |channel|
-            channel.to_json(context.response)
+            channel.to_json(context.response.output)
+          end
+        end
+
+        delete "/api/channels/:name" do |context, params|
+          with_channel(context, params) do |channel|
+            access_refused(context) unless can_access_connection?(channel.client, user(context))
+            reason = context.request.headers["X-Reason"]? || "Closed via management plugin"
+            channel.close(reason)
+            context.response.status_code = 204
           end
         end
 

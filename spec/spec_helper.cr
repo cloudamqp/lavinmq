@@ -25,6 +25,8 @@ require "http/client"
 require "amqp-client"
 require "./support/*"
 
+LavinMQ::GCPauseRecorder.install
+
 # Applies the spec config defaults. Inherits the current per-example data dir
 # (set by the `around_each` hook below) rather than hardcoding one, so a custom
 # Config passed to `with_amqp_server`/mtls still ends up in the same dir that
@@ -82,7 +84,7 @@ class LavinMQ::Server
   def restart_stores_for_specs
     stop
     Dir.mkdir_p @data_dir
-    LavinMQ::Schema.migrate(@data_dir, @replicator)
+    LavinMQ::Schema.verify(@data_dir, @replicator)
     @persister = LavinMQ::Persister.new(@data_dir)
     @users = LavinMQ::Auth::UserStore.new(@data_dir, @replicator)
     @authenticator = LavinMQ::Auth::Chain.create(@config, @users)
@@ -110,12 +112,56 @@ private def restore_protocol_listener(server : LavinMQ::ProtocolServer, state, n
   address = state[:address] || return
   port = state[:port] || return
 
+  socket = rebind_tcp(address, port)
   if tls_context = state[:tls_context]
-    server.bind_tls(address, port, tls_context)
+    server.bind_tls(socket, tls_context)
   else
-    server.bind_tcp(address, port)
+    server.bind_tcp(socket)
   end
   spawn(name: name) { server.listen } if state[:listening]
+end
+
+# The restart only just closed the listener on this port, and binding it again
+# right away sometimes fails with "Address already in use" on macOS, so retry
+# for a while. The port must stay the same, as specs may hold URLs to it.
+private def rebind_tcp(address : String, port : Int32) : TCPServer
+  deadline = Time.instant + 5.seconds
+  loop do
+    return TCPServer.new(address, port)
+  rescue ex : Socket::BindError
+    raise ex if Time.instant >= deadline
+    sleep 10.milliseconds
+  end
+end
+
+# Lets a spec hold the publish confirm loop's drain, so what happens before
+# the data is durable can be observed
+class LavinMQ::Persister
+  class_property drain_gate : ::Channel(Nil)? = nil
+
+  private def drain : Nil
+    @@drain_gate.try &.receive?
+    previous_def
+  end
+end
+
+# Holds the persister's drains until the block returns or #release_drain is
+# called with the gate it yields
+def with_drain_held(&)
+  gate = ::Channel(Nil).new
+  LavinMQ::Persister.drain_gate = gate
+  begin
+    yield gate
+  ensure
+    release_drain(gate)
+  end
+end
+
+# A timed out example releases its gate when it ends, and must not release
+# the gate a later example holds
+def release_drain(gate : ::Channel(Nil)) : Nil
+  LavinMQ::Persister.drain_gate = nil if LavinMQ::Persister.drain_gate.same?(gate)
+  gate.close
 end
 
 def restart_server(server : LavinMQ::Server)
@@ -130,6 +176,17 @@ def restart_server(server : LavinMQ::Server)
   restore_protocol_listener(server.amqp_server, amqp_state, "amqp listener") if amqp_state
   restore_protocol_listener(server.mqtt_server, mqtt_state, "mqtt listener") if mqtt_state
   Fiber.yield
+end
+
+def with_stats_interval(ms : Int32, &)
+  cfg = LavinMQ::Config.instance
+  orig = cfg.stats_interval
+  begin
+    cfg.stats_interval = ms
+    yield
+  ensure
+    cfg.stats_interval = orig
+  end
 end
 
 def with_datadir(&)
@@ -152,6 +209,46 @@ end
 
 def amqp_port(s)
   s.amqp_server.@listeners.select(TCPServer).first.local_address.port
+end
+
+def amqp_tls_port(s)
+  tls_listeners = s.amqp_server.@tls_contexts.keys.compact_map(&.as?(TCPServer))
+  tls_listeners.first.local_address.port
+end
+
+def with_raw_amqp_connection(s, heartbeat = 0_u16, &)
+  io = TCPSocket.new("localhost", amqp_port(s))
+  io.read_timeout = 5.seconds
+
+  io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
+  io.flush
+  stream = AMQ::Protocol::Stream.new(io)
+  stream.next_frame.as(AMQ::Protocol::Frame::Connection::Start)
+  response = "\u0000guest\u0000guest"
+  io.write_bytes(AMQ::Protocol::Frame::Connection::StartOk.new(
+    AMQ::Protocol::Table.new, "PLAIN", response, ""),
+    IO::ByteFormat::NetworkEndian)
+  io.flush
+  tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
+  io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
+    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: heartbeat),
+    IO::ByteFormat::NetworkEndian
+  io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
+  io.flush
+  stream.next_frame.as(AMQ::Protocol::Frame::Connection::OpenOk)
+
+  yield io, stream
+ensure
+  io.try &.close
+end
+
+# Enables the PROXY protocol with the default user limited to loopback. The config is reset after each example.
+def with_proxy_protocol(trusted_sources = Array(LavinMQ::IPMatcher).new, &)
+  config = LavinMQ::Config.instance
+  config.default_user_only_loopback = true
+  config.tcp_proxy_protocol = true
+  config.proxy_protocol_trusted_sources = trusted_sources
+  yield
 end
 
 # Poll interval for the wait_for/should_eventually loops below. We sleep
@@ -198,9 +295,32 @@ def wait_for(timeout = WAIT_FOR_TIMEOUT, file = __FILE__, line = __LINE__, &)
   fail "Execution expired", file: file, line: line
 end
 
+# Lowers the soft limit on open files to 0 until the block returns, so that
+# opening another file or socket fails with EMFILE, while open ones still work.
+# Unlike a limit at the lowest free descriptor, it holds when a descriptor is
+# closed meanwhile, like a closed server's stats loop closing its statm file
+# when it wakes up. Waits in the block need a shorter timeout than the spec, as
+# a spec that times out never returns from the block, which would leave the
+# limit lowered for the specs after it.
+def without_free_file_descriptors(&)
+  rlimit = uninitialized LibC::Rlimit
+  raise RuntimeError.from_errno("getrlimit") unless LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) == 0
+  original = rlimit.rlim_cur
+  rlimit.rlim_cur = typeof(original).new(0)
+  raise RuntimeError.from_errno("setrlimit") unless LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) == 0
+  begin
+    yield
+  ensure
+    rlimit.rlim_cur = original
+    LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit))
+  end
+end
+
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
+                     ktls = false,
                      authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
@@ -211,9 +331,18 @@ def with_amqp_server(tls = false, replicator = nil,
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
+      {% if OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+        ctx.add_options(OpenSSL::SSL::Options::ENABLE_KTLS) if ktls
+      {% end %}
       amqp_server.bind_tls(tcp_server, ctx)
     else
       amqp_server.bind_tcp(tcp_server)
+    end
+    if extra_tls_listener
+      ctx = OpenSSL::SSL::Context::Server.new
+      ctx.certificate_chain = "spec/resources/server_certificate.pem"
+      ctx.private_key = "spec/resources/server_key.pem"
+      amqp_server.bind_tls("localhost", 0, ctx)
     end
     spawn(name: "amqp listener") { amqp_server.listen }
     Fiber.yield
@@ -241,11 +370,91 @@ def with_amqp_server(tls = false, replicator = nil,
   end
 end
 
+# Every method a Clustering::Replicator must answer, doing nothing. Specs that
+# need one behaviour subclass this and override that single method.
+class NoOpReplicator
+  include LavinMQ::Clustering::Replicator
+
+  def register_file(path : String)
+  end
+
+  def register_file(file : File)
+  end
+
+  def register_file(mfile : MFile)
+  end
+
+  def replace_file(path : String)
+  end
+
+  def replace_file(mfile : MFile)
+  end
+
+  def append(path : String, pos : Int, length : Int)
+  end
+
+  def append_value(path : String, value : UInt32 | Int32, offset : Int64)
+  end
+
+  def append_bytes(path : String, bytes : Bytes, offset : Int64)
+  end
+
+  def delete_file(path : String)
+  end
+
+  def delete_dir(path : String)
+  end
+
+  def followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def syncing_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def all_followers : Array(LavinMQ::Clustering::Follower)
+    Array(LavinMQ::Clustering::Follower).new
+  end
+
+  def isr_dirty? : Bool
+    false
+  end
+
+  def flush_isr : Nil
+  end
+
+  def wait_for_followers : Nil
+  end
+
+  def request_fsync(paths : Enumerable(String)) : Nil
+  end
+
+  def request_syncfs : Nil
+  end
+
+  def close
+  end
+
+  def listen(server : TCPServer)
+  end
+
+  def clear
+  end
+
+  def password : String
+    ""
+  end
+end
+
 def with_http_server(authenticator : LavinMQ::Auth::Authenticator? = nil,
+                     replicator = nil,
+                     extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, &)
-  with_amqp_server(authenticator: authenticator, file: file, line: line) do |s|
+  with_amqp_server(replicator: replicator, authenticator: authenticator,
+    extra_tls_listener: extra_tls_listener, file: file, line: line) do |s|
     h = s.http_server
-    addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
+    addr = h.bind_tcp("127.0.0.1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
     spawn(name: "http listen") { h.listen }
     Fiber.yield
     yield({HTTPSpecHelper.new(addr), s})
@@ -256,12 +465,21 @@ end
 def serve_metrics(amqp_server, &)
   h = LavinMQ::HTTP::MetricsServer.new(amqp_server)
   begin
-    addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
+    addr = h.bind_tcp("127.0.0.1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
     spawn(name: "metrics listen") { h.listen }
     Fiber.yield
     yield HTTPSpecHelper.new(addr)
   ensure
     h.close
+  end
+end
+
+# Overwrites a value in a file, also seen by a store that has it mapped. Used
+# to make message data unreadable, and readable again.
+def write_at(path : String, pos : Int, value) : Nil
+  File.open(path, "r+") do |f|
+    f.seek(pos)
+    f.write_bytes(value)
   end
 end
 
@@ -277,6 +495,18 @@ def with_follower_metrics_server(&)
   # Passing nil for amqp_server wires up FollowerPrometheusController — the same path a real follower takes.
   serve_metrics(nil) do |http|
     yield http
+  end
+end
+
+def serve_follower_metrics(clustering_client, &)
+  h = LavinMQ::HTTP::MetricsServer.new(clustering_client: clustering_client)
+  begin
+    addr = h.bind_tcp("127.0.0.1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
+    spawn(name: "follower metrics listen") { h.listen }
+    Fiber.yield
+    yield HTTPSpecHelper.new(addr)
+  ensure
+    h.close
   end
 end
 
@@ -353,13 +583,11 @@ Spec.around_each do |example|
   done = Channel(Exception?).new
 
   spawn(name: "Spec: #{example.example.description}") do
-    begin
-      example.run
-    rescue e
-      done.send(e)
-    else
-      done.send(nil)
-    end
+    example.run
+  rescue e
+    done.send(e)
+  else
+    done.send(nil)
   end
 
   timeout = SPEC_TIMEOUT
@@ -387,6 +615,8 @@ end
 # (which previously caused "Invalid memory access"). On normal completion the
 # dir is removed.
 Spec.around_each do |example|
+  # A timed out example skips its ensure, and can leave the drains held
+  LavinMQ::Persister.drain_gate.try { |gate| release_drain(gate) }
   data_dir = File.tempname("lavinmq", "spec")
   Dir.mkdir_p data_dir
   config = init_config(LavinMQ::Config.new)

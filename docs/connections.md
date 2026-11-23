@@ -26,10 +26,12 @@ LavinMQ supports HAProxy PROXY protocol for preserving client IP addresses behin
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
-| `tcp_proxy_protocol` | `[amqp]` | `false` | Enable PROXY protocol on TCP, applies to AMQP and MQTT. Accepts `true`/`false`/`yes`/`no`; legacy `1`/`2` are treated as enabled, `0` disables. |
+| `tcp_proxy_protocol` | `[amqp]` | `false` | Enable PROXY protocol on TCP, applies to AMQP, AMQPS, MQTT and MQTTS. On the TLS ports the header comes before the TLS handshake. Accepts `true`/`false`/`yes`/`no`; legacy `1`/`2` are treated as enabled, `0` disables. |
 | `proxy_protocol_trusted_sources` | `[amqp]` | (empty) | Comma-separated list of IPs and CIDR blocks (IPv4/IPv6) allowed to send PROXY headers, e.g. `10.0.0.1, 192.168.0.0/24, 2001:db8::/32`. |
 
-PROXY protocol v1 (text) and v2 (binary) are auto-detected. Only connections from trusted sources may send PROXY headers; headers from untrusted sources are ignored and the real connection address is used. If `tcp_proxy_protocol` is enabled but `proxy_protocol_trusted_sources` is empty, headers are accepted from all sources and a warning is logged at startup.
+PROXY protocol v1 (text) and v2 (binary) are auto-detected. Only connections from trusted sources may send PROXY headers; headers from untrusted sources are ignored and the real connection address is used. If `tcp_proxy_protocol` is enabled but `proxy_protocol_trusted_sources` is empty, headers are accepted from all sources and a warning is logged at startup. In a cluster the same settings apply on followers, which forward the client address to the leader, see [clustering](clustering.md#clustering-proxy).
+
+The address in a PROXY header is used for logging and for the connection listing. It never counts as loopback for the `default_user_only_loopback` check, not even from a listed source or a cluster follower. The address describes the client as seen by the proxy, not a connection on the broker host. A `PROXY UNKNOWN` header is rejected and the connection is closed, because the client address is not known. This also applies to an untrusted source, because the header is parsed before the source is checked. A v2 `LOCAL` header (e.g. a load balancer's health check) carries no client, so the connection's own addresses are used. v2 TLVs other than SSL are ignored, and the SSL TLV only marks the connection as TLS if its client field says the client used TLS.
 
 ## Low Disk Space
 
@@ -43,11 +45,20 @@ When free disk space drops below `3 * segment_size` or below `free_disk_min`, `b
 
 ## Connection Limits
 
-Concurrent connections to a vhost can be capped with the `max-connections` vhost limit. Once the cap is reached, new connections to that vhost are refused with `connection.close` carrying reply code 530 (`NOT_ALLOWED`); existing connections are unaffected.
+Concurrent connections to a vhost can be capped with the `max-connections` vhost limit. The cap counts AMQP and MQTT connections together. Existing connections are unaffected once the cap is reached, or if the limit is later lowered below the current count.
 
 | Limit | Default | Description |
 |-------|---------|-------------|
 | `max-connections` | (none) | Maximum concurrent connections per vhost. A negative value removes the cap. |
+
+How a refused connection is reported depends on the protocol:
+
+| Protocol | Refusal |
+|----------|---------|
+| AMQP | `connection.close` with reply code 530 (`NOT_ALLOWED`) |
+| MQTT | `CONNACK` with return code 3 (server unavailable), then the socket is closed |
+
+An MQTT client reconnecting with a client ID that already has an active connection is not refused at the cap, because [session takeover](mqtt.md#session-takeover) closes the existing connection instead of adding one.
 
 Set via the management API (`PUT /api/vhost-limits/:vhost/max-connections`) or `lavinmqctl set_vhost_limits`. See [Vhosts](vhosts.md#vhost-limits).
 
@@ -55,10 +66,11 @@ Set via the management API (`PUT /api/vhost-limits/:vhost/max-connections`) or `
 
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
-| `tcp_nodelay` | `[main]` | `false` | Disable Nagle's algorithm |
+| `tcp_nodelay` | `[main]` | `true` | Disable Nagle's algorithm |
 | `tcp_keepalive` | `[main]` | `60:10:3` | Idle, interval, probes (colon-separated) |
 | `tcp_recv_buffer_size` | `[main]` | (system) | TCP receive buffer |
 | `tcp_send_buffer_size` | `[main]` | (system) | TCP send buffer |
+| `tcp_send_timeout` | `[main]` | `15` | Seconds a client may go without reading what the server sends before it's disconnected |
 | `socket_buffer_size` | `[main]` | `16384` | Application socket buffer (bytes) |
 
 ## Unix Domain Sockets

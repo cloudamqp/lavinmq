@@ -1,8 +1,7 @@
 require "./spec_helper"
-require "./../src/lavinmq/amqp/stream/stream_reader"
 require "./../src/lavinmq/amqp/stream/stream_message_store"
 
-describe LavinMQ::AMQP::StreamReader do
+describe "LavinMQ::AMQP::Stream#each_from" do
   it "should handle offset (where to start the reader)" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -16,10 +15,8 @@ describe LavinMQ::AMQP::StreamReader do
         end
 
         iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
-        stream = iq.reader 5
-
         count = 0
-        stream.each do |env|
+        iq.each_from(LavinMQ::AMQP::StreamOffset::Absolute.new(5)) do |env|
           body = String.new(env.message.body)
           body.should eq "test message #{count + 4}"
           count += 1
@@ -28,6 +25,7 @@ describe LavinMQ::AMQP::StreamReader do
       end
     end
   end
+
   it "should include x-stream-offset header" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -41,19 +39,17 @@ describe LavinMQ::AMQP::StreamReader do
         end
 
         iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
-        stream = iq.reader "first"
-
         count = 0
-        stream.each do |env|
-          headers = env.message.properties.headers
-          headers.should_not be_nil
-          headers.not_nil!["x-stream-offset"].should eq (count + 1).to_i64
+        iq.each_from(LavinMQ::AMQP::StreamOffset::First.new) do |env|
+          headers = env.message.properties.headers.should_not be_nil
+          headers["x-stream-offset"].should eq (count + 1).to_i64
           count += 1
         end
         count.should eq 3
       end
     end
   end
+
   it "should read over multiple segments" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -69,16 +65,120 @@ describe LavinMQ::AMQP::StreamReader do
         ch.wait_for_confirms
 
         iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
-        stream = iq.reader 0
-
         count = 0
         seg = 0
-        stream.each do |env|
+        iq.each_from(LavinMQ::AMQP::StreamOffset::Absolute.new(0)) do |env|
           seg = env.segment_position.segment
           count += 1
         end
         count.should eq 400
         seg.should eq 2
+      end
+    end
+  end
+
+  it "keeps reading when retention drops the segment being read" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        segment_size = LavinMQ::Config.instance.segment_size
+        body = "x" * (segment_size // 4)
+        q = ch.queue("", args: AMQP::Client::Arguments.new({
+          "x-queue-type" => "stream", "x-max-length-bytes" => segment_size.to_i64 * 2,
+        }))
+        12.times { q.publish_confirm body }
+
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
+        store = iq.stream_msg_store
+        first_seg = store.@segments.first_key
+        offsets = [] of Int64
+        dropped = false
+        iq.each_from(LavinMQ::AMQP::StreamOffset::First.new) do |env|
+          headers = env.message.properties.headers.should_not be_nil
+          offsets << headers["x-stream-offset"].as(Int64)
+          unless dropped
+            20.times do
+              break unless store.@segments.has_key?(first_seg)
+              iq.publish(LavinMQ::Message.new("", q.name, body))
+            end
+            dropped = true
+          end
+          String.new(env.message.body).should eq body
+        end
+        store.@segments.has_key?(first_seg).should be_false
+        # Skips the dropped messages, with offsets matching the messages read
+        offsets.first.should eq 1
+        offsets[1].should be > 2
+        offsets.skip(1).each_cons_pair { |a, b| b.should eq a + 1 }
+        offsets.last.should eq iq.last_offset
+      end
+    end
+  end
+
+  it "unpins its segment and counts reads when the caller stops early" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        3.times { |i| q.publish_confirm "m#{i}" }
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
+        store = iq.stream_msg_store
+        bodies = [] of String
+        iq.each_from(LavinMQ::AMQP::StreamOffset::First.new) do |env|
+          store.@segment_readers.size.should eq 1
+          break if bodies.size == 2
+          bodies << String.new(env.message.body)
+        end
+        bodies.should eq ["m0", "m1"]
+        store.@segment_readers.should be_empty
+      end
+    end
+  end
+
+  it "raises ClosedError when the stream is closed" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        q.publish_confirm "m0"
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
+        iq.close
+        expect_raises(LavinMQ::MessageStore::ClosedError) do
+          iq.each_from(LavinMQ::AMQP::StreamOffset::First.new) { }
+        end
+      end
+    end
+  end
+
+  it "fails the stream and raises the store error on a corrupt segment" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        q.publish_confirm "m0"
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
+        mfile = iq.stream_msg_store.@segments.first_value
+        File.open(mfile.path, "r+") do |f|
+          f.seek(4)
+          f.write(Bytes.new(mfile.size - 4, 0xff_u8))
+        end
+        expect_raises(LavinMQ::MessageStore::UnreadableError) do
+          iq.each_from(LavinMQ::AMQP::StreamOffset::First.new) { }
+        end
+        iq.state.failed?.should be_true
+      end
+    end
+  end
+
+  it "fails the stream when a seek to an offset reaches data it can't read" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("seek-unreadable", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+        3.times { |i| q.publish_confirm "m#{i}" }
+        iq = s.vhosts["/"].queue(q.name).as(LavinMQ::AMQP::Stream)
+        mfile = iq.stream_msg_store.@segments.first_value
+        # The body size of the first message, past the end of the segment
+        write_at(mfile.path, 4 + 8 + 1 + 1 + q.name.bytesize + AMQ::Protocol::Properties.new.bytesize, 10_000_000_u64)
+        expect_raises(LavinMQ::MessageStore::UnreadableError) do
+          iq.each_from(LavinMQ::AMQP::StreamOffset::Absolute.new(3)) { }
+        end
+        iq.state.failed?.should be_true
       end
     end
   end

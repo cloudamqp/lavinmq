@@ -99,7 +99,7 @@ module MqttSpecs
           pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
           pub.payload.should eq("dead".to_slice)
           pub.topic.should eq("will/t")
-          pub.retain?.should eq(true)
+          pub.retain?.should be_true
 
           disconnect(io)
         end
@@ -129,6 +129,28 @@ module MqttSpecs
           disconnect(io)
         end
       end
+    end
+
+    it "won't be published when the server is low on disk space" do
+      # Keeps the stats loop from starting flow again
+      LavinMQ::Config.instance.free_disk_min = Int64::MAX
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+          subscribe(io, topic_filters: mk_topic_filters({"will/t", 0}))
+          server.flow(false)
+          with_client_io(server) do |io2|
+            will = MQTT::Protocol::Will.new(
+              topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
+            connect(io2, client_id: "will_client", will: will, keepalive: 1u16)
+          end
+          # The will is published before the connection is removed
+          wait_for { server.vhosts["/"].connections_size == 1 }
+          io.should be_drained
+        end
+      end
+    ensure
+      LavinMQ::Config.instance.free_disk_min = 0
     end
 
     it "qos can't be set of will flag is unset [MQTT-3.1.2-13]" do

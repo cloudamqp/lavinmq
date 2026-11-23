@@ -11,7 +11,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       etcd.del("foo")
-      etcd.put("foo", "bar").should eq nil
+      etcd.put("foo", "bar").should be_nil
       etcd.get("foo").should eq "bar"
       etcd.put("foo", "bar2").should eq "bar"
     end
@@ -60,7 +60,7 @@ describe LavinMQ::Etcd, tags: "etcd" do
       etcd.put "foo", "rab"
       w.receive.should eq "rab"
       etcd.del "foo"
-      w.receive.should eq nil
+      w.receive.should be_nil
     end
   end
 
@@ -80,11 +80,9 @@ describe LavinMQ::Etcd, tags: "etcd" do
       lease = etcd.elect(key, "bar", 1)
       leader.receive.should eq "bar"
       spawn(name: "elect other leader spec") do
-        begin
-          etcd.elect(key, "bar2", 1)
-        rescue SpecExit
-          # expect this when etcd nodes are terminated
-        end
+        etcd.elect(key, "bar2", 1)
+      rescue SpecExit
+        # expect this when etcd nodes are terminated
       end
       select
       when new = leader.receive
@@ -173,9 +171,6 @@ describe LavinMQ::Etcd, tags: "etcd" do
       isr_key = "#{prefix}/isr"
       stale_etcd = LavinMQ::Etcd.new(cluster.endpoints)
       current_etcd = LavinMQ::Etcd.new(cluster.endpoints)
-      stale_lease = nil
-      current_lease = nil
-
       begin
         config = LavinMQ::Config.new
         config.clustering = true
@@ -200,7 +195,6 @@ describe LavinMQ::Etcd, tags: "etcd" do
           elected.close
         end
         sl.release
-        stale_lease = nil
 
         select
         when elected.receive
@@ -271,6 +265,34 @@ describe LavinMQ::Etcd, tags: "etcd" do
       endpoints = etcd.endpoints
       endpoints.should eq ["etcd.example.com:2379"]
     end
+  end
+end
+
+describe LavinMQ::Etcd do
+  it "grants the lease when the old one is in its last second" do
+    etcd = LastSecondEtcd.new("127.0.0.1:1")
+    lease = etcd.lease_grant(10, 7)
+    lease.id.should eq 7
+    etcd.grants.should eq 2
+  ensure
+    lease.try &.release
+  end
+end
+
+describe LavinMQ::Etcd::Lease do
+  it "revokes the lease before signaling expiry on release" do
+    etcd = RecordingEtcd.new("127.0.0.1:1")
+    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    lease.release
+    etcd.expired_before_revoke.should be_false
+    expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
+  end
+
+  it "signals expiry when the revoke fails" do
+    etcd = RecordingEtcd.new("127.0.0.1:1", revoke_error: LavinMQ::Etcd::Error.new("etcd unreachable"))
+    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    expect_raises(LavinMQ::Etcd::Error, "etcd unreachable") { lease.release }
+    expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end
 end
 
@@ -346,6 +368,45 @@ class EtcdCluster
         end
         next
       end
+    end
+  end
+end
+
+# Etcd stand-in that never connects and records whether the lease had already
+# signaled expiry when the revoke was sent
+private class RecordingEtcd < LavinMQ::Etcd
+  property lease : LavinMQ::Etcd::Lease?
+  getter expired_before_revoke : Bool?
+
+  def initialize(endpoints, @revoke_error : Exception? = nil)
+    super(endpoints)
+  end
+
+  def lease_revoke(id) : Nil
+    @expired_before_revoke = @lease.try &.expired.closed?
+    @revoke_error.try { |ex| raise ex }
+  end
+
+  def lease_keepalive(id) : Int32
+    raise LavinMQ::Etcd::LeaseNotFound.new("stand-in")
+  end
+end
+
+# Etcd stand-in where the old lease is in its last second: the first grant
+# fails, and timetolive leaves out the TTL of 0
+private class LastSecondEtcd < LavinMQ::Etcd
+  getter grants = 0
+
+  private def post(path, body) : JSON::Any
+    case path
+    when "/v3/lease/grant"
+      @grants += 1
+      raise LavinMQ::Etcd::LeaseAlreadyExists.new("lease already exists") if @grants == 1
+      JSON.parse(%({"ID":"7","TTL":"10"}))
+    when "/v3/lease/timetolive"
+      JSON.parse(%({"ID":"7","grantedTTL":"10"}))
+    else
+      JSON.parse("{}")
     end
   end
 end

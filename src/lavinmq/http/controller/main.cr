@@ -7,7 +7,7 @@ module LavinMQ
     class MainController < Controller
       include StatsHelpers
 
-      OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject"}
+      OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject", "return_unroutable"}
       EXCHANGE_TYPES = {
         {name: "direct", human: "Direct"},
         {name: "fanout", human: "Fanout"},
@@ -15,6 +15,7 @@ module LavinMQ
         {name: "headers", human: "Headers"},
         {name: "x-federation-upstream", human: "Federation Upstream"},
         {name: "x-consistent-hash", human: "Consistent Hash"},
+        {name: "x-mqtt-topic", human: "MQTT Topic"},
       }
       CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
                      "queue_declared", "queue_deleted"}
@@ -26,10 +27,11 @@ module LavinMQ
       private def register_routes
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
-          channels, connections, exchanges, queues, bindings, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
+          channels, connections, exchanges, queues, bindings, consumers = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
+          ready, unacked = 0_u64, 0_u64
           recv_rate, send_rate = 0_f64, 0_f64
-          ready_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
-          unacked_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
+          ready_log = Deque(UInt64).new(LavinMQ::Config.instance.stats_log_size)
+          unacked_log = Deque(UInt64).new(LavinMQ::Config.instance.stats_log_size)
           recv_rate_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
           send_rate_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
           {% for name in OVERVIEW_STATS %}
@@ -42,6 +44,16 @@ module LavinMQ
           {{ name.id }}_rate = 0_f64
           {% end %}
 
+          unless x_vhost
+            deleted_stats = @server.vhosts.deleted_stats
+            {% for name in OVERVIEW_STATS %}
+            {{ name.id }}_count += deleted_stats.{{ name.id }}
+            {% end %}
+            {% for name in CHURN_STATS %}
+            {{ name.id }} += deleted_stats.{{ name.id }}
+            {% end %}
+          end
+
           vhosts(user(context)).each do |vhost|
             next if x_vhost && vhost.name != x_vhost
             vhost.each_connection do |c|
@@ -53,18 +65,11 @@ module LavinMQ
             queues += vhost.queues_size
             queues += vhost.sessions_size
             vhost.each_exchange { |e| bindings += e.binding_count }
-            vhost.each_queue do |q|
-              ready += q.message_count
-              unacked += q.unacked_count
-              add_logs!(ready_log, q.message_count_log)
-              add_logs!(unacked_log, q.unacked_count_log)
-            end
-            vhost.each_session do |s|
-              ready += s.message_count
-              unacked += s.unacked_count
-              add_logs!(ready_log, s.message_count_log)
-              add_logs!(unacked_log, s.unacked_count_log)
-            end
+            vhost_ready, vhost_unacked = vhost.count_messages
+            ready += vhost_ready
+            unacked += vhost_unacked
+            add_logs!(ready_log, vhost.messages_ready_log)
+            add_logs!(unacked_log, vhost.messages_unacknowledged_log)
             vhost_stats_details = vhost.stats_details
             recv_rate += vhost_stats_details[:recv_oct_details][:rate]
             send_rate += vhost_stats_details[:send_oct_details][:rate]
@@ -79,6 +84,11 @@ module LavinMQ
             {{ sm.id }} += vhost_stats_details[:{{ sm.id }}]
             {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]
             {% end %}
+          end
+          {ready_log, unacked_log}.each do |log|
+            until log.size >= recv_rate_log.size
+              log.unshift 0
+            end
           end
           {
             lavinmq_version: LavinMQ::VERSION,
@@ -126,12 +136,12 @@ module LavinMQ
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners + @mqtt_server.listeners,
             exchange_types: EXCHANGE_TYPES.map { |t| {name: t[:name], human: t[:human]} },
-          }.to_json(context.response)
+          }.to_json(context.response.output)
           context
         end
 
         get "/api/whoami" do |context, _params|
-          user(context).user_details.to_json(context.response)
+          user(context).user_details.to_json(context.response.output)
           context
         end
 
@@ -146,16 +156,17 @@ module LavinMQ
               4_u64,
               IO::Memory.new("test"))
             routed = vhost.publish(msg).routed?
-            env = nil
-            vhost.queue("aliveness-test").basic_get(true) { |e| env = e }
-            ok = routed && env && String.new(env.message.body) == "test"
-            {status: ok ? "ok" : "failed"}.to_json(context.response)
+            # Compare inside the block, the segment can be deleted once it returns
+            body_ok = false
+            vhost.queue("aliveness-test").basic_get(true) { |e| body_ok = String.new(e.message.body) == "test" }
+            ok = routed && body_ok
+            {status: ok ? "ok" : "failed"}.to_json(context.response.output)
           end
         end
 
         get "/api/federation-links" do |context, _params|
           arr = vhosts(user(context)).flat_map do |vhost|
-            vhost.upstreams.not_nil!.flat_map do |upstream|
+            vhost.upstreams.flat_map do |upstream|
               upstream.links
             end
           end
@@ -164,7 +175,7 @@ module LavinMQ
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            arr = vhost.upstreams.not_nil!.flat_map do |upstream|
+            arr = vhost.upstreams.flat_map do |upstream|
               upstream.links
             end
             page(context, arr)
@@ -172,7 +183,7 @@ module LavinMQ
         end
 
         get "/api/extensions" do |context, _params|
-          Tuple.new.to_json(context.response)
+          Tuple.new.to_json(context.response.output)
           context
         end
       end

@@ -120,6 +120,30 @@ describe LavinMQ::HTTP::ShovelsController do
   end
 
   describe "PUT api/shovels/:vhost/:name/resume" do
+    it "should resume an aborted shovel and return 204" do
+      with_http_server do |http, s|
+        status = Atomic(Int32).new(404)
+        server = ::HTTP::Server.new do |context|
+          context.request.body.try &.skip_to_end
+          context.response.status_code = status.get
+          context.response.print "x"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+        s.vhosts["/"].declare_queue("q2", true, false)
+        s.vhosts["/"].queue("q2").publish(LavinMQ::Message.new("", "q2", "m"))
+        shovel = create_shovel(s, config: {"dest-uri": "http://#{addr}/", "dest-queue": nil, "reconnect-delay": 1})
+        wait_for { shovel.state.aborted? }
+        status.set(200)
+        response = http.put("/api/shovels/#{URI.encode_path_segment("/")}/#{shovel.name}/resume")
+        response.status_code.should eq 204
+        wait_for { shovel.state.running? }
+      ensure
+        server.try &.close
+      end
+    end
+
     it "should return 404 for non-existing shovel" do
       with_http_server do |http, _s|
         vhost_url_encoded = URI.encode_path_segment("/")
@@ -145,6 +169,22 @@ describe LavinMQ::HTTP::ShovelsController do
         vhost_url_encoded = URI.encode_path_segment(shovel.vhost.name)
         status_code = http.put("/api/shovels/#{vhost_url_encoded}/#{shovel.name}/resume").status_code
         status_code.should eq 422
+      end
+    end
+  end
+
+  describe "PUT api/parameters/shovel/:vhost/:name" do
+    it "should create a shovel with an HTTP destination" do
+      with_http_server do |http, s|
+        body = {
+          value: {
+            "src-uri":   s.amqp_server.url,
+            "src-queue": "events",
+            "dest-uri":  "https://example.com/webhook",
+          },
+        }
+        response = http.put("/api/parameters/shovel/%2F/webhook-shovel", body: body.to_json)
+        response.status_code.should eq 201
       end
     end
   end

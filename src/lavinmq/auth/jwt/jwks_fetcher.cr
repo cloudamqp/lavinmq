@@ -57,6 +57,9 @@ module LavinMQ
 
         getter public_keys : PublicKeys
         getter oidc_config : OIDCConfiguration?
+        getter issuer_url : String
+        # Used when the JWKS response has no max-age, so a change applies at the next refresh
+        property default_cache_ttl : Time::Span
         @stopped = BoolChannel.new(false)
         @fetch_lock = Mutex.new
         @last_failed_fetch : Time?
@@ -89,25 +92,30 @@ module LavinMQ
           end
         end
 
-        def start_refresh_loop
-          retry_delay = 5.seconds
+        def start_refresh_loop(retry_delay initial_retry_delay = 5.seconds)
+          retry_delay = initial_retry_delay
           max_retry_delay = 5.minutes
           spawn do
             loop do
-              begin
-                @fetch_lock.synchronize { update_keys }
-                retry_delay = 5.seconds
-                wait_time = calculate_wait_time
-                select
-                when @stopped.when_true.receive
-                  break
-                when timeout(wait_time)
-                end
-              rescue ex
-                Log.error(exception: ex) { "Failed to fetch JWKS, retrying in #{retry_delay}: #{ex.message}" }
-                sleep retry_delay
-                retry_delay = {retry_delay * 2, max_retry_delay}.min
+              break if @stopped.value
+              @fetch_lock.synchronize { update_keys }
+              retry_delay = initial_retry_delay
+              wait_time = calculate_wait_time
+              select
+              when @stopped.when_true.receive
+                break
+              when timeout(wait_time)
               end
+            rescue ex
+              Log.error(exception: ex) { "Failed to fetch JWKS, retrying in #{retry_delay}: #{ex.message}" }
+              # Wait on @stopped so cleanup also stops a fetcher that is
+              # retrying an unreachable provider
+              select
+              when @stopped.when_true.receive
+                break
+              when timeout(retry_delay)
+              end
+              retry_delay = {retry_delay * 2, max_retry_delay}.min
             end
           end
         end

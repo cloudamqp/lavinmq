@@ -1,5 +1,6 @@
 require "socket"
 require "../config"
+require "../accept_loop"
 require "../proxy_protocol"
 
 module LavinMQ
@@ -23,7 +24,7 @@ module LavinMQ
 
       def forward_to(target_host, target_port, @proxy_header = false)
         Log.info { "Proxying from #{@local_address} to #{target_host}:#{target_port}" }
-        while socket = @server.accept?
+        AcceptLoop.each(@server, "Proxy listener") do |socket|
           spawn handle_client(socket, target_host, target_port), name: "Handle proxy client"
         end
       end
@@ -33,29 +34,54 @@ module LavinMQ
       end
 
       private def handle_client(client, target_host, target_port)
-        target = TCPSocket.new(target_host, target_port)
-        set_socket_opts(target)
+        # A client that stops reading must not keep the connection open: the
+        # copy loop would block in its write forever, and never see that the
+        # leader closed the connection after its own tcp_send_timeout
+        client.write_timeout = Config.instance.tcp_send_timeout.seconds
+        proxy_header = nil
         if client.is_a? TCPSocket
           set_socket_opts(client)
-          if @proxy_header
-            proxy_header = ProxyProtocol::V1.new(client.remote_address, client.local_address)
-            target.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
-          end
+          proxy_header = proxy_header_for(client) if @proxy_header
         end
+        target = TCPSocket.new(target_host, target_port)
+        set_socket_opts(target)
+        target.write_bytes proxy_header, IO::ByteFormat::NetworkEndian if proxy_header
         spawn(name: "Proxy client copy loop") do
-          begin
-            IO.copy(target, client)
-          rescue IO::Error
-          ensure
-            target.close rescue nil
-            client.close rescue nil
-          end
+          IO.copy(target, client)
+        rescue IO::Error
+        ensure
+          target.close rescue nil
+          client.close rescue nil
         end
         IO.copy(client, target)
+      rescue ex : Socket::Error | ProxyProtocol::Error
+        Log.warn { "Error proxying connection: #{ex.message}" }
       rescue IO::Error
+      rescue ex
+        Log.warn { "Error proxying connection: #{ex.inspect}" }
       ensure
         target.try &.close rescue nil
         client.close rescue nil
+      end
+
+      # The leader reads a single PROXY header, so a header the client sent
+      # (e.g. from a load balancer) can't be forwarded in front of ours. With
+      # tcp_proxy_protocol it's consumed here, and forwarded instead of ours if
+      # the source is trusted, like the leader would have done. A v2 header is
+      # forwarded as v2, so that its TLVs (e.g. TLS details) are kept.
+      private def proxy_header_for(client : TCPSocket) : ProxyProtocol::V1 | ProxyProtocol::V2
+        config = Config.instance
+        if config.tcp_proxy_protocol?
+          # Peeking for the header fills the read buffer, which would be the
+          # default 32 KiB, kept for the life of the connection. The header
+          # doesn't need more: the peek only matches the start of a signature,
+          # a v1 header is at most 107 bytes and a v2 header is read with
+          # read_fully. IO.copy reads unbuffered once what's buffered is drained.
+          client.buffer_size = 128
+          header = ProxyProtocol.read_trusted(client, client.remote_address, config, Log)
+          return header if header
+        end
+        ProxyProtocol::V1.new(client.remote_address, client.local_address)
       end
 
       private def set_socket_opts(socket : TCPSocket)
@@ -64,12 +90,7 @@ module LavinMQ
         socket.tcp_nodelay = true
         return if socket.remote_address.loopback?
 
-        if keepalive = Config.instance.tcp_keepalive
-          socket.keepalive = true
-          socket.tcp_keepalive_idle = keepalive[0]
-          socket.tcp_keepalive_interval = keepalive[1]
-          socket.tcp_keepalive_count = keepalive[2]
-        end
+        Config.instance.apply_tcp_keepalive(socket)
       end
     end
   end

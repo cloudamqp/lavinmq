@@ -1,5 +1,15 @@
 require "../spec_helper"
 
+class LavinMQ::MQTT::Exchange
+  # Counts walks over every subscription in the vhost
+  class_property bindings_details_calls = 0
+
+  def bindings_details : Array(SubscriptionDetails)
+    @@bindings_details_calls += 1
+    previous_def
+  end
+end
+
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
@@ -106,9 +116,9 @@ module MqttSpecs
           suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::QoS0)
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
           # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_delivery_and_puback(io)
           # ... and verify it be qos0 (i.e. our subscribe is correct)
           packet.qos.should eq(0u8)
 
@@ -121,14 +131,211 @@ module MqttSpecs
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
 
           # Publish something to the topic we're subscribed to...
-          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
           # ... consume it...
-          packet = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_delivery_and_puback(io)
           # ... and verify it be qos1 (i.e. our second subscribe is correct)
           packet.qos.should eq(1u8)
 
           io.should be_drained
         end
+      end
+    end
+
+    it "grants qos1 for a qos2 subscription [LavinMQ non-normative]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+
+          # LavinMQ doesn't support qos2, so a qos2 subscription is downgraded to
+          # qos1. The SubAck return code must show the granted maximum qos, not the
+          # requested one [MQTT-3.9.3-1].
+          topic_filters = mk_topic_filters({"a/b", 2})
+          suback = subscribe(io, topic_filters: topic_filters)
+          suback.should be_a(MQTT::Protocol::SubAck)
+          suback = suback.as(MQTT::Protocol::SubAck)
+          suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
+
+          # Publish something to the topic we're subscribed to...
+          publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8, expect_response: false)
+          # ... consume it...
+          packet = read_delivery_and_puback(io)
+          # ... and verify it be qos1, i.e. the downgrade is real and not just
+          # reported in the SubAck
+          packet.qos.should eq(1u8)
+          packet.packet_id.should_not be_nil
+
+          io.should be_drained
+        end
+      end
+    end
+
+    it "binds a qos2 subscription as qos1" do
+      with_server do |server|
+        exchange = server.vhosts["/"].exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        with_client_io(server) do |io|
+          connect(io)
+          suback = subscribe(io, topic_filters: mk_topic_filters({"a/b", 2})).as(MQTT::Protocol::SubAck)
+          suback.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS1]
+
+          binding = exchange.bindings_details.first
+          binding.binding_key.qos.should eq 1u8
+          binding.arguments.should eq LavinMQ::MQTT::QOS1_ARGUMENTS
+
+          # A follow up subscribe with the qos we granted is the same
+          # subscription, so it must not add a second binding
+          suback = subscribe(io, topic_filters: mk_topic_filters({"a/b", 1})).as(MQTT::Protocol::SubAck)
+          suback.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS1]
+          exchange.bindings_details.size.should eq 1
+          exchange.binding_count.should eq 1
+
+          disconnect(io)
+        end
+      end
+    end
+
+    it "grants Failure for a subscription whose session was deleted" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.declare_queue("mqtt.gone", true, false, LavinMQ::MQTT::Session::ARGUMENTS)
+        session = vhost.session("mqtt.gone")
+        session.delete
+        vhost.session?("mqtt.gone").should be_nil
+
+        broker = server.mqtt_server.broker("/")
+        [0u8, 1u8, 2u8].each do |qos|
+          broker.grant(session, subtopic("a/b", qos))
+            .should eq MQTT::Protocol::SubAck::ReturnCode::Failure
+        end
+        vhost.mqtt_exchange.binding_count.should eq 0
+      end
+    end
+
+    it "keeps the subscriptions of a persistent session after a restart" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: [subtopic("a/b", 0u8)])
+          disconnect(io)
+        end
+
+        restart_server(server)
+
+        vhost = server.vhosts["/"]
+        vhost.session?("mqtt.sub").should_not be_nil
+        exchange = vhost.exchange(LavinMQ::MQTT::EXCHANGE).as(LavinMQ::MQTT::Exchange)
+        exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
+      end
+    end
+
+    it "does not restore an unsubscribed topic after a restart" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: [subtopic("a/b", 0u8)])
+          unsubscribe(io, ["a/b"])
+          disconnect(io)
+        end
+
+        restart_server(server)
+
+        server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
+      end
+    end
+
+    it "grants Failure for a topic filter longer than 255 bytes" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          suback = subscribe(io, topic_filters: [subtopic("a/#{"x" * 300}"), subtopic("a/b")])
+          suback.should be_a(MQTT::Protocol::SubAck)
+          suback.as(MQTT::Protocol::SubAck).return_codes.should eq [
+            MQTT::Protocol::SubAck::ReturnCode::Failure,
+            MQTT::Protocol::SubAck::ReturnCode::QoS0,
+          ]
+          pingpong(io).should be_a(MQTT::Protocol::PingResp)
+          disconnect(io)
+        end
+        server.vhosts["/"].mqtt_exchange.bindings_details.map(&.binding_key.routing_key).should eq ["a/b"]
+      end
+    end
+
+    it "doesn't walk every subscription in the vhost on SUBSCRIBE, UNSUBSCRIBE or a clean disconnect" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "walker", clean_session: true)
+          LavinMQ::MQTT::Exchange.bindings_details_calls = 0
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          # Changes the QoS of an existing subscription
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          subscribe(io, topic_filters: mk_topic_filters({"c/d", 0u8}))
+          unsubscribe(io, topics: ["c/d"])
+          disconnect(io)
+        end
+        # The clean session is deleted, unbinding what it still holds
+        wait_for { server.vhosts["/"].session?("mqtt.walker").nil? }
+        LavinMQ::MQTT::Exchange.bindings_details_calls.should eq 0
+        server.vhosts["/"].mqtt_subscription_tree.empty?.should be_true
+      end
+    end
+
+    it "lists a session's current subscriptions as its bindings" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "lister")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 0u8}))
+          subscribe(io, topic_filters: mk_topic_filters({"c/d", 1u8}))
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          unsubscribe(io, topics: ["c/d"])
+          session = server.vhosts["/"].session("mqtt.lister")
+          subscriptions = session.bindings.compact_map do |b|
+            next if b.source.empty? # the default exchange binding
+            {b.binding_key.routing_key, LavinMQ::MQTT.qos(b.binding_key.arguments)}
+          end
+          subscriptions.should eq [{"a/b", 1u8}]
+          disconnect(io)
+        end
+      end
+    end
+
+    it "grants SUBSCRIBE to a clean session that reconnects while its previous session is being deleted" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        with_client_io(server) do |prev_io|
+          connect(prev_io, client_id: "reconnect", clean_session: true)
+          subscribe(prev_io, topic_filters: mk_topic_filters({"r/a", 0u8}))
+          previous = vhost.session("mqtt.reconnect")
+          with_client_io(server) do |io|
+            # Holding the definitions lock stalls the previous session's delete
+            # after it has closed but before it leaves the vhost, as another
+            # client's session declare holding the lock does
+            vhost.synchronize_definitions do
+              disconnect(prev_io)
+              wait_for { previous.closed? }
+              connect(io, client_id: "reconnect", clean_session: true, expect_response: false)
+              subscribe(io, topic_filters: mk_topic_filters({"r/b", 0u8}), expect_response: false)
+              sleep 0.1.seconds # lets the CONNECT and SUBSCRIBE reach the broker
+            end
+            read_packet(io).should be_a(MQTT::Protocol::Connack)
+            suback = read_packet(io).as(MQTT::Protocol::SubAck)
+            suback.return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+            session = vhost.session("mqtt.reconnect")
+            session.should_not be previous
+            session.bindings.map(&.binding_key.routing_key).should contain "r/b"
+            disconnect(io)
+          end
+        end
+      end
+    end
+
+    it "closes a client that sends a SUBSCRIBE with packet id 0 [MQTT-2.3.1-1]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          subscribe(io, topic_filters: [subtopic("a/b")], packet_id: 0u16, expect_response: false)
+          io.should be_closed
+        end
+        server.vhosts["/"].mqtt_exchange.bindings_details.should be_empty
       end
     end
   end

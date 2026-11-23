@@ -3,6 +3,18 @@ require "socket/tcp_socket"
 require "../spec_helper"
 require "compress/deflate"
 
+class LavinMQ::AMQP::DelayedRetryQueue
+  class_property? fail_next_create = false
+
+  def self.create(vhost : LavinMQ::VHost, primary_queue : LavinMQ::AMQP::Queue)
+    if fail_next_create?
+      self.fail_next_create = false
+      raise IO::Error.new("Injected retry queue creation failure")
+    end
+    previous_def
+  end
+end
+
 describe LavinMQ::HTTP::QueuesController do
   describe "GET /api/queues" do
     it "should return all queues" do
@@ -18,7 +30,128 @@ describe LavinMQ::HTTP::QueuesController do
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     end
+
+    it "should only return queues in the given state" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        response = http.get("/api/queues?state=paused")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.map(&.["name"]).should eq ["q_paused"]
+      end
+    end
+
+    it "says why a queue is paused" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_reason", true, false)
+        queue = vhost.queue("q_reason")
+        # Left out when it isn't paused, like other fields without a value
+        reason = -> { JSON.parse(http.get("/api/queues/%2f/q_reason").body)["paused_reason"]? }
+        reason.call.should be_nil
+        queue.pause!
+        reason.call.should eq "operator"
+        queue.resume!
+        reason.call.should be_nil
+
+        queue.publish(LavinMQ::Message.new("", "q_reason", "first"))
+        segment = queue.@msg_store.@segments.first_value
+        # The property flags of the message, with a bit that isn't defined
+        write_at(segment.path, 4 + sizeof(Int64) + 1 + 1 + "q_reason".bytesize, 0x0003u16)
+        # Failed, not paused, when its data can't be read
+        queue.basic_get(no_ack: true) { }
+        queue.state.failed?.should be_true
+        JSON.parse(http.get("/api/queues/%2f/q_reason").body)["state"].should eq "failed"
+        reason.call.should be_nil
+        # Can't be resumed, only deleted
+        response = http.put("/api/queues/%2f/q_reason/resume")
+        response.status_code.should eq 400
+        response.body.should contain "can't be resumed"
+      end
+    end
+
+    it "should filter on multiple states" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        vhost.declare_queue("q_closed", true, false)
+        vhost.queue("q_closed").close
+        response = http.get("/api/queues?state=paused,closed")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.map(&.["name"].as_s).sort!.should eq ["q_closed", "q_paused"]
+      end
+    end
+
+    it "should return 400 for an invalid state" do
+      with_http_server do |http, _|
+        response = http.get("/api/queues?state=foo")
+        response.status_code.should eq 400
+      end
+    end
+
+    it "should apply the state filter on top of a name filter, not instead of it" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("orders_paused", false, false)
+        vhost.declare_queue("orders_running", false, false)
+        vhost.declare_queue("events_paused", false, false)
+        vhost.queue("orders_paused").pause!
+        vhost.queue("events_paused").pause!
+
+        response = http.get("/api/queues?state=paused&name=orders")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.map(&.["name"]).should eq ["orders_paused"]
+      end
+    end
+
+    it "should apply the state filter on top of a regex name filter" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_paused_1", false, false)
+        vhost.declare_queue("q_paused_2", false, false)
+        vhost.declare_queue("other_paused", false, false)
+        ["q_paused_1", "q_paused_2", "other_paused"].each { |n| vhost.queue(n).pause! }
+
+        response = http.get("/api/queues?state=paused&name=^q_&use_regex=true")
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.map(&.["name"].as_s).sort!.should eq ["q_paused_1", "q_paused_2"]
+      end
+    end
+
+    it "should keep total_count unfiltered when filtering on state" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_paused", false, false)
+        vhost.queue("q_paused").pause!
+        response = http.get("/api/queues?page=1&state=paused")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["total_count"].should eq 2
+        body["filtered_count"].should eq 1
+        body["items"].as_a.map(&.["name"]).should eq ["q_paused"]
+      end
+    end
   end
+  describe "GET /api/queues" do
+    it "does not include count history logs in list rows" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("list_q", false, false)
+        response = http.get("/api/queues")
+        body = JSON.parse(response.body)
+        body.as_a.each do |q|
+          q.as_h.has_key?("messages_ready_details").should be_false
+        end
+      end
+    end
+  end
+
   describe "GET /api/queues/vhost" do
     it "should return all queues for a vhost" do
       with_http_server do |http, s|
@@ -27,6 +160,19 @@ describe LavinMQ::HTTP::QueuesController do
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_false
+      end
+    end
+
+    it "should only return queues in the given state for a vhost" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q_running", false, false)
+        vhost.declare_queue("q_closed", true, false)
+        vhost.queue("q_closed").close
+        response = http.get("/api/queues/%2f?state=closed")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body.as_a.map(&.["name"]).should eq ["q_closed"]
       end
     end
   end
@@ -39,10 +185,154 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should not include retry details for a queue without retries" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("q-no-retry", false, false)
+        body = JSON.parse(http.get("/api/queues/%2f/q-no-retry").body)
+        body["delayed_retry"]?.should be_nil
+        body["primary_queue"]?.should be_nil
+      end
+    end
+
+    it "should return the retry configuration and delayed message count" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"           => 5,
+            "x-delayed-retry-min"        => 60_000,
+            "x-delayed-retry-multiplier" => 2,
+            "x-delayed-retry-max"        => 300_000,
+          })
+          q = ch.queue("q-retry-details", args: args)
+          q.publish_confirm "m1"
+          msg = wait_for { q.get(no_ack: false) }
+          msg.reject(requeue: true)
+          wait_for { s.vhosts["/"].queue("amq.retry-q-retry-details").message_count == 1 }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-details").body)["delayed_retry"]
+          retry["min"].as_i.should eq 60_000
+          retry["multiplier"].as_i.should eq 2
+          retry["max"].as_i.should eq 300_000
+          retry["delivery_limit"].as_i.should eq 5
+          retry["messages_delayed"].as_i.should eq 1
+          retry["retry_queue"].as_s.should eq "amq.retry-q-retry-details"
+        end
+      end
+    end
+
+    it "should show no delivery limit when none is set" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
+          ch.queue("q-retry-default", args: args)
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-default").body)["delayed_retry"]
+          retry["multiplier"].raw.should be_nil
+          retry["max"].raw.should be_nil
+          retry["delivery_limit"].raw.should be_nil
+          retry["messages_delayed"].as_i.should eq 0
+        end
+      end
+    end
+
+    it "should not name a retry queue that couldn't be created" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          LavinMQ::AMQP::DelayedRetryQueue.fail_next_create = true
+          ch.queue("q-retry-failed", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-failed").body)["delayed_retry"]
+          retry["min"].as_i.should eq 1000
+          retry["retry_queue"].raw.should be_nil
+          retry["messages_delayed"].as_i.should eq 0
+        end
+      ensure
+        LavinMQ::AMQP::DelayedRetryQueue.fail_next_create = false
+      end
+    end
+
+    it "should show retry settings tuned by a policy" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("q-retry-tuned", args: AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000}))
+          definitions = {"delayed-retry-min" => JSON::Any.new(500_i64)}
+          s.vhosts["/"].add_policy("retry-tuned", "^q-retry-tuned$", "queues", definitions, 0_i8)
+          wait_for { s.vhosts["/"].queue("q-retry-tuned").policy }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-tuned").body)["delayed_retry"]
+          retry["min"].as_i.should eq 500
+          s.vhosts["/"].delete_policy("retry-tuned")
+          wait_for { s.vhosts["/"].queue("q-retry-tuned").policy.nil? }
+          retry = JSON.parse(http.get("/api/queues/%2f/q-retry-tuned").body)["delayed_retry"]
+          retry["min"].as_i.should eq 1000
+        end
+      end
+    end
+
+    it "should link the retry queue to its primary queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-delayed-retry-min" => 1000})
+          ch.queue("q-retry-primary", args: args)
+          body = JSON.parse(http.get("/api/queues/%2f/amq.retry-q-retry-primary").body)
+          body["primary_queue"].as_s.should eq "q-retry-primary"
+          body["delayed_retry"]?.should be_nil
+          items = JSON.parse(http.get("/api/queues/%2f").body).as_a
+          primary = items.find! { |i| i["name"] == "q-retry-primary" }
+          primary["delayed_retry"]["retry_queue"].as_s.should eq "amq.retry-q-retry-primary"
+          primary["primary_queue"].raw.should be_nil
+          retry_queue = items.find! { |i| i["name"] == "amq.retry-q-retry-primary" }
+          retry_queue["primary_queue"].as_s.should eq "q-retry-primary"
+        end
+      end
+    end
+
+    it "should return the tag of an exclusive consumer" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_consumer_tag")
+          q.subscribe(tag: "the-exclusive-one", exclusive: true) { }
+          response = http.get("/api/queues/%2f/exclusive_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should eq "the-exclusive-one"
+        end
+      end
+    end
+
+    it "should not return an exclusive consumer tag for a normal consumer on an exclusive queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("exclusive_queue_consumer_tag", exclusive: true)
+          q.subscribe(tag: "not-exclusive") { }
+          response = http.get("/api/queues/%2f/exclusive_queue_consumer_tag")
+          JSON.parse(response.body)["exclusive_consumer_tag"]?.should be_nil
+        end
+      end
+    end
+
     it "should return 404 if queue does not exist" do
       with_http_server do |http, _|
         response = http.get("/api/queues/%2f/404")
         response.status_code.should eq 404
+      end
+    end
+
+    it "should expose queued message logs" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("log_q", false, false)
+        response = http.get("/api/queues/%2f/log_q")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["messages_ready_details"]["log"].as_a?.should_not be_nil
+        body["messages_unacknowledged_details"]["log"].as_a?.should_not be_nil
+      end
+    end
+
+    it "should expose queued message logs for mqtt sessions" do
+      with_http_server do |http, s|
+        mqtt_args = LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"})
+        s.vhosts["/"].declare_queue("mqtt.log_q", true, false, mqtt_args)
+        response = http.get("/api/queues/%2f/mqtt.log_q")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["messages_ready_details"]["log"].as_a?.should_not be_nil
+        body["messages_unacknowledged_details"]["log"].as_a?.should_not be_nil
+        body["message_stats"]["publish_details"]["log"].as_a?.should_not be_nil
       end
     end
 
@@ -89,6 +379,48 @@ describe LavinMQ::HTTP::QueuesController do
         body["message_stats"]["get_no_ack"].should eq 1
         body["message_stats"]["deliver_no_ack"].should eq 1
         body["message_stats"]["deliver_get"].should eq 4
+      end
+    end
+
+    it "counts messages read from a stream as get_no_ack" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("stats_stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          3.times { q.publish_confirm "m" }
+        end
+        body = %({ "count": 2, "offset": "first" })
+        response = http.post("/api/queues/%2f/stats_stream/stream", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body).as_a.size.should eq 2
+
+        body = JSON.parse(http.get("/api/queues/%2f/stats_stream").body)
+        body["message_stats"]["get_no_ack"].should eq 2
+        body["message_stats"]["deliver_get"].should eq 2
+        body = JSON.parse(http.get("/api/vhosts/%2f").body)
+        body["message_stats"]["get_no_ack"].should eq 2
+        body["message_stats"]["deliver_get"].should eq 2
+      end
+    end
+
+    it "refuses to read from a stream whose data can't be read, and fails the one a read finds it in" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("unreadable_stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          3.times { |i| q.publish_confirm "m#{i}" }
+        end
+        stream = s.vhosts["/"].queue("unreadable_stream").as(LavinMQ::AMQP::Stream)
+        segment = stream.@msg_store.@segments.first_value
+        record_size = (segment.size - 4) // 3
+        # The body size of the second message, published to the default exchange
+        write_at(segment.path, 4 + record_size + 8 + 1 + 1 + "unreadable_stream".bytesize + AMQ::Protocol::Properties.new.bytesize, UInt64::MAX)
+        body = %({ "count": 3, "offset": "first" })
+        # Refused, the read isn't returned as if it were complete, and the stream fails
+        response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
+        response.status_code.should eq 403
+        stream.state.should eq LavinMQ::QueueState::Failed
+
+        response = http.post("/api/queues/%2f/unreadable_stream/stream", body: body)
+        response.status_code.should eq 403
       end
     end
 
@@ -144,6 +476,40 @@ describe LavinMQ::HTTP::QueuesController do
             response.status_code.should eq 200
             body = JSON.parse(response.body)
             body["items"].size.should eq 2
+          end
+        end
+      end
+
+      it "should return each unacked message once when consumers share a channel" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            2.times { q.publish "m1" }
+            2.times { q.subscribe(no_ack: false) { } }
+
+            wait_for { s.vhosts["/"].queue("unacked_q").unacked_count == 2 }
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 2
+          end
+        end
+      end
+
+      it "should return the unacked messages of a cancelled consumer when consumers share a channel" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            q.publish "m1"
+            tag = q.subscribe(no_ack: false) { }
+            wait_for { s.vhosts["/"].queue("unacked_q").unacked_count == 1 }
+            q.subscribe(no_ack: false) { }
+            ch.basic_cancel(tag)
+
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 1
           end
         end
       end
@@ -322,14 +688,18 @@ describe LavinMQ::HTTP::QueuesController do
 
     it "should require durable to be the same when overwriting" do
       with_http_server do |http, _|
-        body = %({
-        "durable": true
-      })
+        body = <<-JSON
+          {
+            "durable": true
+          }
+          JSON
         response = http.put("/api/queues/%2f/q1d", body: body)
         response.status_code.should eq 201
-        body = %({
-        "durable": false
-      })
+        body = <<-JSON
+          {
+            "durable": false
+          }
+          JSON
         response = http.put("/api/queues/%2f/q1d", body: body)
         response.status_code.should eq 400
       end
@@ -347,9 +717,11 @@ describe LavinMQ::HTTP::QueuesController do
         # supplying 'x-dead-letter-routing-key' is only valid if
         # 'x-dead-letter-exchange' is also in the request
         # so this request generates a Error::PreconditionFailed
-        body = %({
-        "arguments": {"x-dead-letter-routing-key": "value"}
-      })
+        body = <<-JSON
+          {
+            "arguments": {"x-dead-letter-routing-key": "value"}
+          }
+          JSON
         response = http.put("/api/queues/%2f/precond-failed", body: body)
         response.status_code.should eq 400
       end
@@ -372,17 +744,28 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should refuse to delete an internal queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("delq", true, false, LavinMQ::AMQP::Table.new({"x-delayed-retry-min" => 1000}))
+        response = http.delete("/api/queues/%2f/amq.retry-delq")
+        response.status_code.should eq 403
+        s.vhosts["/"].queue?("amq.retry-delq").should_not be_nil
+      end
+    end
+
     it "should not delete queue if it has messasge when query param if-unused is set" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 1,
-          "ack_mode": "reject_requeue_true",
-          "encoding": "auto"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "reject_requeue_true",
+              "encoding": "auto"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q3/get", body: body)
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -394,8 +777,45 @@ describe LavinMQ::HTTP::QueuesController do
         end
       end
     end
+
+    it "should not move peeked messages to the retry queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-delivery-limit"    => 3,
+            "x-delayed-retry-min" => 60_000,
+          })
+          q = ch.queue("q3-retry-peek", args: args)
+          q.publish_confirm "m1"
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "reject_requeue_true",
+              "encoding": "auto"
+            }
+            JSON
+          response = http.post("/api/queues/%2f/q3-retry-peek/get", body: body)
+          response.status_code.should eq 200
+          s.vhosts["/"].queue("q3-retry-peek").message_count.should eq 1
+          s.vhosts["/"].queue("amq.retry-q3-retry-peek").message_count.should eq 0
+        end
+      end
+    end
   end
   describe "POST /api/queues/vhost/name/get" do
+    it "refuses a count or truncate too large for Int32" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("q3")
+          ["count", "truncate"].each do |field|
+            body = %({"#{field}": 3000000000, "ackmode": "reject_requeue_true"})
+            response = http.post("/api/queues/%2f/q3/get", body: body)
+            response.status_code.should eq 400
+          end
+        end
+      end
+    end
+
     it "should get plain text messages" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
@@ -479,17 +899,45 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should not double-decrement unacked_count when an ack fails mid-batch" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("q4")
+          q4 = s.vhosts["/"].queue("q4").as(LavinMQ::AMQP::Queue)
+          3.times { q.publish_confirm "m1" }
+          wait_for { q4.message_count == 3 }
+
+          # Let the first ack of the batch succeed and the next one fail. The
+          # failing ack has already decremented unacked_count, so the recovery
+          # path must only requeue the messages it hasn't finalized yet.
+          q4.@msg_store.raise_on_delete_after = 1
+
+          body = %({ "count": 3, "ack_mode": "get", "encoding": "auto" })
+          begin
+            http.post("/api/queues/%2f/q4/get", body: body)
+          rescue # the endpoint re-raises the injected failure
+          end
+          q4.@msg_store.raise_on_delete_after = nil
+
+          q4.unacked_count.should eq 0
+          http.get("/api/overview").status_code.should eq 200
+        end
+      end
+    end
+
     it "should handle count > message_count" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 2,
-          "ack_mode": "get",
-          "encoding": "auto"
-        })
+          body = <<-JSON
+            {
+              "count": 2,
+              "ack_mode": "get",
+              "encoding": "auto"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q5/get", body: body)
           response.status_code.should eq 200
         end
@@ -500,11 +948,13 @@ describe LavinMQ::HTTP::QueuesController do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           ch.queue("q6")
-          body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "encoding": "auto"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "get",
+              "encoding": "auto"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q6/get", body: body)
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -519,11 +969,13 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q7")
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "encoding": "base64"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "get",
+              "encoding": "base64"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q7/get", body: body)
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -538,12 +990,14 @@ describe LavinMQ::HTTP::QueuesController do
           q = ch.queue("q8")
           q.publish "m1"
           sleep 0.05.milliseconds
-          body = %({
-          "count": 1,
-          "ack_mode": "get",
-          "requeue": true,
-          "encoding": "base64"
-        })
+          body = <<-JSON
+            {
+              "count": 1,
+              "ack_mode": "get",
+              "requeue": true,
+              "encoding": "base64"
+            }
+            JSON
           response = http.post("/api/queues/%2f/q8/get", body: body)
           response.status_code.should eq 400
           body = JSON.parse(response.body)
@@ -565,6 +1019,18 @@ describe LavinMQ::HTTP::QueuesController do
           body = JSON.parse(response.body)
           body["state"].should eq "paused"
         end
+      end
+    end
+
+    it "should require config access to the queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("confqueue", false, false)
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
+        s.users.add_permission("arnold", "/", /^lim\./, /^lim\./, /^lim\./)
+        hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.put("/api/queues/%2f/confqueue/pause", headers: hdrs)
+        response.status_code.should eq 403
+        s.vhosts["/"].queue("confqueue").state.should eq LavinMQ::QueueState::Running
       end
     end
   end
@@ -593,6 +1059,20 @@ describe LavinMQ::HTTP::QueuesController do
         end
       end
     end
+
+    it "should require config access to the queue" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("confqueue", false, false)
+        q = s.vhosts["/"].queue("confqueue")
+        q.pause!
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
+        s.users.add_permission("arnold", "/", /^lim\./, /^lim\./, /^lim\./)
+        hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.put("/api/queues/%2f/confqueue/resume", headers: hdrs)
+        response.status_code.should eq 403
+        q.state.should eq LavinMQ::QueueState::Paused
+      end
+    end
   end
 
   describe "GET /api/queues/vhost/name effective_arguments" do
@@ -612,46 +1092,142 @@ describe LavinMQ::HTTP::QueuesController do
     end
   end
 
-  describe "PUT /api/queues/vhost/name/restart" do
-    it "should restart a queue" do
+  describe "POST /api/queues/vhost/name/stream" do
+    it "reads from the given offset" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
-          queue_name = "restart_queue"
-          ch.queue(queue_name)
-
-          q = s.vhosts["/"].queue(queue_name)
-          q.close
-
-          response = http.get("/api/queues/%2f/#{queue_name}")
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          5.times { |i| q.publish_confirm "m#{i}" }
+          body = %({"count": 2, "offset": "3"})
+          response = http.post("/api/queues/%2f/read-stream/stream", body: body)
           response.status_code.should eq 200
-          body = JSON.parse(response.body)
-          body["state"].should eq "closed"
-
-          response = http.put("/api/queues/%2f/#{queue_name}/restart")
-          response.status_code.should eq 204
-
-          response = http.get("/api/queues/%2f/#{queue_name}")
-          response.status_code.should eq 200
-          body = JSON.parse(response.body)
-          body["state"].should eq "running"
+          msgs = JSON.parse(response.body).as_a
+          msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+          msgs.map(&.["properties"]["headers"]["x-stream-offset"].as_i).should eq [3, 4]
         end
       end
     end
 
-    it "should not restart if queue is still running" do
+    it "reads from a numeric offset, negative counting from the end" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
-          queue_name = "restart_queue"
-          ch.queue(queue_name)
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          5.times { |i| q.publish_confirm "m#{i}" }
+          [%({"count": 2, "offset": 3}), %({"count": 2, "offset": -3}), %({"count": 2, "offset": "-3"})].each do |body|
+            response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+            response.status_code.should eq 200
+            msgs = JSON.parse(response.body).as_a
+            msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+          end
+        end
+      end
+    end
 
-          s.vhosts["/"].queue(queue_name)
-          response = http.put("/api/queues/%2f/#{queue_name}/restart")
-          response.status_code.should eq 400
+    it "refuses a count or truncate too large for Int32" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          ["count", "truncate"].each do |field|
+            body = %({"#{field}": 3000000000})
+            response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+            response.status_code.should eq 400
+          end
+        end
+      end
+    end
 
-          response = http.get("/api/queues/%2f/#{queue_name}")
+    it "reads from an ISO 8601 timestamp offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          2.times { |i| q.publish_confirm "m#{i}" }
+          sleep 50.milliseconds
+          time = Time.utc
+          sleep 50.milliseconds
+          2.times { |i| q.publish_confirm "m#{i + 2}" }
+          body = {count: 10, offset: time.to_rfc3339(fraction_digits: 3)}.to_json
+          response = http.post("/api/queues/%2f/read-stream/stream", body: body)
           response.status_code.should eq 200
-          body = JSON.parse(response.body)
-          body["state"].should eq "running"
+          msgs = JSON.parse(response.body).as_a
+          msgs.map(&.["payload"].as_s).should eq ["m2", "m3"]
+        end
+      end
+    end
+
+    it "ends the response with invalid JSON when the stream fails after the first flush" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          body = "a" * 1024
+          200.times { q.publish_confirm body }
+          iq = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream)
+          mfile = iq.stream_msg_store.@segments.first_value
+          # Corrupt the last message: its body and the body size before it
+          File.open(mfile.path, "r+") do |f|
+            f.seek(mfile.size - body.bytesize - 8)
+            f.write(Bytes.new(body.bytesize + 8, 0xff_u8))
+          end
+          response = http.post("/api/queues/%2f/read-stream/stream", body: %({"count": 200}))
+          response.status_code.should eq 200
+          expect_raises(JSON::ParseException) { JSON.parse(response.body) }
+          response.body.should contain %("payload":"#{body}")
+          iq.state.failed?.should be_true
+        end
+      end
+    end
+
+    it "refuses an invalid offset" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          [%("foo"), "1.5", "true", "[1]"].each do |offset|
+            body = %({"offset": #{offset}})
+            response = http.post("/api/queues/%2f/read-stream/stream", body: body)
+            response.status_code.should eq 400
+            response.body.should contain "invalid offset"
+          end
+        end
+      end
+    end
+
+    it "doesn't read past count" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          q.publish_confirm "m0"
+          iq = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream)
+          mfile = iq.stream_msg_store.@segments.first_value
+          m1_pos = mfile.size
+          q.publish_confirm "m1"
+          # A read of m1 would fail the stream
+          File.open(mfile.path, "r+") do |f|
+            f.seek(m1_pos)
+            f.write(Bytes.new(mfile.size - m1_pos, 0xff_u8))
+          end
+          2.times do |count|
+            response = http.post("/api/queues/%2f/read-stream/stream", body: %({"count": #{count}}))
+            response.status_code.should eq 200
+            JSON.parse(response.body).as_a.map(&.["payload"].as_s).should eq ["m0"].first(count)
+          end
+        end
+      end
+    end
+
+    it "returns a JSON error when the stream fails during the read" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+          q.publish_confirm "m0"
+          iq = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream)
+          mfile = iq.stream_msg_store.@segments.first_value
+          File.open(mfile.path, "r+") do |f|
+            f.seek(4)
+            f.write(Bytes.new(mfile.size - 4, 0xff_u8))
+          end
+          response = http.post("/api/queues/%2f/read-stream/stream", body: %({"offset": "first"}))
+          response.status_code.should eq 403
+          JSON.parse(response.body)["error"].should eq "forbidden"
+          iq.state.failed?.should be_true
         end
       end
     end

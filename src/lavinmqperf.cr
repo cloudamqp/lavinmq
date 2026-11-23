@@ -18,7 +18,7 @@ module LavinMQPerf
   protocol = protocols.includes?(ARGV[0]?) ? ARGV.shift : "amqp"
   case protocol
   when "amqp"
-    mode = ARGV.shift?
+    mode = ARGV.shift?.presence
     case mode
     when "throughput"       then AMQP::Throughput.new.run
     when "bind-churn"       then AMQP::BindChurn.new.run
@@ -28,18 +28,15 @@ module LavinMQPerf
     when "consumer-churn"   then AMQP::ConsumerChurn.new.run
     when "connection-count" then AMQP::ConnectionCount.new.run
     when "queue-count"      then AMQP::QueueCount.new.run
-    when /^.+$/             then Perf.new.run([mode.not_nil!])
+    when String             then Perf.new.run([mode])
     else                         abort Perf.new.amqp_banner
     end
   when "mqtt"
-    mode = ARGV.shift?
+    mode = ARGV.shift?.presence
     case mode
     when "throughput" then MQTT::Throughput.new.run
-    when /^.+$/       then Perf.new.run([mode.not_nil!])
+    when String       then Perf.new.run([mode])
     else                   abort Perf.new.mqtt_banner
     end
-  when /^.+$/
-    Perf.new.run([protocol.not_nil!])
-  else abort Perf.new.amqp_banner
   end
 end

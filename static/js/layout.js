@@ -1,5 +1,7 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
+import './refresh-control.js'
+import './theme.js'
 
 Auth.whoAmI().catch(() => Auth.logout())
 
@@ -42,81 +44,6 @@ usermenuButton.addEventListener('click', (e) => {
   usermenuButton.classList.toggle('open-menu')
   usermenuContent.classList.toggle('visible')
 })
-
-// Theme switcher functionality
-class ThemeSwitcher {
-  constructor () {
-    this.currentTheme = 'system'
-    if (!Helpers.stateClasses.has('system')) {
-      if (Helpers.stateClasses.has('theme-light')) {
-        this.currentTheme = 'light'
-      } else if (Helpers.stateClasses.has('theme-dark')) {
-        this.currentTheme = 'dark'
-      }
-    }
-    this.init()
-  }
-
-  #setSystemColor (mql) {
-    if (mql.matches) {
-      this.systemColor = 'dark'
-    } else {
-      this.systemColor = 'light'
-    }
-    if (this.currentTheme === 'system') {
-      this.applyTheme('system') // make sure right system class is used
-    }
-  }
-
-  init () {
-    const mql = window.matchMedia('(prefers-color-scheme: dark)')
-    this.#setSystemColor(mql)
-    mql.addEventListener('change', mql => this.#setSystemColor(mql))
-    // Add event listeners to theme buttons
-    document.querySelectorAll('#theme-switcher button').forEach(button => {
-      button.addEventListener('click', _ => this.setTheme(button.dataset.theme))
-    })
-
-    // Set initial active button
-    this.updateActiveButton()
-  }
-
-  setTheme (theme) {
-    this.currentTheme = theme
-    this.applyTheme(theme)
-    this.updateActiveButton()
-  }
-
-  applyTheme (theme) {
-    if (theme === 'system') {
-      Helpers.stateClasses.add('system')
-      theme = this.systemColor
-    } else {
-      Helpers.stateClasses.remove('system')
-    }
-    if (theme === 'light') {
-      Helpers.stateClasses.add('theme-light')
-      Helpers.stateClasses.remove('theme-dark')
-    } else {
-      Helpers.stateClasses.add('theme-dark')
-      Helpers.stateClasses.remove('theme-light')
-    }
-  }
-
-  updateActiveButton () {
-    document.querySelectorAll('#theme-switcher button').forEach(button => {
-      button.classList.remove('active')
-    })
-
-    const activeButton = document.querySelector(`#theme-switcher button[data-theme="${this.currentTheme}"]`)
-    if (activeButton) {
-      activeButton.classList.add('active')
-    }
-  }
-}
-
-// Initialize theme switcher when DOM is loaded
-window.themeSwitcher = new ThemeSwitcher()
 
 // Check if sidebar is collapsed or expanded
 document.addEventListener('DOMContentLoaded', () => {
@@ -168,3 +95,15 @@ sidebarMenu.addEventListener('scroll', (e) => {
 })
 
 updateMenuTooltips()
+
+// Helper links add their data-tag to the form field in data-helper-for, as JSON unless data-helper-format="list"
+document.addEventListener('click', e => {
+  const group = e.target.closest('[data-helper-for]')
+  if (!group) return
+  const formID = group.closest('form').id
+  if (group.dataset.helperFormat === 'list') {
+    Helpers.argumentHelper(formID, group.dataset.helperFor, e)
+  } else {
+    Helpers.argumentHelperJSON(formID, group.dataset.helperFor, e)
+  }
+})

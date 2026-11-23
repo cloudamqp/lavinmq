@@ -1,0 +1,89 @@
+# Shovel
+
+Moves messages from a **Source** to a **Destination**, settling each message on
+the source according to what the destination reports. Lives in
+`src/lavinmq/shovel/`.
+
+## Language
+
+**Shovel**:
+A configured, long-running message mover from one Source to one Destination,
+owned by a vhost and driven by a Runner.
+_Avoid_: pump, bridge, forwarder.
+
+**Source**:
+Where a Shovel reads messages from and settles them (ack / reject). Today only
+AMQP queues (an exchange source is consumed through a temporary queue). The
+Source owns consume and settlement; it never decides *whether* a message
+succeeded. Acks are cumulative and batched behind a **settlement frontier**:
+the highest delivery tag below which everything is settled. Out-of-order
+confirms wait above it; a cumulative ack never covers an unsettled tag, and
+names the highest *acked* tag below the frontier, never a rejected one (the
+broker has already settled a rejected tag and refuses an ack for it).
+_Avoid_: origin, input, upstream.
+
+**Queue-length run**:
+A Shovel with `src-delete-after: queue-length`. It snapshots the queue's message
+count at every start and finishes — deleting its parameter — once that many
+messages are settled for good (acked or dead-lettered). Requeued messages come
+back and count then; a newer message delivered into a freed slot is moved and
+counts too (the run moves *as many* messages as were there, never skipping a
+delivery). If a requeue leaves nothing in flight and the queue turns out empty
+(the broker dropped the message), the run finishes as well.
+_Avoid_: drain, one-shot, snapshot mode (as a name for the whole mode).
+
+**Destination**:
+Where a Shovel delivers messages (AMQP exchange/queue or HTTP endpoint). A
+Destination delivers a message and reports an **Outcome**; it never touches the
+Source.
+_Avoid_: sink, target, output, downstream.
+
+**Runner**:
+The single fiber that owns a Shovel's run loop and its **policy**: it maps each
+**Outcome** to a Source action and owns requeue timing, backoff, and the abort
+threshold. Only this fiber starts or stops a Source or Destination. Outcomes
+that arrive once the Source is stopped (confirms voided while the Shovel is
+pausing or terminating) are ignored: there is nothing left to settle. The
+Source classifies nothing. (An HTTP Destination retries a request
+once on a fresh connection when a kept-alive connection turns out to be dead,
+but it owns no Source policy.)
+_Avoid_: worker, driver, supervisor.
+
+**MultiDestination**:
+The Destination wrapping a Shovel's list of `dest-uri`s. Every start draws one
+destination at random and the whole run delivers to it; the choice is made
+again on every start, so after a pause or a reconnect. There is no failover:
+the chosen destination reports its **Outcome**s straight to the **Runner**, and
+if it cannot start, start raises so the Runner reconnects with backoff and
+draws again.
+_Avoid_: failover, load-balancer, fan-out, round-robin.
+
+**Outcome**:
+The per-message disposition a Destination reports back to the Runner. The
+Destination maps its native result (HTTP status, AMQP confirm) to one of these;
+the Runner decides what each one does. One of:
+
+- **Confirmed** — delivered. Runner acks the message and resets failure counters.
+- **Retry** — transient failure (HTTP 5xx/429/408/timeout/connection-refused;
+  AMQP nack such as reject-publish overflow). Runner requeues (`requeue: true`)
+  and retries with backoff, unbounded.
+- **Reject** — the *message* is unacceptable (HTTP 400/422, or 413/415 and
+  the other statuses about the request's size, type or headers). Runner rejects
+  without requeue (`requeue: false`) so the source queue's dead-letter exchange
+  handles it, then continues with the next message.
+- **Abort** — the *destination* is unusable (HTTP 404, auth failure). Runner
+  keeps the message (`requeue: true`) and, after a threshold of consecutive
+  Aborts, moves the Shovel to the **Aborted** state for an operator to resolve.
+
+_Avoid_: result, status, ack-mode (ack-mode is the separate
+OnConfirm/OnPublish/NoAck delivery-guarantee setting).
+
+**Aborted** (state):
+The state a Runner enters once the abort threshold is crossed: the Destination
+is unusable, the Shovel stays put with the reason in `error`, and it does not
+reconnect until it is resumed (like a paused Shovel) or its parameter is
+recreated. Aborting is a stop, not an exception: the Runner halts the run the
+way pause does, on its own fiber, so the Source connection closes cleanly and
+every unacked message stays on it. Distinct from **Error**, the transient state
+of a Shovel that is about to reconnect with backoff.
+_Avoid_: errored-out, failed, dead.

@@ -29,6 +29,14 @@
               <th>State</th>
               <td id="q-state"></td>
             </tr>
+            <tr id="q-state-reason-row" class="hide">
+              <th>Reason</th>
+              <td id="q-state-reason"></td>
+            </tr>
+            <tr id="q-primary-queue-row" class="hide">
+              <th>Retry queue of</th>
+              <td id="q-primary-queue"></td>
+            </tr>
             <tr>
               <th>Consumers</th>
               <td id="q-consumers"></td>
@@ -46,11 +54,6 @@
               <td id="q-effective-policy-definition"></td>
             </tr>
           </table>
-          <form method="put" id="restartQueue" class="form hide">
-            <label>
-              <button type="submit" class="btn btn-green">Restart queue</button>
-            </label>
-          </form>
         </section>
         <section class="card cols-5">
           <h3>Messages</h3>
@@ -85,11 +88,44 @@
           <h3>Arguments</h3>
           <pre class="arguments" id="q-arguments"></pre>
         </section>
-        <section class="card">
+        <section class="card cols-12 hide" id="q-delayed-retry">
+          <h3>Automatic retries</h3>
+          <table class="details-table">
+            <tr>
+              <th>Initial delay</th>
+              <td id="q-retry-min"></td>
+            </tr>
+            <tr>
+              <th>Backoff</th>
+              <td id="q-retry-backoff"></td>
+            </tr>
+            <tr>
+              <th>Max delay</th>
+              <td id="q-retry-max"></td>
+            </tr>
+            <tr>
+              <th>Delivery limit</th>
+              <td id="q-retry-delivery-limit"></td>
+            </tr>
+            <tr>
+              <th>Messages delayed</th>
+              <td id="q-retry-messages-delayed"></td>
+            </tr>
+            <tr>
+              <th>Retry queue</th>
+              <td id="q-retry-queue"></td>
+            </tr>
+          </table>
+        </section>
+        <section class="card cols-12 align-start">
+          <h3>Queued messages</h3>
+          <div class="chart-container" id="msgChart"></div>
+        </section>
+        <section class="card cols-12 align-start">
           <h3>Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
-        <section class="card cols-4">
+        <section class="card cols-4" id="pause-queue-card">
           <h3>Pause Queue</h3>
           <form method="put" id="pauseQueue" class="form">
             <label>
@@ -156,6 +192,9 @@
               Bindings
               <small class="tiny-badge counter-pill" id="bindings-count"></small>
             </h2>
+            <div class="btn-holder">
+              <button type="button" class="btn btn-green" command="show-modal" commandfor="add-binding-dialog">+ Add binding</button>
+            </div>
           </div>
           <div class="table-wrapper">
             <div id="bindings-table-error"></div>
@@ -172,8 +211,12 @@
             </table>
           </div>
         </section>
-        <form method="post" id="addBinding" class="form card cols-6">
-          <h3>Add a binding to this queue</h3>
+        <dialog id="add-binding-dialog" class="dialog" closedby="any">
+          <div class="dialog-header">
+            <h3>Add a binding to this queue</h3>
+            <button type="button" class="dialog-close" command="close" commandfor="add-binding-dialog" aria-label="Close">&#x2715;</button>
+          </div>
+          <form method="post" id="addBinding" class="form">
           <label>
             <span>From exchange</span>
             <input name="source" type="text" required list="exchange-list">
@@ -187,8 +230,11 @@
             <span>Arguments</span>
             <textarea name="arguments" placeholder='{ "key": value }'></textarea>
           </label>
-          <button type="submit" class="btn btn-outlined">Bind</button>
-        </form>
+          <div class="dialog-footer">
+            <button type="submit" class="btn btn-outlined btn-inline">Bind</button>
+          </div>
+          </form>
+        </dialog>
       </div>
       <div data-tab-bar="tab" data-tab-content="messages">
         <form method="post" id="publishMessage" class="form card cols-6">
@@ -210,38 +256,38 @@
           <label>
             <span>Properties</span>
             <textarea name="properties" placeholder='{ "key": value }'></textarea>
-            <div id="dataTags" class="label">
+            <div class="arg-helpers" data-helper-for="properties">
               <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
                 <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="content_encoding">Content Encoding
                 <span class="tooltiptext">Encoding of the content used by application.</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="expiration" data-value="0">Message TTL
                 <span class="tooltiptext">How long a message published to a queue can live before it is discarded
                   (milliseconds).</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="priority" data-value="1">Priority
                 <span class="tooltiptext">Priority of the message in the queue.</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="message_id">Message ID
                 <span class="tooltiptext">Message identifier of the message used by application.</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="timestamp">Timestamp
                 <span class="tooltiptext">Timestamp of the message used by application.</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="type">Type
                 <span class="tooltiptext">Type of the message used by application.</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="user_id">User ID
                 <span class="tooltiptext">User identifier when impersonate another user.</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="app_id">App ID
                 <span class="tooltiptext">Application identifier.</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="correlation_id">Correlation ID
                 <span class="tooltiptext">Correlation identifier for RPC</span>
-              </a> |
+              </a>
               <a class="arg-tooltip" data-tag="reply_to">Reply To
                 <span class="tooltiptext">Reply to queue for RPC</span>
               </a>
@@ -281,7 +327,7 @@
             <label>
               <span>Messages</span>
               <input type="number" name="messages" value=1 min="1" max="1000">
-              <small id="dataTags">Maximum 1000 messages</small>
+              <small class="form-hint">Maximum 1000 messages</small>
             </label>
             <button type="submit" class="btn btn-outlined">Get message(s)</button>
           </form>

@@ -13,7 +13,7 @@ module LavinMQ
         get "/api/vhost-limits/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            [VHostLimitsView.new(vhost).self_if_limited].compact.to_json(context.response)
+            [VHostLimitsView.new(vhost).self_if_limited].compact.to_json(context.response.output)
           end
         end
 
@@ -25,7 +25,6 @@ module LavinMQ
             if body = context.request.body
               json = JSON.parse(body)
               if value = json["value"]?.try &.as_i?
-                value = nil if value < 0
                 case params["type"]
                 when "max-connections"
                   vhost.max_connections = value
@@ -64,7 +63,7 @@ module LavinMQ
         end
 
         def self_if_limited : VHostLimitsView?
-          return self if @vhost.max_connections || @vhost.max_queues
+          self if @vhost.max_connections || @vhost.max_queues
         end
 
         def details_tuple

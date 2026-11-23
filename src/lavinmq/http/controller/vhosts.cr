@@ -26,7 +26,7 @@ module LavinMQ
         get "/api/vhosts/:name" do |context, params|
           with_vhost(context, params, vhost_key: "name") do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            VHostView.new(vhost).to_json(context.response)
+            VHostView.new(vhost).to_json(context.response.output)
           end
         end
 
@@ -54,13 +54,7 @@ module LavinMQ
         delete "/api/vhosts/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params, vhost_key: "name") do |vhost|
-            if deleted_vhost = @server.vhosts.delete(vhost.name)
-              message_stats = deleted_vhost.message_details[:message_stats]
-              # Add stats to global stats for accurate prometheus metrics counters
-              @server.deleted_vhosts_messages_delivered_total += message_stats[:deliver_get]
-              @server.deleted_vhosts_messages_redelivered_total += message_stats[:redeliver]
-              @server.deleted_vhosts_messages_acknowledged_total += message_stats[:ack]
-              @server.deleted_vhosts_messages_confirmed_total += message_stats[:confirm]
+            if @server.vhosts.delete(vhost.name)
               context.response.status_code = 204
             else
               context.response.status_code = 404
@@ -74,7 +68,7 @@ module LavinMQ
             @server.users.compact_map do |_, u|
               next if u.hidden?
               u.permissions[vhost.name]?.try { |p| u.permissions_details(vhost.name, p) }
-            end.to_json(context.response)
+            end.to_json(context.response.output)
           end
         end
       end

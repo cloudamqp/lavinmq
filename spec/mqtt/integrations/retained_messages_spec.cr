@@ -8,7 +8,7 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
-          publish(io, topic: "a/b", qos: 0u8, retain: true)
+          publish(io, topic: "a/b", qos: 1u8, retain: true)
           disconnect(io)
         end
 
@@ -17,7 +17,7 @@ module MqttSpecs
           subscribe(io, topic_filters: [subtopic("a/b")])
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.topic.should eq("a/b")
-          pub.retain?.should eq(true)
+          pub.retain?.should be_true
           disconnect(io)
         end
       end
@@ -36,7 +36,7 @@ module MqttSpecs
           end
 
           msg = read_packet(sub_io).as(MQTT::Protocol::Publish)
-          msg.retain?.should eq(false)
+          msg.retain?.should be_false
         end
       end
     end
@@ -45,7 +45,7 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
-          publish(io, topic: "a/b", qos: 0u8, retain: true)
+          publish(io, topic: "a/b", qos: 1u8, retain: true)
           disconnect(io)
         end
 
@@ -56,8 +56,8 @@ module MqttSpecs
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.qos.should eq(1u8)
           pub.topic.should eq("a/b")
-          pub.retain?.should eq(true)
-          pub.dup?.should eq(false)
+          pub.retain?.should be_true
+          pub.dup?.should be_false
         end
 
         with_client_io(server) do |io|
@@ -65,9 +65,34 @@ module MqttSpecs
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.qos.should eq(1u8)
           pub.topic.should eq("a/b")
-          pub.retain?.should eq(true)
-          pub.dup?.should eq(true)
+          pub.retain?.should be_true
+          pub.dup?.should be_true
           puback(io, pub.packet_id)
+        end
+      end
+    end
+
+    it "does not retain a message with a topic longer than 255 bytes" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          expect_raises(IO::Error) do
+            publish(io, topic: "a/#{"x" * 300}", qos: 1u8, retain: true)
+          end
+        end
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          publish(io, topic: "a/b", qos: 1u8, retain: true).should be_a(MQTT::Protocol::PubAck)
+          disconnect(io)
+        end
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          suback = subscribe(io, topic_filters: [subtopic("#")])
+          suback.as(MQTT::Protocol::SubAck).return_codes.should eq [MQTT::Protocol::SubAck::ReturnCode::QoS0]
+          read_publish(io).topic.should eq "a/b"
+          disconnect(io)
         end
       end
     end

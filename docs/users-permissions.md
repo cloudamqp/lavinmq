@@ -50,7 +50,7 @@ If a published message carries the `user_id` property, the server checks it matc
 |---------------|-------------------|
 | `exchange.declare` | `configure` on the exchange |
 | `exchange.delete` | `configure` on the exchange |
-| `queue.declare` | `configure` on the queue |
+| `queue.declare` | `configure` on the queue; with the `x-dead-letter-exchange` argument, also `read` on the queue and `write` on the dead letter exchange |
 | `queue.delete` | `configure` on the queue |
 | `queue.bind` | `read` on the exchange, `write` on the queue |
 | `queue.unbind` | `read` on the exchange, `write` on the queue |
@@ -60,6 +60,18 @@ If a published message carries the `user_id` property, the server checks it matc
 | `basic.consume` | `read` on the queue |
 | `basic.get` | `read` on the queue |
 | `queue.purge` | `read` on the queue |
+
+Declaring an `x-mqtt-topic` exchange also needs `read` on `mqtt.default`, see [Consuming MQTT messages over AMQP](mqtt.md#consuming-mqtt-messages-over-amqp).
+
+The queue routes of the HTTP API check the same permissions, after the user's tag:
+
+| HTTP API Operation | Permission Required |
+|-------------------|-------------------|
+| `PUT /api/queues/:vhost/:name` | `configure` on the queue |
+| `DELETE /api/queues/:vhost/:name` | `configure` on the queue |
+| `PUT /api/queues/:vhost/:name/pause` and `/resume` | `configure` on the queue |
+| `DELETE /api/queues/:vhost/:name/contents` | `read` on the queue |
+| `POST /api/queues/:vhost/:name/get` | `read` on the queue |
 
 ### Default Permissions
 

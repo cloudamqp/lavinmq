@@ -1,6 +1,7 @@
 import * as Pagination from './pagination.js'
 import * as TableHeaderSort from './tableheadersort.js'
 import { UrlDataSource } from './datasource.js'
+import * as Poller from './poller.js'
 
 function renderTable (id, options = {}, renderRow) {
   const countId = options.countId ?? 'pagename-label'
@@ -39,7 +40,11 @@ function renderTable (id, options = {}, renderRow) {
     console.log(error)
     toggleDisplayError(id, 'Error fetching data: ' + error.detail)
   })
-  dataSource.reload()
+  if (dataSource.autoReload) {
+    Poller.start(signal => dataSource.reload({ signal }))
+  } else {
+    dataSource.reload()
+  }
 
   function on (event, args) {
     events.addEventListener(event, args)
@@ -66,12 +71,12 @@ function renderTable (id, options = {}, renderRow) {
     }
 
     toggleDisplayError(id, false)
-    const rows = Array.from(t.rows)
+    const rowsByKey = new Map(Array.from(t.rows, row => [rowKey(row), row]))
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
       const currentRow = t.rows[i]
       try {
-        const foundRow = findRow(rows, item)
+        const foundRow = rowsByKey.get(itemKey(item))
         if (foundRow) {
           // Item is display, update that row
           renderRow(foundRow, item, false)
@@ -97,8 +102,14 @@ function renderTable (id, options = {}, renderRow) {
     events.dispatchEvent(new window.CustomEvent('updated'))
   }
 
-  function findRow (rows, item) {
-    return rows.find(row => keyColumns.every(key => row.dataset[key] === JSON.stringify(item[key])))
+  // Rows store each key column as a JSON string in data-* attributes (see setKeyAttributes),
+  // so a row and the item it was rendered from produce the same key.
+  function rowKey (row) {
+    return keyColumns.map(key => row.dataset[key]).join('\n')
+  }
+
+  function itemKey (item) {
+    return keyColumns.map(key => JSON.stringify(item[key])).join('\n')
   }
 
   function setKeyAttributes (tr, item) {
@@ -201,18 +212,14 @@ function renderCell (tr, column, value, classList = '') {
 }
 
 function buildCells (tr, index) {
-  const target = index + 1
-  while (index >= 0) {
-    if (tr.cells.length >= target) break
-    tr.insertCell(-1)
-    index--
+  const headerCells = tr.closest('table').tHead.rows[0].cells
+  while (tr.cells.length <= index) {
+    const cell = tr.insertCell(-1)
+    if (headerCells[cell.cellIndex]?.classList.contains('hide')) {
+      cell.classList.add('hide')
+    }
   }
-  const tbl = tr.parentElement.parentElement
-  const colHeader = tbl.querySelectorAll(`tr > *:nth-child(${target})`)[0]
-  if (colHeader.classList.contains('hide')) {
-    tr.cells[tr.cells.length - 1].classList.add('hide')
-  }
-  return tr.cells[tr.cells.length - 1]
+  return tr.cells[index]
 }
 
 function columnSelectorCacheKey (table) {

@@ -66,7 +66,8 @@ module LavinMQPerf
             @io.puts " #{(stop - start).total_milliseconds.round}ms"
           end
           puts
-          @io.print "#{count += @connections} connections "
+          count += @connections
+          @io.print "#{count} connections "
           @io.print "#{count * @channels} channels "
           @io.print "#{count * @channels * @consumers} consumers. "
           @io.puts "Using #{rss.humanize_bytes} memory."

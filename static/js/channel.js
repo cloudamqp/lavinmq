@@ -4,6 +4,7 @@ import * as Helpers from './helpers.js'
 import * as HTTP from './http.js'
 import * as Chart from './chart.js'
 import { DataSource } from './datasource.js'
+import * as Poller from './poller.js'
 
 Helpers.disableUserMenuVhost()
 
@@ -14,7 +15,7 @@ let vhost = null
 document.title = channel + ' | LavinMQ'
 
 const consumersDataSource = new (class extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
   setConsumers (consumers) { this.items = consumers }
   reload () { }
 })()
@@ -49,11 +50,8 @@ const prefetchForm = (cb) => {
     event.preventDefault()
     const prefetch = parseInt(input.value)
     HTTP.request('PUT', channelUrl, { body: { prefetch } })
-      .then((r) => {
-        if (!(r && r.is_error)) {
-          cb(prefetch)
-        }
-      })
+      .then(() => cb(prefetch))
+      .catch(() => {})
   })
   form.append(input, save, reset)
   const updateForm = (value) => { input.value = value }
@@ -94,8 +92,8 @@ const prefetchHandler = () => {
 
 const prefetch = prefetchHandler()
 document.getElementById('ch-prefetch').appendChild(prefetch.el)
-function updateChannel () {
-  HTTP.request('GET', channelUrl).then(item => {
+function updateChannel (signal) {
+  return HTTP.request('GET', channelUrl, { signal }).then(item => {
     Chart.update(chart, item.message_stats)
     vhost = item.vhost
     const stateEl = document.getElementById('ch-state')
@@ -118,7 +116,15 @@ function updateChannel () {
       chMode.replaceChildren(confirmSpan)
     }
     document.getElementById('ch-global-prefetch').textContent = Helpers.formatNumber(item.global_prefetch_count)
-  })
+  }).catch(() => {})
 }
-updateChannel()
-setInterval(updateChannel, 5000)
+Poller.start(updateChannel)
+
+document.querySelector('#closeChannel').addEventListener('submit', function (evt) {
+  evt.preventDefault()
+  const headers = new window.Headers({
+    'X-Reason': document.querySelector('[name=reason]').value
+  })
+  HTTP.request('DELETE', channelUrl, { headers })
+    .then(() => { window.location = 'channels' })
+})

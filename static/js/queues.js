@@ -43,7 +43,7 @@ const performMultiAction = (el) => {
         document.getElementById('multi-check-all').checked = false
         queuesTable.reload()
       }
-    }).catch(e => {
+    }).catch(() => {
       DOM.toast.error(`Failed to perform action on ${data.name}`)
       queuesTable.reload()
     })
@@ -92,6 +92,16 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
       internal.textContent = 'I'
       internal.title = 'Internal'
       features.appendChild(internal)
+      if (item.primary_queue) {
+        const primaryLink = document.createElement('a')
+        primaryLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.primary_queue}`
+        primaryLink.textContent = 'R'
+        const primary = document.createElement('span')
+        primary.className = 'retry-queue-of'
+        primary.title = `Retry queue of ${item.primary_queue}`
+        primary.appendChild(primaryLink)
+        features.appendChild(primary)
+      }
     } else {
       if (item.durable) {
         const durable = document.createElement('span')
@@ -110,6 +120,13 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
         exclusive.textContent = 'E '
         exclusive.title = 'Exclusive'
         features.appendChild(exclusive)
+      }
+      if (item.delayed_retry) {
+        const retry = document.createElement('span')
+        retry.textContent = 'R '
+        retry.className = 'delayed-retry'
+        retry.title = 'Automatic retries'
+        features.appendChild(retry)
       }
       if (Object.keys(item.arguments).length > 0) {
         const argsTooltip = Object.entries(item.arguments)
@@ -160,6 +177,8 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
   Table.renderCell(tr, 14, Helpers.nFormatter(item.total_bytes) + 'B', 'right')
 })
 
+const addQueueDialog = document.getElementById('add-queue-dialog')
+
 document.querySelector('#declare').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
@@ -172,19 +191,16 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
     arguments: DOM.parseJSON(data.get('arguments'))
   }
   HTTP.request('PUT', url, { body })
-    .then((response) => {
-      if (response?.is_error) { return }
+    .then(() => {
       queuesTable.reload()
       evt.target.reset()
       evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
+      addQueueDialog.close()
       DOM.toast('Queue ' + queue + ' created')
     })
+    .catch(() => {})
 })
 queuesTable.on('updated', _ => {
   const checked = document.querySelectorAll('input[data-name]:checked')
   document.getElementById('multi-queue-count').textContent = checked.length
-})
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('declare', 'arguments', e)
 })

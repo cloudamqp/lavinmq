@@ -13,6 +13,7 @@ on:
       - static/**
       - views/**
       - openapi/**
+      - packaging/libgc/**
       - packaging/rpm/**
   workflow_dispatch:
 concurrency:
@@ -23,8 +24,11 @@ jobs:
     name: Build RPM
     strategy:
       fail-fast: false
+      # One Depot build at a time: connections to Depot dropped when
+      # several ran at once
+      max-parallel: 1
       matrix:
-        os: ['fedora-44', 'fedora-43', 'fedora-42', 'el-9']
+        os: ['fedora-45', 'fedora-44', 'fedora-43', 'el-9', 'el-10']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:
@@ -32,7 +36,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -46,7 +50,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
-            build_image=84codes/crystal:latest-${{ matrix.os }}
+            build_image=84codes/crystal:1.22.2-${{ matrix.os }}
             version=${{ env.version }}
             MAKEFLAGS=-j1
           outputs: RPMS

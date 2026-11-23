@@ -30,7 +30,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `process_open_tcp_sockets` | gauge | Open TCP sockets |
 | `process_resident_memory_bytes` | gauge | Resident memory in bytes |
 | `process_max_fds` | gauge | File descriptor limit |
-| `resident_memory_limit_bytes` | gauge | Memory high watermark in bytes |
+| `resident_memory_limit_bytes` | gauge | Memory available to the broker in bytes: the cgroup memory limit, or physical memory if no limit is set |
 | `disk_space_available_bytes` | gauge | Disk space available in bytes |
 
 #### Queues
@@ -38,6 +38,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | Metric | Type | Description |
 |--------|------|-------------|
 | `connections` | gauge | Connections currently open |
+| `mqtt_connections` | gauge | MQTT connections currently open, also counted in `connections`. Exported once an MQTT client has connected since startup |
 | `channels` | gauge | Channels currently open |
 | `consumers` | gauge | Consumers currently connected |
 | `queues` | gauge | Queues available |
@@ -54,6 +55,14 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `global_messages_redelivered_total` | counter | Total messages redelivered to consumers |
 | `global_messages_acknowledged_total` | counter | Total messages acknowledged by consumers |
 | `global_messages_confirmed_total` | counter | Total messages confirmed to publishers |
+| `global_messages_unroutable_returned_total` | counter | Total unroutable messages returned to publishers |
+| `global_mqtt_messages_published_total` | counter | Total messages published by MQTT clients, will messages included (labeled by `qos`: `0`, `1` or `2`; QoS 2 is acknowledged like QoS 1). Exported once an MQTT client has connected since startup |
+| `global_messages_dead_lettered_delivery_limit_total` | counter | Total messages dead-lettered because the queue's delivery limit was exceeded (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_expired_total` | counter | Total messages dead-lettered because their TTL expired (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_maxlen_total` | counter | Total messages dead-lettered by `max-length` or `max-length-bytes` with `drop-head` overflow (labeled by `dead_letter_strategy`) |
+| `global_messages_dead_lettered_rejected_total` | counter | Total messages dead-lettered by `basic.reject` or `basic.nack` without requeue (labeled by `dead_letter_strategy`) |
+
+The `dead_letter_strategy` label is `at_most_once` when the message was published to a dead letter exchange, and `disabled` when there was no dead letter exchange and the message was discarded.
 
 #### Runtime and clustering
 
@@ -67,7 +76,43 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `stats_system_collection_duration_seconds` | gauge | Time to collect system metrics |
 | `total_connected_followers` | gauge | Number of follower nodes connected |
 | `follower_lag_in_bytes` | gauge | Bytes not yet synchronized to a follower (labeled by `id`) |
+| `follower_bytes_sent_total` | counter | Bytes streamed to a follower since it started streaming (labeled by `id`), served on the leader |
+| `follower_bytes_acked_total` | counter | Bytes a follower acknowledged since it started streaming (labeled by `id`), served on the leader |
+| `cluster_received_bytes_total` | counter | Bytes streamed from the current leader, served on a follower |
 | `mfile_count` | gauge | Number of memory-mapped files (`MFile` instances) currently open |
+
+The three replication byte counters measure the ongoing replication stream: the
+changes a leader sends a follower that has caught up. They reset at different
+points. On the leader, `follower_bytes_sent_total` and
+`follower_bytes_acked_total` count per connection and start over when the
+follower reconnects. On the follower, `cluster_received_bytes_total` keeps
+counting across reconnects and starts over only when the follower switches to a
+new leader or restarts, so it does not show whether the follower reconnected.
+Use `rate()` and `increase()` to query all three.
+
+A joining follower first copies files in bulk and starts streaming once it is
+caught up. That phase is reported per follower by `GET /api/nodes`, where
+`uncompressed_bytes` and `compressed_bytes` cover every byte written to the
+follower, bulk transfer included.
+
+#### Socket buffer pool
+
+Client connections take their socket read and write buffers from a pool and
+return them when idle. Each thread caches up to 4 MiB of idle buffers per
+buffer size. The metrics are labeled by `buffer_size` in bytes, so after a
+config reload that changes `socket_buffer_size` there is a series for each
+size still in use.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `socket_buffer_pool_available` | gauge | Buffers cached for reuse |
+| `socket_buffer_pool_allocated_total` | counter | Buffers allocated because none was cached |
+| `socket_buffer_pool_reused_total` | counter | Buffers taken from the cache |
+| `socket_buffer_pool_released_total` | counter | Buffers returned to the cache |
+| `socket_buffer_pool_dropped_total` | counter | Buffers left to the GC because the cache was full |
+
+A steadily increasing `socket_buffer_pool_dropped_total` means more connections
+are busy at once than the cache holds, so buffers are reallocated.
 
 #### Garbage collection
 
@@ -87,6 +132,7 @@ Crystal GC stats, prefixed with `<prefix>_gc_`.
 | `gc_before_recent_collection_reclaimed_bytes_total` | counter | Approximate reclaimed bytes before the recent GC (value may wrap) |
 | `gc_since_recent_collection_explicitly_freed_bytes` | counter | Bytes freed explicitly since the recent GC |
 | `gc_from_os_obtained_bytes_total` | counter | Total memory obtained from OS, in bytes |
+| `gc_pause_seconds` | histogram | Stop-the-world GC pause durations in seconds (buckets 1 ms to 5 s) |
 
 #### Scrape telemetry
 
@@ -106,7 +152,7 @@ Per-resource metrics selected via the `family` query parameter (repeatable). Wit
 | `connection_churn_metrics` | Connection open/close totals |
 | `connection_coarse_metrics` | Per-connection bytes in/out and channel count (also accepted as `connection_metrics`) |
 | `channel_metrics` | Per-channel metrics |
-| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size |
+| `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size; delivered and acknowledged message totals |
 | `queue_consumer_count` | Per-queue consumer count |
 | `exchange_metrics` | Per-exchange deduplication cache size |
 
@@ -143,7 +189,11 @@ LavinMQ collects rate statistics at a configurable interval:
 | Config Key | Section | Default | Description |
 |-----------|---------|---------|-------------|
 | `stats_interval` | `[main]` | `5000` | Collection interval (ms) |
-| `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval) |
+| `stats_log_size` | `[main]` | `120` | Number of samples to retain (10 min at 5s interval), must be at least `1`. A stat only keeps a history buffer while its value changes, so idle queues and connections cost almost nothing |
+
+The HTTP API exposes the retained samples as `*_log` arrays and `*_details.log` arrays, one sample per interval with the most recent last and no timestamps. An object's history starts with its second sample, as the first spans a partial interval. Every API response carries the `LavinMQ-Stats-Interval` header with the configured interval in milliseconds, so a client can place the samples on a time axis without knowing the server configuration. The management UI uses it to space its charts.
+
+`GET /api/queues/{vhost}/{name}` also carries the queue's message count history as `messages_ready_details.log` and `messages_unacknowledged_details.log`, which the queue and stream pages chart above the rates. List endpoints leave these logs out.
 
 ## Logging
 
@@ -161,6 +211,6 @@ The management API provides live log streaming via Server-Sent Events at `GET /a
 | Signal | Behavior |
 |--------|----------|
 | `SIGTERM` / `SIGINT` | Graceful shutdown: stop accepting connections, close existing connections, flush to disk, exit |
-| `SIGUSR1` | Print GC statistics and fiber dump to stdout |
+| `SIGUSR1` | Print GC statistics, a fiber dump with stack usage per fiber, and socket buffer pool statistics (buffer size, threads, and buffers available, allocated, reused, released to the pool, and dropped when a thread's cache is full) to stdout |
 | `SIGUSR2` | Run garbage collection |
 | `SIGHUP` | Reload server configuration |

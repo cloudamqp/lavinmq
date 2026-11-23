@@ -1,66 +1,61 @@
 name: Claude Code Review
+
 on:
   pull_request:
     types: [opened, synchronize]
-    paths: # Only run on specific file changes
-      - "src/**/*.cr"
-      - "static/**/*.js"
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'PR number to review'
-        required: true
-        type: string
+
+concurrency:
+  group: claude-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
-  claude-review:
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+  review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
-      issues: read
       id-token: write
-      actions: read # Required for Claude to read CI results on PRs
-    timeout-minutes: 10
+    env:
+      PR: ${{ github.event.pull_request.number }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-      - name: Load review config
-        id: config
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Find previous review
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          source .review-config
-          if [[ -z "$MODEL" || -z "$CRITERIA" ]]; then
-            echo "::error::.review-config must define MODEL and CRITERIA"
-            exit 1
-          fi
+          comment=$(gh pr view "$PR" --json comments --jq '[.comments[] | select(.author.login == "claude")] | last | .body')
           {
             DELIM="EOF_$(openssl rand -hex 16)"
-            echo "criteria<<$DELIM"
-            cat "$CRITERIA"
+            echo "body<<$DELIM"
+            echo "$comment"
             echo "$DELIM"
-            echo "model=$MODEL"
           } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
-            REPO: ${{ github.repository }}
-            PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
+            Review ${{ github.repository }} PR #${{ env.PR }} at head ${{ github.event.pull_request.head.sha }} (checked out).
+            Read AGENTS.md first. Inspect the diff with `gh pr diff`, plus relevant callers, implementations, and specs; don't build or run specs.
 
-            Review this PR and report ONLY problems that need fixing.
-            You have a maximum of 15 turns — finish well within that limit.
+            Report only real issues that exist in the current head, logical errors, violations of the Rules in AGENTS.md,
+            and concurrency/fiber safety. Skip linter-catchable style, nitpicks, and pre-existing issues on unchanged lines.
+            Flag missing specs only for risky behavior changes, and flag new specs that are trivial or duplicate existing coverage.
 
-            Steps:
-            1. Run `gh pr diff` to read the changes
-            2. Analyze the diff. Only use Read/Glob/Grep if the diff alone is insufficient to understand a change.
-            3. Post findings with `gh pr comment --edit-last` (to update any previous review), or `gh pr comment` if no previous comment exists.
+            Your previous review of this PR is below. Re-check each issue in it, drop the ones that are fixed, keep the ones
+            that still apply, and add new ones. Don't mention fixed issues.
 
-            ${{ steps.config.outputs.criteria }}
+            <previous_review>
+            ${{ steps.previous.outputs.body }}
+            </previous_review>
 
+            If there are no issues, say "No issues found." Keep it brief and don't use emojis.
+
+            Post the review with `gh pr comment ${{ env.PR }} --edit-last --create-if-none`.
           claude_args: |
-            --model ${{ steps.config.outputs.model }}
-            --max-turns 20
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+            --max-turns 30
+            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"

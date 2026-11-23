@@ -6,6 +6,7 @@ import * as Table from './table.js'
 import * as Chart from './chart.js'
 import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
+import * as Poller from './poller.js'
 import './tabs.js'
 
 Helpers.disableUserMenuVhost()
@@ -13,15 +14,33 @@ Helpers.disableUserMenuVhost()
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
+
+// A link to another queue only changes the hash, and the queue is read once
+// above. The tabs also keep their state in the hash, so only reload when the
+// queue changes.
+window.addEventListener('hashchange', () => {
+  const params = new URLSearchParams(window.location.hash.substring(1))
+  if (params.get('name') !== queue || params.get('vhost') !== vhost) window.location.reload()
+})
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
-const restartQueueForm = document.querySelector('#restartQueue')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
 class ConsumersDataSource extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
-  setConsumers (consumers) { this.items = consumers }
+  constructor () { super({ autoReload: false, useQueryState: false }) }
+  setConsumers (consumers, totalCount) {
+    this.items = {
+      items: consumers,
+      total_count: totalCount,
+      filtered_count: totalCount,
+      item_count: consumers.length,
+      page: 1,
+      page_size: consumers.length,
+      page_count: 1
+    }
+  }
+
   reload () { }
 }
 const consumersDataSource = new ConsumersDataSource()
@@ -50,6 +69,7 @@ Table.renderTable('table', consumersTableOpts, function (tr, item) {
         DOM.toast('Consumer cancelled')
         updateQueue(false)
       })
+      .catch(() => {})
   })
   Table.renderCell(tr, 0, channelLink)
   Table.renderCell(tr, 1, item.consumer_tag)
@@ -65,41 +85,79 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
   updateQueue(true)
 })
 
-function handleQueueState (state) {
+function handleQueueState (state, pausedReason) {
   document.getElementById('q-state').textContent = state
+  Helpers.showStateReason(state, pausedReason)
+  // A failed queue can't be purged either
+  document.getElementById('purgeQueue').classList.toggle('hide', state === 'failed')
   switch (state) {
     case 'paused':
-      restartQueueForm.classList.add('hide')
       pauseQueueForm.classList.add('hide')
       resumeQueueForm.classList.remove('hide')
       break
     case 'running':
-      restartQueueForm.classList.add('hide')
       pauseQueueForm.classList.remove('hide')
       resumeQueueForm.classList.add('hide')
       break
-    case 'closed':
-      restartQueueForm.classList.remove('hide')
+    default:
       pauseQueueForm.classList.add('hide')
       resumeQueueForm.classList.add('hide')
-      break
-    default:
-      pauseQueueForm.disabled = true
-      resumeQueueForm.disabled = true
   }
 }
 
+function formatDelay (ms) {
+  return Helpers.formatNumber(ms) + ' ms'
+}
+
+function retryBackoff (multiplier) {
+  if (multiplier == null) return 'Linear'
+  if (multiplier === 1) return 'Constant'
+  return `Exponential x${multiplier}`
+}
+
+function queueLink (vhost, name) {
+  const link = document.createElement('a')
+  link.href = HTTP.url`queue#vhost=${vhost}&name=${name}`
+  link.textContent = name
+  return link
+}
+
+function renderDelayedRetry (item) {
+  const retry = item.delayed_retry
+  document.getElementById('q-delayed-retry').classList.toggle('hide', !retry)
+  if (!retry) return
+  document.getElementById('q-retry-messages-delayed').textContent = Helpers.formatNumber(retry.messages_delayed)
+  document.getElementById('q-retry-min').textContent = formatDelay(retry.min)
+  document.getElementById('q-retry-backoff').textContent = retryBackoff(retry.multiplier)
+  document.getElementById('q-retry-max').textContent = retry.max == null ? 'None' : formatDelay(retry.max)
+  document.getElementById('q-retry-delivery-limit').textContent = retry.delivery_limit == null ? 'None' : Helpers.formatNumber(retry.delivery_limit)
+  const retryQueue = retry.retry_queue ? queueLink(item.vhost, retry.retry_queue) : 'None'
+  document.getElementById('q-retry-queue').replaceChildren(retryQueue)
+}
+
+function renderPrimaryQueue (item) {
+  document.getElementById('q-primary-queue-row').classList.toggle('hide', !item.primary_queue)
+  if (!item.primary_queue) return
+  document.getElementById('q-primary-queue').replaceChildren(queueLink(item.vhost, item.primary_queue))
+}
+
+const msgChart = Chart.render('msgChart', 'msgs', true)
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
-function updateQueue (all) {
-  HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
+let detailsRendered = false
+function updateQueue (all, signal) {
+  return HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength, { signal })
     .then(item => {
       const qType = item.arguments['x-queue-type']
       if (qType === 'stream') {
         window.location.href = `/stream#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
       }
+      Chart.update(msgChart, [
+        { key: 'ready', label: 'Ready', desc: 'Messages waiting to be delivered', value: item.messages_ready, log: item.messages_ready_details.log },
+        { key: 'unacked', label: 'Unacknowledged', desc: 'Messages delivered but not yet acknowledged', value: item.messages_unacknowledged, log: item.messages_unacknowledged_details.log }
+      ])
       Chart.update(chart, item.message_stats)
-      handleQueueState(item.state)
+      handleQueueState(item.state, item.paused_reason)
       document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged
       document.getElementById('q-message-bytes-unacknowledged').textContent = Helpers.nFormatter(item.message_bytes_unacknowledged) + 'B'
       document.getElementById('q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
@@ -112,20 +170,21 @@ function updateQueue (all) {
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
       document.querySelector('[data-tab="consumers"] .badge').textContent = item.consumers
+      renderDelayedRetry(item)
       document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`
       // MQTT sessions are rendered through this page too but don't expose a
       // consumer_details array; guard so the rest of the page (policy, args, …)
       // still renders instead of aborting on a TypeError.
       if (item.consumer_details) {
-        item.consumer_details.filtered_count = item.consumers
-        consumersDataSource.setConsumers(item.consumer_details)
+        consumersDataSource.setConsumers(item.consumer_details, item.consumers)
         const hasMoreConsumers = item.consumer_details.length < item.consumers
         loadMoreConsumersBtn.classList.toggle('visible', hasMoreConsumers)
         if (hasMoreConsumers) {
           loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
         }
       }
-      if (all) {
+      if (all || !detailsRendered) {
+        detailsRendered = true
         const features = []
         if (item.durable) features.push('Durable')
         if (item.auto_delete) features.push('Auto delete')
@@ -133,6 +192,7 @@ function updateQueue (all) {
         document.getElementById('q-features').innerText = features.join(', ')
         document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + item.vhost
         document.querySelector('.queue').textContent = queue
+        renderPrimaryQueue(item)
         if (item.policy) {
           const policyLink = document.createElement('a')
           policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
@@ -162,10 +222,9 @@ function updateQueue (all) {
           qArgs.appendChild(div)
         }
       }
-    })
+    }).catch(() => {})
 }
-updateQueue(true)
-setInterval(updateQueue, 5000)
+Poller.start(signal => updateQueue(false, signal))
 
 const tableOptions = {
   dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),
@@ -187,7 +246,9 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
       text: 'Unbind',
       click: function () {
         const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/q/${queue}/${item.properties_key}`
-        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+        HTTP.request('DELETE', url)
+          .then(() => { tr.parentNode.removeChild(tr) })
+          .catch(() => {})
       }
     })
 
@@ -214,11 +275,11 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     arguments: args
   }
   HTTP.request('POST', url, { body })
-    .then(res => {
-      if (res && res.is_error) return
+    .then(() => {
       bindingsTable.reload()
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
+      document.getElementById('add-binding-dialog').close()
     })
     .catch(err => {
       if (err.status === 404) {
@@ -249,6 +310,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
         DOM.toast.warn('Message not published')
       }
     })
+    .catch(() => {})
 })
 
 document.querySelector('#getMessages').addEventListener('submit', function (evt) {
@@ -289,6 +351,7 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
         messagesContainer.appendChild(msgNode)
       }
     })
+    .catch(() => {})
 })
 
 const moveMessagesForm = document.querySelector('#moveMessages')
@@ -324,6 +387,7 @@ moveMessagesForm.addEventListener('submit', function (evt) {
       evt.target.reset()
       DOM.toast('Moving messages to ' + dest)
     })
+    .catch(() => {})
 })
 
 document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
@@ -337,6 +401,7 @@ document.querySelector('#purgeQueue').addEventListener('submit', function (evt) 
   if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
     HTTP.request('DELETE', url)
       .then(() => { DOM.toast('Queue purged!') })
+      .catch(() => {})
   }
 })
 
@@ -346,6 +411,7 @@ document.querySelector('#deleteQueue').addEventListener('submit', function (evt)
   if (window.confirm('Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'queues' })
+      .catch(() => {})
   }
 })
 
@@ -356,8 +422,9 @@ pauseQueueForm.addEventListener('submit', function (evt) {
     HTTP.request('PUT', url)
       .then(() => {
         DOM.toast('Queue paused!')
-        handleQueueState('paused')
+        handleQueueState('paused', 'operator')
       })
+      .catch(() => {})
   }
 })
 
@@ -370,25 +437,9 @@ resumeQueueForm.addEventListener('submit', function (evt) {
         DOM.toast('Queue resumed!')
         handleQueueState('running')
       })
-  }
-})
-
-restartQueueForm.addEventListener('submit', function (evt) {
-  evt.preventDefault()
-  const url = HTTP.url`api/queues/${vhost}/${queue}/restart`
-  if (window.confirm('Are you sure? This will restart the queue.')) {
-    HTTP.request('PUT', url)
-      .then((res) => {
-        if (res && res.is_error) return
-        DOM.toast('Queue restarted!')
-        handleQueueState('running')
-      })
+      .catch(() => {})
   }
 })
 
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges', vhost)
 Helpers.autoCompleteDatalist('queue-list', 'queues', vhost)
-
-document.querySelector('#dataTags').addEventListener('click', e => {
-  Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-})

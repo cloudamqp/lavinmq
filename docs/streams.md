@@ -25,6 +25,8 @@ Each consumer can specify where to start reading from using the `x-stream-offset
 | (integer) | Start from a specific offset number |
 | (negative integer) | Start `N` messages before the end of the stream (e.g. `-100` reads the last 100 messages). Clamped to the oldest available message when fewer than `N` are stored. `0` retains its meaning of "start from the beginning". |
 
+The management UI and the HTTP API (`POST /api/queues/{vhost}/{name}/stream`, `offset` field) accept the same values; integers can be given as JSON numbers or strings, and timestamps as ISO 8601 strings (e.g. `2026-11-17T15:04:38Z`).
+
 Delivered messages include an `x-stream-offset` header with the current offset position.
 
 When no `x-stream-offset` is specified, the consumer resumes from its last tracked offset (or starts from the beginning if no offset has been stored). If the consumer tag is not auto-generated (does not start with `amq.ctag-`), future acks also persist new offset positions.
@@ -74,9 +76,13 @@ Streams support message retention policies to limit storage:
 
 | Mechanism | Description |
 |-----------|-------------|
-| `x-max-age` | Delete segments older than this duration. Format is `<number><unit>` where unit is one of `Y` (years), `M` (months), `D` (days), `h` (hours), `m` (minutes), `s` (seconds). Units are case-sensitive (e.g., `7D`, not `7d`). Set as queue argument or `max-age` policy. |
-| `x-max-length` | Maximum number of messages. Oldest segments are dropped. |
-| `x-max-length-bytes` | Maximum total bytes. Oldest segments are dropped. |
+| `x-max-age` | Drop a segment after its last message reaches this age. Format is `<number><unit>` where unit is one of `Y` (years), `M` (months), `D` (days), `h` (hours), `m` (minutes), `s` (seconds). Units are case-sensitive (e.g., `7D`, not `7d`). Set as queue argument or `max-age` policy. |
+| `x-max-length` | Message count retention target. Drop the oldest segment only if at least this many messages remain. Set as queue argument or `max-length` policy. |
+| `x-max-length-bytes` | Byte retention target. Drop the oldest segment only if at least this many bytes remain. Set as queue argument or `max-length-bytes` policy. |
+
+Retention removes whole segments, so length limits are not hard maximums. When enough messages have been published, length retention keeps at least the configured target and can exceed it by a segment. For example, a stream with `x-max-length: 100` and 1000 messages in one segment keeps that segment until dropping it would still leave at least 100 messages. Length retention is evaluated when a new segment is opened and when its settings change. If several retention limits are configured, another limit can remove messages that one length limit would have kept.
+
+Age retention runs even when no new messages are published. A segment expires based on its last message's timestamp, so earlier messages in that segment may be kept longer than `x-max-age`. The active write segment is never removed by retention; even if all its messages have expired, it remains until publishing opens a new segment.
 
 ## Differences from Standard Queues
 
@@ -102,3 +108,6 @@ The following arguments are not supported on streams:
 - `x-overflow`
 - `x-single-active-consumer`
 - `x-max-priority`
+- `x-delayed-retry-min`
+- `x-delayed-retry-max`
+- `x-delayed-retry-multiplier`

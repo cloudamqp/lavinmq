@@ -58,8 +58,12 @@ module LavinMQ
           dst = "" # default exchange
         end
 
+        # HTTP(S) destinations POST to a URL and have no queue/exchange.
+        http_dest = !dest_uris.empty? && dest_uris.all?(&.scheme.in?("http", "https"))
+
         raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
-        raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil?
+        raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil? && !http_dest
+        validate_dest_timeout!(config["dest-timeout"]?)
 
         return unless user
 
@@ -100,6 +104,15 @@ module LavinMQ
         end
       end
 
+      # A malformed dest-timeout fails the PUT like any other bad field, rather
+      # than being stored and silently replaced by the default at start.
+      private def self.validate_dest_timeout!(value : JSON::Any?)
+        return if value.nil?
+        secs = value.as_f? || value.as_i?.try(&.to_f)
+        return if secs && secs > 0
+        raise ConfigError.new("dest-timeout must be a positive number of seconds")
+      end
+
       private def self.vhost_from_uri(uri : URI) : String
         path = uri.path.lchop("/")
         path.empty? ? "/" : path
@@ -114,7 +127,6 @@ module LavinMQ
       end
 
       def create(name, config)
-        @shovels[name]?.try &.terminate
         delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
         delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
         ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
@@ -132,6 +144,9 @@ module LavinMQ
           direct_user: @vhost.users.direct_user)
         dest = destination(name, config, ack_mode)
         shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
+        # Terminated only after the new config parsed, so a rejected update
+        # leaves the old shovel running
+        @shovels[name]?.try &.terminate
         @shovels[name] = shovel
         spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")
         shovel
@@ -151,7 +166,7 @@ module LavinMQ
         destinations = uris.map do |uri|
           case uri.scheme
           when "http", "https"
-            Shovel::HTTPDestination.new(name, uri)
+            Shovel::HTTPDestination.new(name, uri, ack_mode, Shovel::HTTPDestination.timeout_from(config))
           else
             Shovel::AMQPDestination.new(name, uri,
               config["dest-queue"]?.try &.as_s?,
@@ -161,7 +176,7 @@ module LavinMQ
               direct_user: @vhost.users.direct_user)
           end
         end
-        Shovel::MultiDestinationHandler.new(destinations)
+        Shovel::MultiDestination.new(destinations)
       end
     end
   end

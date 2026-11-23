@@ -230,11 +230,9 @@ module LavinMQPerf
         @io.print "Publish rate: #{pub_rate} msgs/s Consume rate: #{cons_rate} msgs/s"
         if @measure_latency
           stats = @latencies_mutex.synchronize do
-            begin
-              calculate_percentiles(@last_latencies)
-            ensure
-              @last_latencies.clear
-            end
+            calculate_percentiles(@last_latencies)
+          ensure
+            @last_latencies.clear
           end
           if stats
             @io.print " | Latency (ms) min/median/75th/95th/99th: #{stats[:min].round(3)}/#{stats[:median].round(3)}/#{stats[:p75].round(3)}/#{stats[:p95].round(3)}/#{stats[:p99].round(3)}"
@@ -340,18 +338,37 @@ module LavinMQPerf
         end
       end
 
+      # Returns the channel to publish on, a new one if a declare failed and closed it.
+      # Not inlined in the AMQP::Client.start block: nested blocks or a rescue there
+      # crash codegen when Connection has subclasses (crystal-lang/crystal#17543)
+      private def declare_publish_queues(a, queues)
+        ch = a.channel
+        queues.each do |queue_name|
+          next if queue_name.empty?
+          next if !@queue_pattern && @exchange.empty? && @routing_key != queue_name
+          q = begin
+            ch.queue queue_name, durable: true, auto_delete: false, args: @queue_args
+          rescue
+            ch = a.channel
+            ch.queue(queue_name, passive: true)
+          end
+          q.bind(@exchange, @queue_pattern ? queue_name : @routing_key) unless @exchange.empty?
+        end
+        ch
+      end
+
       private def pub(connected) # ameba:disable Metrics/CyclomaticComplexity
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         props = @properties
         props.delivery_mode = 2u8 if @persistent
         unconfirmed = ::Channel(Nil).new(@max_unconfirm)
         ::AMQP::Client.start(@uri) do |a|
-          ch = a.channel
+          queues = queue_names
+          ch = declare_publish_queues(a, queues)
           ch.tx_select if @pub_in_transaction > 0
           ch.confirm_select if @max_unconfirm > 0
           wait_until_all_are_connected(connected)
           ticker = Ticker.new(@rate)
-          queues = queue_names
           queue_idx = 0
           local_pubs = 0_u64
           until @stopped

@@ -22,26 +22,7 @@ jobs:
       id-token: write
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-      - name: Load review config
-        id: config
-        run: |
-          source .review-config
-          if [[ -z "$MODEL" || -z "$DOCS_CRITERIA" ]]; then
-            echo "::error::.review-config must define MODEL and DOCS_CRITERIA"
-            exit 1
-          fi
-          {
-            DELIM="EOF_$(openssl rand -hex 16)"
-            echo "criteria<<$DELIM"
-            cat "$DOCS_CRITERIA"
-            echo "$DELIM"
-            echo "model=$MODEL"
-          } >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
       - name: Run docs check
         uses: anthropics/claude-code-action@v1
         id: claude
@@ -49,19 +30,13 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_bots: '*'
           prompt: |
-            REPO: ${{ github.repository }}
-            PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
+            Inspect the diff of ${{ github.repository }} PR #${{ inputs.pr_number || github.event.pull_request.number }} with `gh pr diff`
+            and decide whether its user-facing changes (flags, config, protocol behavior, HTTP API, features) need updates in `docs/`.
+            Don't review code quality or run tests.
 
-            Keep this check small and finish within the 15-turn budget:
-            1. Inspect the PR diff with `gh pr diff`.
-            2. Decide whether the changed user-facing behavior needs a docs update.
-            3. Return only the JSON object matching the schema.
-
-            Do not review unrelated code quality or run tests.
-
-            ${{ steps.config.outputs.criteria }}
+            verdict: `pass` if there are no user-facing changes or each one is covered in `docs/`, otherwise `fail`.
+            reason: one sentence naming the specific flag, feature, or file.
           claude_args: |
-            --model ${{ steps.config.outputs.model }}
             --max-turns 15
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
             --json-schema '{"type":"object","properties":{"verdict":{"enum":["pass","fail"]},"reason":{"type":"string"}},"required":["verdict","reason"]}'
@@ -69,22 +44,11 @@ jobs:
         env:
           STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
         run: |
-          if [[ -z "$STRUCTURED_OUTPUT" ]]; then
-            echo "::error::Docs check did not return structured output"
+          verdict=$(jq -er .verdict <<< "$STRUCTURED_OUTPUT") || { echo "::error::Docs check returned no verdict"; exit 1; }
+          reason=$(jq -r .reason <<< "$STRUCTURED_OUTPUT")
+          if [[ "$verdict" == pass ]]; then
+            echo "Docs check passed: $reason"
+          else
+            echo "::error::$reason"
             exit 1
           fi
-          verdict=$(jq -er .verdict <<< "$STRUCTURED_OUTPUT")
-          reason=$(jq -er .reason <<< "$STRUCTURED_OUTPUT")
-          case "$verdict" in
-            pass)
-              echo "Docs check passed: $reason"
-              ;;
-            fail)
-              echo "::error::$reason"
-              exit 1
-              ;;
-            *)
-              echo "::error::Could not produce a verdict (got: '$verdict')"
-              exit 1
-              ;;
-          esac

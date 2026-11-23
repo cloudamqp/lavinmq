@@ -7,19 +7,31 @@ module LavinMQ
       def initialize(@vhost : VHost)
       end
 
+      # A session stays in the vhost until its delete finishes, which can wait
+      # for the definitions lock, so a reconnecting client waits it out rather
+      # than getting the dying session
       def []?(client_id : String) : Session?
-        @vhost.session?("mqtt.#{client_id}")
+        name = "#{SESSION_PREFIX}#{client_id}"
+        session = @vhost.session?(name) || return
+        return session unless session.deleting?
+        session.wait_for_deletion
+        @vhost.session?(name).try { |s| s unless s.deleting? }
       end
 
       def [](client_id : String) : Session
-        @vhost.session("mqtt.#{client_id}")
+        @vhost.session("#{SESSION_PREFIX}#{client_id}")
       end
 
-      def declare(client : Client)
+      # Returns nil if creating the session would exceed the vhost's max-queues
+      # limit. An existing session is always returned, reusing one consumes no
+      # new resource.
+      def declare(client : Client) : Session?
         self[client.client_id]? || begin
-          @vhost.declare_queue("mqtt.#{client.client_id}", !client.@clean_session, client.@clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
-          self[client.client_id].client = client
-          self[client.client_id]
+          return if @vhost.queue_limit_reached?
+          @vhost.declare_queue("#{SESSION_PREFIX}#{client.client_id}", !client.@clean_session, client.@clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
+          session = self[client.client_id]
+          session.client = client
+          session
         end
       end
     end

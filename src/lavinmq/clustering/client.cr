@@ -1,6 +1,6 @@
-require "../data_dir_lock"
 require "../clustering"
 require "../rate_limiter"
+require "../filesystem"
 require "./checksums"
 require "./proxy"
 require "lz4"
@@ -16,45 +16,105 @@ module LavinMQ
       # LZ4::Reader's internal 64 KiB buffer.
       BUFFER_SIZE = 64 * 1024
 
+      # Files #hash_local_files hashes between Fiber.yields; a yield per (often
+      # tiny) file costs more than it gives back.
+      HASH_YIELD_INTERVAL = 32
+
+      # Files #compare_files compares between Fiber.yields when their checksums
+      # are cached, which makes each comparison only a stat and a few lookups.
+      COMPARE_YIELD_INTERVAL = 1024
+
       # Capacity of the channel buffering acks from the stream-reading fiber to
       # the ack-sending fiber. Only bounds an in-process queue (send_ack_loop
       # drains and coalesces it continuously), so a fixed size is fine; the
       # leader's ack deadline, not this, governs how far a follower may lag.
       ACK_BUFFER_CAPACITY = 8192
 
-      @data_dir_lock : DataDirLock
+      # Client protocols whose port a leader advertises in its URI's query, e.g.
+      # tcp://leader:5679?amqp=5672&http=15672
+      ADVERTISED_PORTS = {"amqp", "amqps", "mqtt", "mqtts", "http", "https"}
+
+      # The leader being followed: where to replicate from, and the client
+      # ports it advertises (none from leaders that don't advertise them)
+      class Leader
+        getter host : String
+        getter port : Int32
+        getter ports : Hash(String, Int32)
+
+        def initialize(@host, @port, @ports = Hash(String, Int32).new)
+        end
+
+        def self.parse(uri : URI) : self
+          host = uri.hostname.not_nil!("Host missing in follow URI")
+          ports = Hash(String, Int32).new
+          uri.query_params.each do |name, value|
+            next unless ADVERTISED_PORTS.includes?(name)
+            port = value.to_i? || next
+            ports[name] = port if 0 < port <= 65535
+          end
+          new(host, uri.port || 5679, ports)
+        end
+
+        def_equals @host, @port, @ports
+
+        # The port to forward a protocol to: the one the leader advertises, or
+        # the follower's own when the leader doesn't advertise it
+        def forward_port(protocol : String, own_port : Int32) : Int32
+          @ports[protocol]? || own_port
+        end
+      end
+
       @closed = false
+      @close_done = Channel(Nil).new
+      # Read by #follows? from the controller's fiber while #follow sets it
+      @leader = Atomic(Leader?).new(nil)
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
       @mqtt_proxy : Proxy?
+      @amqps_proxy : Proxy?
+      @https_proxy : Proxy?
+      @mqtts_proxy : Proxy?
       @unix_amqp_proxy : Proxy?
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
       @internal_http_server : ::HTTP::Server?
-      @streamed_bytes = 0_u64
-      @file_digests = Hash(String, Digest::SHA1).new
+      getter streamed_bytes = 0_u64
+      # Running SHA1 over each file's whole content, adopted as its checksum when
+      # tracking ends. nil when we started seeing the file mid-content, so no
+      # digest can cover the bytes already on disk (see #digest_for).
+      @file_digests = Hash(String, Digest::SHA1?).new
       @follower_done = Channel(Nil).new
-      # Buffers acks from the stream-reading fiber to the ack-sending fiber.
+      # Buffers acks (byte counts) and fsync requests (paths, "" for the whole
+      # data dir) from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
-      @acks = Channel(Int64).new
+      @acks = Channel(Int64 | String).new
       # Tracks the ack-sending fiber: #close must wait for it to finish before
       # closing @data_dir_fd, since it may sync (syncfs on that fd) before acks
       # it sends — even acks still buffered in @acks after the stream ends.
       @ack_loops = WaitGroup.new
+      # Replication protocol version to connect with. Leaders that only speak
+      # version 1 don't send fsync requests, so we sync before every ack then.
+      @protocol_version = 2
+      # Files this client created whose directory entry isn't fsynced yet,
+      # fsynced along with the file when the leader requests it
+      @created_files = Set(String).new
+      # Parents of directories this client created, whose new entries aren't
+      # fsynced yet, fsynced with the next fsync request (see #make_dirs)
+      @created_dirs = Set(String).new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
-          Dir.mkdir_p File.dirname(path)
+          make_dirs File.dirname(path)
+          @created_files << k unless File.exists?(path)
           h[k] = File.open(path, "a").tap &.sync = true
         end
         Dir.mkdir_p @data_dir
         @data_dir_fd = LibC.open(@data_dir.check_no_null_byte, LibC::O_RDONLY)
         raise IO::Error.from_errno("Failed to open #{@data_dir}") if @data_dir_fd < 0
-        @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         backup_dir = File.join(@data_dir, "backups")
         FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
         @checksums = Checksums.new(@data_dir)
@@ -64,18 +124,15 @@ module LavinMQ
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
           @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
           @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
+          # TLS is passed through unterminated, the leader terminates it
+          if @config.tls_configured?
+            @amqps_proxy = Proxy.new(@config.amqp_bind, @config.amqps_port) if @config.amqps_port > 0
+            @https_proxy = Proxy.new(@config.http_bind, @config.https_port) if @config.https_port > 0
+            @mqtts_proxy = Proxy.new(@config.mqtt_bind, @config.mqtts_port) if @config.mqtts_port > 0
+          end
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
-        end
-        start_metrics_server unless @config.metrics_http_port == -1
-      end
-
-      private def start_metrics_server
-        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new
-        metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
-        spawn(name: "HTTP metrics listener") do
-          metrics_server.listen
         end
       end
 
@@ -84,35 +141,23 @@ module LavinMQ
       end
 
       def follow(uri : URI)
-        host = uri.hostname.not_nil!("Host missing in follow URI")
-        port = uri.port || 5679
-        follow(host, port)
+        follow(Leader.parse(uri))
       end
 
       def follow(host : String, port : Int32)
+        follow(Leader.new(host, port))
+      end
+
+      def follow(leader : Leader)
+        host = leader.host
+        port = leader.port
         Log.info { "Following #{host}:#{port}" }
-        @host = host
-        @port = port
+        @leader.set(leader)
         @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
-        if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
-        end
-        if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
-        end
-        if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
-        end
-        if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
-        end
+        start_proxies(leader)
         loop do
+          hash_local_files
+          return if @closed
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
@@ -131,6 +176,37 @@ module LavinMQ
         @follower_done.send(nil)
       end
 
+      private def start_proxies(leader : Leader)
+        host = leader.host
+        if amqp_proxy = @amqp_proxy
+          spawn amqp_proxy.forward_to(host, leader.forward_port("amqp", @config.amqp_port), true), name: "AMQP proxy"
+        end
+        if http_proxy = @http_proxy
+          spawn http_proxy.forward_to(host, leader.forward_port("http", @config.http_port)), name: "HTTP proxy"
+        end
+        if mqtt_proxy = @mqtt_proxy
+          spawn mqtt_proxy.forward_to(host, leader.forward_port("mqtt", @config.mqtt_port), true), name: "MQTT proxy"
+        end
+        if amqps_proxy = @amqps_proxy
+          spawn amqps_proxy.forward_to(host, leader.forward_port("amqps", @config.amqps_port), true), name: "AMQPS proxy"
+        end
+        if https_proxy = @https_proxy
+          spawn https_proxy.forward_to(host, leader.forward_port("https", @config.https_port)), name: "HTTPS proxy"
+        end
+        if mqtts_proxy = @mqtts_proxy
+          spawn mqtts_proxy.forward_to(host, leader.forward_port("mqtts", @config.mqtts_port), true), name: "MQTTS proxy"
+        end
+        if unix_amqp_proxy = @unix_amqp_proxy
+          spawn unix_amqp_proxy.forward_to(host, leader.forward_port("amqp", @config.amqp_port)), name: "AMQP proxy"
+        end
+        if unix_http_proxy = @unix_http_proxy
+          spawn unix_http_proxy.forward_to(host, leader.forward_port("http", @config.http_port)), name: "HTTP proxy"
+        end
+        if unix_mqtt_proxy = @unix_mqtt_proxy
+          spawn unix_mqtt_proxy.forward_to(host, leader.forward_port("mqtt", @config.mqtt_port)), name: "MQTT proxy"
+        end
+      end
+
       def follows?(_nil : Nil) : Bool
         false
       end
@@ -139,14 +215,15 @@ module LavinMQ
         follows? URI.parse(uri)
       end
 
+      # A leader that advertises other ports, e.g. after a restart with a new
+      # configuration, isn't followed: the proxies forward to the old ports
       def follows?(uri : URI) : Bool
-        host = uri.hostname.not_nil!("Host missing in follow URI")
-        port = uri.port || 5679
-        follows?(host, port)
+        @leader.get == Leader.parse(uri)
       end
 
       def follows?(host : String, port : Int32) : Bool
-        @host == host && @port == port
+        return false unless leader = @leader.get
+        leader.host == host && leader.port == port
       end
 
       private def local_leader_host?(host : String) : Bool
@@ -164,97 +241,97 @@ module LavinMQ
         authenticate(socket)
         Log.info { "Authenticated" }
         set_socket_opts(socket)
-        sync_files(socket, lz4)
-        Log.info { "Bulk synchronised" }
-        sync_files(socket, lz4)
-        Log.info { "Fully synchronised" }
+        full_sync(socket, lz4)
+      end
+
+      private def full_sync(socket, lz4)
+        reset_file_state
+        full_sync_time = Time.measure do
+          bulk_time = Time.measure { sync_files(socket, lz4) }
+          Log.info { "Bulk synchronised in #{bulk_time.total_seconds} seconds" }
+          rest_time = Time.measure { sync_files(socket, lz4) }
+          Log.info { "Changes since bulk synchronized in #{rest_time.total_seconds} seconds" }
+          # Fsync requests only cover what's streamed after this, so make
+          # everything received so far durable before acking anything
+          sync_to_disk
+          @created_dirs.clear
+        end
+        Log.info { "Fully synchronised in #{full_sync_time.total_seconds} seconds" }
+      end
+
+      # Forget the data dir as the previous connection left it. The sync ahead
+      # deletes and re-fetches every file whose hash doesn't match the leader's,
+      # which would leave cached handles writing to unlinked inodes and digests
+      # covering content that's no longer on disk.
+      private def reset_file_state : Nil
+        finalize_digests
+        @files.each_value &.close
+        @files.clear
+        @created_files.clear
+        @created_dirs.clear
+      end
+
+      # Adopt the running digests as the files' checksums and stop tracking them.
+      private def finalize_digests : Nil
+        @file_digests.each do |filename, sha1|
+          adopt_digest(filename, sha1)
+        end
+        @file_digests.clear
+      end
+
+      # Store `sha1` as `filename`'s checksum, unless it's untracked (nil, i.e.
+      # covers only part of the content) or the file is gone.
+      private def adopt_digest(filename : String, sha1 : Digest::SHA1?) : Nil
+        return unless sha1
+        return unless info = File.info?(File.join(@data_dir, filename))
+        @checksums.set(filename, sha1.final, info.size)
       end
 
       private def set_socket_opts(socket)
-        if keepalive = @config.tcp_keepalive
-          socket.keepalive = true
-          socket.tcp_keepalive_idle = keepalive[0]
-          socket.tcp_keepalive_interval = keepalive[1]
-          socket.tcp_keepalive_count = keepalive[2]
-        end
+        @config.apply_tcp_keepalive(socket)
       end
 
       private def sync_files(socket, lz4)
         Log.info { "Waiting for list of files" }
-        sha1 = Digest::SHA1.new
+        hash_size = Digest::SHA1.new.digest_size
 
-        # Drain the entire file list from the socket FIRST, doing no hashing in
-        # this loop. Computing local checksums is CPU-bound and would otherwise
-        # block reading between entries, so the leader's file-list flush can't
-        # complete within its write timeout and it disconnects us mid-sync. By
-        # reading the list back-to-back we let the leader's flush finish; it then
-        # blocks reading our file requests (below) while we hash, so it never
-        # write-times-out during the comparison.
+        # Drain the whole file list before hashing anything: stalling between
+        # entries can make the leader's file-list write time out and drop us.
+        # Once the list is read it waits for our file requests, so the comparison
+        # below is free to hash.
         remote_files = Array({String, Bytes}).new
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
 
           filename = lz4.read_string(filename_len)
-          remote_hash = Bytes.new(sha1.digest_size)
+          remote_hash = Bytes.new(hash_size)
           lz4.read_fully(remote_hash)
           remote_files << {filename, remote_hash}
         end
         Log.info { "Received list of #{remote_files.size} files" }
 
-        # Now compare against local files (CPU-bound hashing) with the socket
-        # already drained.
+        # Now compare against local files, with the socket already drained.
         files_to_delete, dirs_to_delete = ls_r(@data_dir)
-        requested_files = Array(String).new
-        file_count = 0
-        Log.info { "Calculating checksums and comparing files" }
-        log_limiter = RateLimiter.new(2.seconds)
-        remote_files.each do |filename, remote_hash|
-          path = File.join(@data_dir, filename)
-          files_to_delete.delete(path)
-          # Walk up the path to remove all ancestors from dirs_to_delete
-          dir = File.dirname(path)
-          while dirs_to_delete.delete(dir)
-            dir = File.dirname(dir)
-          end
-          if File.exists? path
-            unless local_hash = @checksums[filename]?
-              Log.debug { "Calculating checksum for #{filename}" }
-              sha1.file(path)
-              local_hash = sha1.final
-              @checksums.append(filename, local_hash)
-              sha1.reset
-              Fiber.yield # CPU bound, so allow other fibers to run
-            end
-            if local_hash != remote_hash
-              Log.info { "Mismatching hash: #{path}" }
-              File.delete path
-              requested_files << filename
-            else
-              Log.debug { "Matching hash: #{path}" }
-            end
-          else
-            requested_files << filename
-          end
-          file_count &+= 1
-          log_limiter.do { Log.info { "Compared #{file_count} files" } }
-        end
+        requested_files = compare_files(remote_files, files_to_delete, dirs_to_delete)
         requested_files.each do |filename|
           request_file(filename, socket)
         end
         end_of_file_list(socket)
-        Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
         Log.info { "Deleting #{files_to_delete.size} files not on leader" } unless files_to_delete.empty?
         files_to_delete.each do |path|
           Log.debug { "File not on leader: #{path}" }
           File.delete path
+          # It got a checksum from #hash_local_files; drop it or the checksum map
+          # accumulates dead paths.
+          @checksums.delete(relative_path(path))
         rescue ex : File::Error
           Log.warn(exception: ex) { "Failed to delete #{path}" }
         end
         # Clean up any local empty directory
         # Sort and reverse to cleanup longer paths first
         Log.info { "Deleting #{dirs_to_delete.size} directories not on leader" } unless dirs_to_delete.empty?
-        dirs_to_delete.sort!.reverse_each do |path|
+        dirs_to_delete.to_a.sort!.reverse_each do |path|
           if Dir.empty? path
             Log.debug { "Dir empty or missing on leader: #{path}" }
             Dir.delete? path
@@ -274,9 +351,101 @@ module LavinMQ
         Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
       end
 
-      private def ls_r(dir) : {Array(String), Array(String)}
-        files = Array(String).new
-        dirs = Array(String).new
+      # Compares the leader's files with the local ones, deleting local files
+      # whose hash differs, and returns the files to request. Removes every file
+      # and directory the leader has from files_to_delete and dirs_to_delete.
+      private def compare_files(remote_files : Array({String, Bytes}), files_to_delete : Set(String),
+                                dirs_to_delete : Set(String)) : Array(String)
+        requested_files = Array(String).new
+        file_count = 0
+        files_total = remote_files.size
+        Log.info { "Comparing files" }
+        log_limiter = RateLimiter.new(2.seconds)
+        remote_files.each do |filename, remote_hash|
+          path = File.join(@data_dir, filename)
+          files_to_delete.delete(path)
+          # Walk up the path to remove all ancestors from dirs_to_delete
+          dir = File.dirname(path)
+          while dirs_to_delete.delete(dir)
+            dir = File.dirname(dir)
+          end
+          if File.exists? path
+            # Pre-computed by #hash_local_files, except for files that appeared
+            # after that pass.
+            unless local_hash = @checksums[filename]?.try &.hash
+              local_hash = hash_file(filename, path)
+              Fiber.yield # CPU bound, so allow other fibers to run
+            end
+            if local_hash != remote_hash
+              Log.info { "Mismatching hash: #{path}" }
+              File.delete path
+              requested_files << filename
+            else
+              Log.debug { "Matching hash: #{path}" }
+            end
+          else
+            requested_files << filename
+          end
+          file_count &+= 1
+          Fiber.yield if file_count % COMPARE_YIELD_INTERVAL == 0
+          log_limiter.do { Log.info { "Compared #{file_count}/#{files_total} files…" } }
+        end
+        Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
+        requested_files
+      end
+
+      # Hash every local file before connecting, because hashing while connected
+      # holds up the leader, which keeps its sync lock until we answer. Files
+      # already in @checksums (from disk or an earlier pass) are skipped.
+      private def hash_local_files : Nil
+        computed = 0
+        files, _dirs = ls_r(@data_dir)
+        time = Time.measure do
+          Log.info { "Calculating checksums for #{files.size} local files" }
+          log_limiter = RateLimiter.new(2.seconds)
+          files.each do |path|
+            break if @closed
+            filename = relative_path(path)
+            next if @checksums[filename]?
+            hash_file(filename, path)
+            computed &+= 1
+            Fiber.yield if computed % HASH_YIELD_INTERVAL == 0 # CPU bound, so let other fibers run
+            log_limiter.do { Log.info { "Calculated #{computed} checksums" } }
+          rescue ex : File::NotFoundError
+            Log.debug(exception: ex) { "#{path} disappeared while hashing" }
+          rescue ex : File::Error
+            # This pass also hashes files the leader doesn't have, so one
+            # unreadable file must not wedge the reconnect loop. Left uncached,
+            # so the compare loop still fails if the leader has it.
+            Log.warn(exception: ex) { "Failed to calculate checksum for #{path}" }
+          end
+          # #restore truncated checksums.sha1, so snapshot the full set or a
+          # crash loses the hashes that were on disk at boot.
+          @checksums.store if computed > 0
+        end
+        Log.info { "Calculated #{computed} checksums (#{files.size} local files) in #{time.total_seconds} seconds" }
+      end
+
+      # Hash one local file, persisting the hash right away so progress
+      # survives a crash.
+      private def hash_file(filename : String, path : String) : Bytes
+        Log.debug { "Calculating checksum for #{filename}" }
+        size = File.size(path)
+        sha1 = Digest::SHA1.new
+        sha1.file(path)
+        hash = sha1.final
+        @checksums.append(filename, hash, size)
+        hash
+      end
+
+      # Path relative to the data dir, i.e. the name the leader knows a file by.
+      private def relative_path(path : String) : String
+        path.lchop(@data_dir).lchop('/')
+      end
+
+      private def ls_r(dir) : {Set(String), Set(String)}
+        files = Set(String).new
+        dirs = Set(String).new
         ls_r(dir) do |filename|
           if File.file?(filename)
             files << filename
@@ -294,10 +463,9 @@ module LavinMQ
             yield path
             ls_r(path, &blk)
           else
-            # checksums.sha1(.tmp) is local-only replication metadata, never
-            # sent by the leader; skip it so the "delete files not on leader"
-            # sweep doesn't wipe our persisted hashes mid-sync.
-            next if child.in?(".lock", ".clustering_id", "checksums.sha1", "checksums.sha1.tmp")
+            # Local-only files the leader never sends; skip them so the
+            # "delete files not on leader" sweep doesn't wipe them
+            next if child.in?(NODE_LOCAL_FILES) || child.in?("checksums.sha1", "checksums.sha1.tmp")
             yield path
           end
         end
@@ -316,7 +484,7 @@ module LavinMQ
       private def file_from_socket(filename, lz4)
         Log.debug { "Waiting for #{filename}" }
         path = File.join(@data_dir, filename)
-        Dir.mkdir_p File.dirname(path)
+        make_dirs File.dirname(path)
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         Log.debug { "Receiving #{filename}, #{length.humanize_bytes}" }
         File.open(path, "w") do |f|
@@ -332,15 +500,18 @@ module LavinMQ
           remaining.zero? || raise IO::EOFError.new
           # Persist immediately too: a file received here is complete and
           # stable, so a crash mid-sync won't force re-hashing it on restart.
-          @checksums.append(filename, sha1.final)
+          @checksums.append(filename, sha1.final, length)
         end
         Log.debug { "Received #{filename}, #{length.humanize_bytes}" }
       end
 
       private def stream_changes(socket, lz4)
-        acks = @acks = Channel(Int64).new(ACK_BUFFER_CAPACITY)
+        acks = @acks = Channel(Int64 | String).new(ACK_BUFFER_CAPACITY)
         @ack_loops.spawn(name: "Send ack loop") { send_ack_loop(acks, socket) }
-        spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
+        # Stops the logging fiber when this stream ends, so a reconnect doesn't
+        # leave one behind per connection (they all report the same counter).
+        log_loop_done = Channel(Nil).new
+        spawn log_streamed_bytes_loop(log_loop_done), name: "Log streamed bytes loop"
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           next if filename_len.zero?
@@ -355,6 +526,11 @@ module LavinMQ
           # it tells the leader the deletion is durable — so it's only acked
           # once the deletion has been applied.
           framing = sizeof(Int32) + filename_len + sizeof(Int64)
+          if len.zero? && filename.starts_with?(FSYNC_PREFIX)
+            fsync_request(filename[1..])
+            ack(framing)
+            next
+          end
           case len
           when .negative? # append bytes to file
             ack(framing)
@@ -369,22 +545,63 @@ module LavinMQ
         end
       ensure
         @acks.close
+        log_loop_done.try &.close
       end
 
       private def append(filename, len, lz4)
         Log.debug { "Appending #{len.abs} bytes to #{filename}" }
         f = @files[filename]
-        stream_with_checksum(filename, lz4, f, len.abs)
+        stream_with_checksum(lz4, f, len.abs, digest_for(filename, f))
+      end
+
+      # The running digest over `filename`'s whole content, or nil if we can't
+      # keep one: Digest::SHA1 can't be seeded with a hash, so tracking can only
+      # start while the file is empty (`file` is opened in append mode, so its
+      # size here is still the pre-append size). If it isn't, the checksum we
+      # hold goes stale with this append and is dropped, making the next sync
+      # re-hash the file from disk.
+      private def digest_for(filename : String, file : File) : Digest::SHA1?
+        # #fetch, not #[]?, to tell an absent entry from an untracked file
+        @file_digests.fetch(filename) do
+          if file.size.zero?
+            @file_digests[filename] = Digest::SHA1.new
+          else
+            Log.debug { "Not checksumming #{filename}, appending to existing content" }
+            @checksums.delete(filename)
+            @file_digests[filename] = nil
+          end
+        end
+      end
+
+      # Queue the fsync for the ack-sending fiber, which syncs before it sends
+      # the ack for this request. An empty filename means the whole data dir.
+      private def fsync_request(filename : String) : Nil
+        Log.debug { "Fsync requested for #{filename.empty? ? "data dir" : filename}" }
+        if filename.empty?
+          @acks.send ""
+          return
+        end
+        path = File.join(@data_dir, filename)
+        @acks.send path
+        @acks.send File.dirname(path) if @created_files.delete(filename)
+        # Whatever the request covers may sit in a directory created since the
+        # last one, so their entries are made durable before the ack too
+        @created_dirs.each { |dir| @acks.send dir }
+        @created_dirs.clear
+      end
+
+      # The parent of each directory this creates is fsynced with the next
+      # fsync request, before the ack that makes anything in it durable, not
+      # inline on the replication stream
+      private def make_dirs(dir : String) : Nil
+        FileSystem.mkdir_p(dir) { |parent| @created_dirs << parent }
       end
 
       private def delete(filename)
         Log.debug { "Deleting #{filename}" }
-        if f = @files.delete(filename)
-          f.delete
-          f.close
-        else
-          File.delete? File.join(@data_dir, filename)
-        end
+        @created_files.delete(filename)
+        @files.delete(filename).try &.close
+        File.delete? File.join(@data_dir, filename)
         @checksums.delete(filename)
         @file_digests.delete(filename)
         delete_empty_dirs File.dirname(filename)
@@ -424,28 +641,40 @@ module LavinMQ
         Log.debug { "Replacing file #{filename} (#{len} bytes)" }
         @files.delete(filename).try &.close
 
-        # Reset SHA1 digest for replaced file
-        @file_digests[filename] = Digest::SHA1.new
+        # A replace rewrites the file from byte 0, so the digest below covers its
+        # whole content — but only once the rename installs it. Until then the old
+        # file is on disk, so leave it with a checksum matching it and start
+        # tracking the new digest only after the rename.
+        adopt_digest(filename, @file_digests.delete(filename))
+        sha1 = Digest::SHA1.new
 
         path = File.join(@data_dir, "#{filename}.tmp")
-        Dir.mkdir_p File.dirname(path)
+        make_dirs File.dirname(path)
+        @created_files.delete(filename)
         File.open(path, "w") do |f|
           f.sync = true
           # The record's final ack tells the leader the replace is durable, so
           # it must not be sent while the new content only exists as the .tmp
           # file; hold it back until the rename has installed the file.
-          deferred = stream_with_checksum(filename, lz4, f, len, defer_final_ack: true)
+          # The ack doesn't cover a directory created for the file here: that's
+          # fsynced with the next fsync request (see #make_dirs). The only such
+          # replace is a new queue's .queue file, which the leader doesn't fsync
+          # either, and its directory is recreated from the definitions if lost.
+          deferred = stream_with_checksum(lz4, f, len, sha1, defer_final_ack: true)
+          # Fsync the content before the rename, so that a crash can't leave
+          # a partially written file under the final name
+          f.fsync if @config.sync?
           f.rename f.path[0..-5]
+          @file_digests[filename] = sha1
+          @acks.send File.dirname(f.path)
           ack(deferred)
         end
       end
 
       # Read from lz4, update SHA1, and write to file incrementally.
       # Returns the number of bytes received but not yet acked (see below).
-      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64, defer_final_ack = false) : Int64
-        # Get or create SHA1 digest for this file
-        sha1 = @file_digests[filename] ||= Digest::SHA1.new
-
+      # A nil `sha1` streams the bytes without hashing them (see #digest_for).
+      private def stream_with_checksum(lz4 : IO, file : IO, length : Int64, sha1 : Digest::SHA1?, defer_final_ack = false) : Int64
         # Read, hash, and write incrementally. Each chunk is acked as soon as
         # it's persisted so the leader sees continuous progress within a large
         # action and won't evict us on its ack deadline (a 128 MiB message would
@@ -460,7 +689,7 @@ module LavinMQ
           raise IO::EOFError.new if len.zero?
           bytes = buffer.to_slice[0, len]
           file.write(bytes)
-          sha1.update(bytes)
+          sha1.try &.update(bytes)
           remaining -= len
           return len.to_i64 if remaining.zero? && defer_final_ack
           ack(len)
@@ -476,19 +705,34 @@ module LavinMQ
       end
 
       # Concatenate as many acks as possible to generate few TCP packets.
-      # Data is synced to disk before each ack is sent unless sync is disabled:
-      # the leader holds publish confirms until in-sync followers have acked,
-      # so an acked byte must be durable here in normal operation. Syncing once
-      # per coalesced batch makes batching emerge naturally — acks accumulate
-      # while the blocking syncfs runs.
+      # The leader holds publish confirms until in-sync followers have acked,
+      # so the files it requests fsyncs for must be durable here before the
+      # acks that follow the requests are sent (unless sync is disabled).
+      # Syncing once per coalesced batch makes batching emerge naturally —
+      # acks and requests accumulate while the blocking syncs run.
       private def send_ack_loop(acks, socket)
         socket.tcp_nodelay = true
-        while ack_bytes = acks.receive?
-          while ack_bytes2 = acks.try_receive?
-            ack_bytes += ack_bytes2
+        fsync_paths = Set(String).new
+        while item = acks.receive?
+          ack_bytes = 0i64
+          syncfs = @protocol_version < 2
+          loop do
+            case item
+            in Int64  then ack_bytes += item
+            in String then item.empty? ? (syncfs = true) : fsync_paths << item
+            end
+            item = acks.try_receive? || break
           end
-          sync_to_disk
-          socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
+          if syncfs || fsync_paths.size > @config.syncfs_threshold
+            # The syncfs covers them. Cleared before it, as #make_dirs can run
+            # while it blocks.
+            @created_dirs.clear
+            sync_to_disk
+          else
+            fsync_to_disk(fsync_paths)
+          end
+          fsync_paths.clear
+          socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian if ack_bytes > 0
         end
       rescue Channel::ClosedError
       rescue IO::Error
@@ -498,7 +742,6 @@ module LavinMQ
       # Make all replicated writes durable before acking the leader.
       private def sync_to_disk : Nil
         return unless @config.sync?
-
         sync_data_dir
       rescue ex
         # Can't ack data that isn't durable; die fast so the leader drops us
@@ -508,43 +751,87 @@ module LavinMQ
       end
 
       private def sync_data_dir : Nil
-        {% if flag?(:linux) %}
-          ret = LibC.syncfs(@data_dir_fd)
-          raise IO::Error.from_errno("syncfs") if ret != 0
-        {% else %}
-          LibC.sync
-        {% end %}
+        FileSystem.syncfs(@data_dir_fd)
       end
 
-      private def log_streamed_bytes_loop
+      private def fsync_to_disk(paths : Set(String)) : Nil
+        return unless @config.sync?
+        begin
+          paths.each { |path| fsync_path(path) }
+        rescue ex : IO::Error | RuntimeError
+          raise ex unless FileSystem.out_of_file_descriptors?(ex)
+          # Opening a path to fsync it needs a free descriptor, the already
+          # open data dir fd doesn't, so sync everything through it instead
+          Log.warn { "Out of file descriptors, syncing the whole data dir instead: #{ex.message}" }
+          sync_data_dir
+        end
+      rescue ex
+        Log.fatal(exception: ex) { "Failed to fsync: #{ex.message}" }
+        exit 1
+      end
+
+      # A path deleted since it was requested needs no fsync
+      private def fsync_path(path : String) : Nil
+        File.open(path, &.fsync)
+      rescue File::NotFoundError
+      end
+
+      # Logs the streamed byte count until #stream_changes closes the done
+      # channel (or the client is closed), so the fiber doesn't outlive the
+      # stream that spawned it.
+      private def log_streamed_bytes_loop(done : Channel(Nil))
         loop do
-          sleep 30.seconds
-          break if @closed
-          Log.info { "Total streamed bytes: #{@streamed_bytes}" }
+          select
+          when done.receive?
+            break
+          when timeout(30.seconds)
+            break if @closed
+            Log.info { "Total streamed bytes: #{@streamed_bytes}" }
+          end
         end
       end
 
       private def authenticate(socket)
-        socket.write Start
+        socket.write(@protocol_version < 2 ? Start : StartV2)
         socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
         socket.write @password.to_slice
-        case socket.read_byte
+        case byte = socket.read_byte
         when 0 # ok
         when 1   then raise AuthenticationError.new
         when nil then raise IO::EOFError.new
+        when Start[0]
+          # The leader rejected our header and replied with its own
+          header = Bytes.new(Start.size)
+          header[0] = byte
+          socket.read_fully(header[1..])
+          if header == Start && @protocol_version > 1
+            Log.warn { "Leader only supports replication protocol version 1, reconnecting with it" }
+            @protocol_version = 1
+            raise IO::Error.new("Replication protocol version mismatch")
+          end
+          raise Error.new("Unsupported replication protocol: #{String.new(header).inspect}")
         else
           raise Error.new("Unknown response from authentication")
         end
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
+      # On promotion both the leader watcher and the controller close the
+      # client, and the controller binds the listeners as soon as its call
+      # returns, so a call made while another is closing waits for it to finish.
       def close
-        return if @closed
+        if @closed
+          @close_done.receive?
+          return
+        end
         @closed = true
         @internal_http_server.try &.close
         @amqp_proxy.try &.close
         @http_proxy.try &.close
         @mqtt_proxy.try &.close
+        @amqps_proxy.try &.close
+        @https_proxy.try &.close
+        @mqtts_proxy.try &.close
         @unix_amqp_proxy.try &.close
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
@@ -565,14 +852,11 @@ module LavinMQ
         @acks.close
         @ack_loops.wait
         # Finalize all pending checksums
-        @file_digests.each do |filename, sha1|
-          @checksums[filename] = sha1.final
-        end
-        @file_digests.clear
+        finalize_digests
         @checksums.store
         LibC.close(@data_dir_fd) if @data_dir_fd >= 0
-        @data_dir_lock.release
-        @metrics_server.try &.close
+      ensure
+        @close_done.close
       end
 
       class Error < Exception; end

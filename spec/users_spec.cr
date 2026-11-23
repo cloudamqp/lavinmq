@@ -137,10 +137,9 @@ describe LavinMQ::Server do
           JSON
 
         store = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        u = store["legacy"]?
-        u.should_not be_nil
-        u.not_nil!.password.should_not be_nil
-        u.not_nil!.password.not_nil!.verify("hej").should be_true
+        u = store["legacy"]?.should_not be_nil
+        password = u.password.should_not be_nil
+        password.verify("hej").should be_true
       end
     end
 
@@ -160,9 +159,8 @@ describe LavinMQ::Server do
           JSON
 
         store = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        u = store["alan"]?
-        u.should_not be_nil
-        u.not_nil!.password.should be_nil
+        u = store["alan"]?.should_not be_nil
+        u.password.should be_nil
       end
     end
 
@@ -182,9 +180,8 @@ describe LavinMQ::Server do
           JSON
 
         store = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        u = store["alan"]?
-        u.should_not be_nil
-        u.not_nil!.password.should be_nil
+        u = store["alan"]?.should_not be_nil
+        u.password.should be_nil
       end
     end
 
@@ -204,9 +201,30 @@ describe LavinMQ::Server do
           JSON
 
         store = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        u = store["alan"]?
-        u.should_not be_nil
-        u.not_nil!.password.should be_nil
+        u = store["alan"]?.should_not be_nil
+        u.password.should be_nil
+      end
+    end
+
+    it "should ignore unknown keys in users.json" do
+      with_datadir do |data_dir|
+        users_json = File.join(data_dir, "users.json")
+        File.write(users_json, <<-JSON)
+          [
+            {
+              "name": "alan",
+              "password_hash": "",
+              "hashing_algorithm": null,
+              "tags": "",
+              "permissions": {"/": {"config": ".*", "read": ".*", "write": ".*", "future": 1}},
+              "future_field": {"nested": [1, 2]}
+            }
+          ]
+          JSON
+
+        store = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        u = store["alan"]?.should_not be_nil
+        u.permissions["/"][:config].should eq /.*/
       end
     end
 
@@ -356,9 +374,44 @@ describe LavinMQ::Server do
       s.vhosts.create("v1")
       s.users.add_permission("guest", "v1", /^$/, /^$/, /^$/)
       Fiber.yield
-      expect_raises(AMQP::Client::Channel::ClosedException, /403/) do
+      expect_raises(AMQP::Client::Channel::ClosedException, /configure permissions to queue 'q1'/) do
         with_channel(s, vhost: "v1") do |ch|
           ch.queue("q1")
+        end
+      end
+    end
+  end
+
+  it "allows declaring a queue with a DLX with read access only to that queue" do
+    with_amqp_server do |s|
+      s.vhosts.create("v1")
+      s.users.add_permission("guest", "v1", /.*/, /^q1$/, /.*/)
+      with_channel(s, vhost: "v1") do |ch|
+        ch.queue("q1", args: {"x-dead-letter-exchange": "amq.topic"})
+      end
+      s.vhosts["v1"].queue?("q1").should_not be_nil
+    end
+  end
+
+  it "prohibits declaring a queue with a DLX without read access to the queue" do
+    with_amqp_server do |s|
+      s.vhosts.create("v1")
+      s.users.add_permission("guest", "v1", /.*/, /^$/, /.*/)
+      expect_raises(AMQP::Client::Channel::ClosedException, /read permissions to queue 'q1'/) do
+        with_channel(s, vhost: "v1") do |ch|
+          ch.queue("q1", args: {"x-dead-letter-exchange": "amq.topic"})
+        end
+      end
+    end
+  end
+
+  it "prohibits declaring a queue with a DLX without write access to the DLX" do
+    with_amqp_server do |s|
+      s.vhosts.create("v1")
+      s.users.add_permission("guest", "v1", /.*/, /.*/, /^q1$/)
+      expect_raises(AMQP::Client::Channel::ClosedException, /write permissions to exchange 'amq.topic'/) do
+        with_channel(s, vhost: "v1") do |ch|
+          ch.queue("q1", args: {"x-dead-letter-exchange": "amq.topic"})
         end
       end
     end

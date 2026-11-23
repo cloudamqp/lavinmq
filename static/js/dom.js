@@ -70,9 +70,27 @@ const button = {
   }
 }
 
+// Assigns each .arg-tooltip/.prop-tooltip a unique anchor-name/position-anchor pair for CSS anchor positioning (no-op if unsupported); re-call with a scoped root after rendering tooltips dynamically.
+let tooltipAnchorCounter = 0
+
+function wireTooltipAnchors (root = document) {
+  if (!window.CSS?.supports('anchor-name', '--x')) return
+  root.querySelectorAll('.arg-tooltip, .prop-tooltip').forEach(el => {
+    if (el.style.getPropertyValue('anchor-name')) return
+    const tooltip = el.querySelector('.tooltiptext, .prop-tooltiptext')
+    if (!tooltip) return
+    const anchorName = `--tt-${tooltipAnchorCounter++}`
+    el.style.setProperty('anchor-name', anchorName)
+    tooltip.style.setProperty('position-anchor', anchorName)
+  })
+}
+
+wireTooltipAnchors(document)
+
 export {
   jsonToText,
   parseJSON,
   toast,
-  button
+  button,
+  wireTooltipAnchors
 }

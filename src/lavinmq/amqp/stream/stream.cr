@@ -1,7 +1,6 @@
 require "../queue/durable_queue"
 require "./stream_consumer"
 require "./stream_message_store"
-require "./stream_reader"
 
 module LavinMQ::AMQP
   class Stream < DurableQueue
@@ -15,6 +14,9 @@ module LavinMQ::AMQP
       "x-dead-letter-routing-key",
       "x-expires",
       "x-delivery-limit",
+      "x-delayed-retry-min",
+      "x-delayed-retry-max",
+      "x-delayed-retry-multiplier",
       "x-overflow",
       "x-single-active-consumer",
       "x-max-priority",
@@ -59,39 +61,29 @@ module LavinMQ::AMQP
         return false
       end
 
+      settings = @staged_settings
       case key
       when "max-age"
         if max_age_policy = parse_max_age(value.as_s?)
-          if current_max = stream_msg_store.max_age
+          if current_max = settings.max_age
             return false unless current_max > max_age_policy
           end
-          @msg_store_lock.synchronize do
-            stream_msg_store.max_age = max_age_policy
-            @effective_args.delete("x-max-age")
-            stream_msg_store.drop_overflow
-          end
+          settings.max_age = max_age_policy
+          settings.effective_args.delete("x-max-age")
           return true
         end
         false
       when "max-length"
-        unless @max_length.try &.< value.as_i64
-          @max_length = value.as_i64
-          @msg_store_lock.synchronize do
-            stream_msg_store.max_length = @max_length
-            @effective_args.delete("x-max-length")
-            stream_msg_store.drop_overflow
-          end
+        unless settings.max_length.try &.< value.as_i64
+          settings.max_length = value.as_i64
+          settings.effective_args.delete("x-max-length")
           return true
         end
         false
       when "max-length-bytes"
-        unless @max_length_bytes.try &.< value.as_i64
-          @max_length_bytes = value.as_i64
-          @msg_store_lock.synchronize do
-            stream_msg_store.max_length_bytes = @max_length_bytes
-            @effective_args.delete("x-max-length-bytes")
-            stream_msg_store.drop_overflow
-          end
+        unless settings.max_length_bytes.try &.< value.as_i64
+          settings.max_length_bytes = value.as_i64
+          settings.effective_args.delete("x-max-length-bytes")
           return true
         end
         false
@@ -102,10 +94,21 @@ module LavinMQ::AMQP
 
     delegate last_offset, new_messages, to: @msg_store.as(StreamMessageStore)
 
-    def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
-      @msg_store_lock.synchronize do
-        stream_msg_store.find_offset(offset, tag, track_offset)
-      end
+    # A seek that reaches data it can't read fails the stream, see
+    # #read_next, and the error is raised
+    def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil,
+               stored_offset_tag : String? = nil) : StreamCursor
+      @msg_store_lock.synchronize { stream_msg_store.cursor(start, filter, stored_offset_tag) }
+    rescue ex : MessageStore::Error
+      pause_on_store_error(ex)
+      raise ex
+    end
+
+    # The deliver path shifts from the cursor's requeued messages under
+    # @msg_store_lock (see StreamMessageStore#shift?). Returns whether there
+    # were no requeued messages before.
+    def requeue(cursor : StreamCursor, sp : SegmentPosition) : Bool
+      @msg_store_lock.synchronize { cursor.requeue(sp) }
     end
 
     private def message_expire_loop
@@ -124,19 +127,18 @@ module LavinMQ::AMQP
       false
     end
 
-    private def start : Bool
-      if @msg_store.closed
-        !close
-      else
-        handle_arguments
-        spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
-        true
-      end
+    private def start : Nil
+      restore_state
+      handle_arguments
+    end
+
+    private def unreadable_advice : String
+      MessageStore::UnreadableError.advice("stream")
     end
 
     private def init_msg_store(data_dir)
       replicator = @vhost.replicator
-      @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
+      @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata, persister: @vhost.persister)
     end
 
     def stream_msg_store : StreamMessageStore
@@ -149,8 +151,9 @@ module LavinMQ::AMQP
 
     # save message id / segment position
     protected def publish_internal(msg : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : PublishResult
-      return PublishResult::Dropped if @state.closed?
+      return PublishResult::Closed if closed?
       @msg_store_lock.synchronize do
+        return PublishResult::Failed if @msg_store.failed?
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
       end
@@ -158,14 +161,10 @@ module LavinMQ::AMQP
       notify_all_stream_consumers
       PublishResult::Ok
     rescue MessageStore::ClosedError
-      # Closed/deleted concurrently after the @state.closed? check; treat as
-      # dropped instead of surfacing the race as an error (see Queue#publish_internal).
+      # Closed/deleted concurrently after the closed? check; treat as
+      # closed instead of surfacing the race as an error (see Queue#publish_internal).
       # push is the only call here that can raise it, so nothing was stored.
-      PublishResult::Dropped
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
+      PublishResult::Closed
     end
 
     # Streams does not support basic_get, so always returns `false`
@@ -173,20 +172,35 @@ module LavinMQ::AMQP
       false
     end
 
-    def reader(offset)
-      StreamReader.new(self, offset)
+    # Yields at most `limit` messages from `start` until the end of the stream.
+    # A store error is raised, after it paused or failed the stream, so that
+    # the read doesn't look complete.
+    def each_from(start : StreamOffset::Any, limit : Int32 = Int32::MAX, & : Envelope -> _) : Nil
+      cursor = self.cursor(start)
+      limit.times do
+        break unless read_next(cursor) do |env|
+                       @get_no_ack_count.add(1, :relaxed)
+                       yield env
+                     end
+      end
+    ensure
+      @msg_store_lock.synchronize { cursor.close } if cursor
     end
 
-    def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
-      get(consumer) do |env|
+    # Yields the next message for the cursor, returns true if one was delivered.
+    # A store error pauses the stream, or fails it if the data can't be read,
+    # and returns false: the consumer waits for the stream to be resumed.
+    def consume_get(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
+      read_next(cursor) do |env|
         yield env
         if env.redelivered
           @redeliver_count.add(1, :relaxed)
         else
           @deliver_count.add(1, :relaxed)
-          @deliver_get_count.add(1, :relaxed)
         end
       end
+    rescue MessageStore::Error
+      false
     end
 
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
@@ -195,18 +209,19 @@ module LavinMQ::AMQP
       end
     end
 
-    # yield the next message in the ready queue
-    # returns true if a message was deliviered, false otherwise
-    # if we encouncer an unrecoverable ReadError, close queue
-    private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
-      env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
-      yield env # deliver the message
-      true
+    # Yields the next message for the cursor, returns true if one was
+    # delivered. A store error pauses the stream, or fails it if the data
+    # can't be read, and is then raised.
+    private def read_next(cursor : AMQP::StreamCursor, & : Envelope -> Nil) : Bool
+      raise ClosedError.new if closed?
+      # Retention can drop the segment while the delivery is suspended in a
+      # socket write
+      stream_msg_store.shift_with_lease?(@msg_store_lock, cursor) do |env|
+        yield env # deliver the message
+      end
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ClosedError.new(cause: ex)
+      pause_on_store_error(ex)
+      raise ex
     end
 
     def ack(sp : SegmentPosition) : Nil
@@ -215,36 +230,88 @@ module LavinMQ::AMQP
     def reject(sp : SegmentPosition, requeue : Bool)
     end
 
+    def requeue(sp : SegmentPosition)
+    end
+
     private def drop_overflow : Nil
       # Overflow handling is done in StreamMessageStore
     end
 
     private def notify_all_stream_consumers
-      @consumers.each do |consumer|
-        if stream_consumer = consumer.as?(AMQP::StreamConsumer)
-          stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
+      @consumers_lock.synchronize do
+        @consumers.each do |consumer|
+          if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+            stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
+          end
         end
       end
     end
 
-    private def handle_arguments
+    private def settings_from_arguments : Settings
+      settings = super
+      settings.effective_args << "x-queue-type"
+      if max_age = parse_max_age(@arguments["x-max-age"]?)
+        settings.max_age = max_age
+        settings.effective_args << "x-max-age"
+      end
+      settings
+    end
+
+    private def commit_policy_arguments
       super
-      @effective_args << "x-queue-type"
+      settings = self.settings
       # drop_overflow mutates the store, so take @msg_store_lock like other
       # store access; it can run concurrently with publishes/consumes.
       @msg_store_lock.synchronize do
-        if max_age = parse_max_age(@arguments["x-max-age"]?)
-          stream_msg_store.max_age = max_age
-          @effective_args << "x-max-age"
-        end
-        # Propagate limits set by super to stream_msg_store
-        stream_msg_store.max_length = @max_length
-        stream_msg_store.max_length_bytes = @max_length_bytes
+        stream_msg_store.max_age = settings.max_age
+        stream_msg_store.max_length = settings.max_length
+        stream_msg_store.max_length_bytes = settings.max_length_bytes
         stream_msg_store.drop_overflow
+        ensure_max_age_loop
       end
     end
 
-    private def parse_max_age(value) : Time::Span | Time::MonthSpan | Nil
+    @max_age_loop_running = false
+
+    # Must be called with @msg_store_lock held
+    private def ensure_max_age_loop : Nil
+      if @max_age_loop_running
+        stream_msg_store.expiry_changed.try_send?(nil)
+      elsif stream_msg_store.max_age
+        @max_age_loop_running = true
+        spawn max_age_loop, name: "Stream#max_age_loop"
+      end
+    end
+
+    # Sleeps until the oldest segment expires, so it only wakes when there's
+    # something to drop. Exits when the stream closes or max-age is removed.
+    private def max_age_loop
+      loop do
+        expiry = @msg_store_lock.synchronize do
+          store = stream_msg_store
+          if closed? || store.closed || store.max_age.nil?
+            @max_age_loop_running = false
+            return
+          end
+          store.drop_expired
+          store.next_expiry
+        end
+        expiry_changed = stream_msg_store.expiry_changed
+        if expiry
+          select
+          when expiry_changed.receive?
+          when timeout(Math.max(expiry - RoughTime.utc, 100.milliseconds))
+          end
+        else
+          expiry_changed.receive?
+        end
+      end
+    rescue ex
+      @log.error(ex) { "max-age loop failed" }
+      @msg_store_lock.synchronize { @max_age_loop_running = false }
+    end
+
+    private def parse_max_age(value) : (Time::Span | Time::MonthSpan)?
       return if value.nil?
       if str = value.as?(String)
         if match = str.match(/\A(\d+)([YMDhms])\z/)
@@ -267,34 +334,19 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      delete_count = purge_store { @msg_store.purge(max_count) }
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
+      pause_on_store_error(ex)
+      raise_unreadable if @msg_store.failed?
       raise ex
     end
 
-    private def unmap_and_remove_segments_loop
-      sleep rand(60).seconds
-      until closed?
-        sleep 60.seconds
-        break if closed?
-        unmap_and_remove_segments
-      end
-    end
-
-    private def unmap_and_remove_segments
-      used_segments = Set(UInt32).new
-      @consumers_lock.synchronize do
-        @consumers.each do |consumer|
-          used_segments << consumer.as(AMQP::StreamConsumer).segment
-        end
-      end
-      @msg_store_lock.synchronize do
-        stream_msg_store.drop_overflow
-        stream_msg_store.unmap_segments(except: used_segments)
+    def rm_consumer(consumer : Client::Channel::Consumer)
+      super
+      if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+        @msg_store_lock.synchronize { stream_consumer.cursor.close }
       end
     end
   end

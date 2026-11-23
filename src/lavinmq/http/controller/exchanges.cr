@@ -36,7 +36,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            e.to_json(context.response)
+            e.to_json(context.response.output)
           end
         end
 
@@ -60,13 +60,14 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && ae_ok
               access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
             end
+            if type == "x-mqtt-topic" && !user.can_read?(vhost.name, MQTT::EXCHANGE)
+              access_refused(context, "User doesn't have read permissions to exchange '#{MQTT::EXCHANGE}', " \
+                                      "which declaring an x-mqtt-topic exchange requires")
+            end
             e = vhost.exchange?(name)
             if e
               unless e.match?(type, durable, auto_delete, internal, tbl)
                 bad_request(context, "Existing exchange declared with other arguments arg")
-              end
-              if e.internal?
-                bad_request(context, "Not allowed to publish to internal exchange")
               end
               context.response.status_code = 204
             elsif NameValidator.reserved_prefix?(name)
@@ -74,7 +75,7 @@ module LavinMQ
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Exchange name too long, can't exceed 255 characters")
             else
-              vhost.declare_exchange(name, type.not_nil!, durable, auto_delete, internal, tbl)
+              vhost.declare_exchange(name, type, durable, auto_delete, internal, tbl)
               context.response.status_code = 201
             end
           rescue ex : Error::ExchangeTypeError
@@ -112,6 +113,9 @@ module LavinMQ
             if e.internal?
               bad_request(context, "Not allowed to publish to internal exchange")
             end
+            unless vhost.flow?
+              precondition_failed(context, "Server low on disk space")
+            end
             body = parse_body(context)
             properties = body["properties"]?
             routing_key = body["routing_key"]?.try(&.as_s)
@@ -148,10 +152,11 @@ module LavinMQ
             result = e.vhost.publish(msg)
             e.vhost.event_tick(EventType::ClientPublish)
             e.vhost.add_recv_bytes(size)
-            # Report overflow as not-routed so HTTP callers see the same signal a
-            # publisher-confirms client would: any reject-publish overflow turns
-            # the publish into "not routed", even if other bound queues accepted.
-            {routed: result.routed? && !result.overflowed?}.to_json(context.response)
+            # Report a rejection as not-routed so HTTP callers see the same
+            # signal a publisher-confirms client would: any queue that didn't
+            # store the message turns the publish into "not routed", even if
+            # other bound queues accepted.
+            {routed: result.routed? && !result.rejected?}.to_json(context.response.output)
           end
         end
       end

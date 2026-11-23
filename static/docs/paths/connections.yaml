@@ -97,6 +97,14 @@
     description: Close a specific connection.
     summary: Close connection
     operationId: DeleteConnection
+    parameters:
+    - in: header
+      name: X-Reason
+      required: false
+      schema:
+        type: string
+        default: Closed via management plugin
+      description: Reason sent to AMQP clients. MQTT clients are disconnected without a reason.
     responses:
       '204':
         description: The connection was closed successfully.
@@ -184,6 +192,14 @@
     description: Close all connections for a specific user.
     summary: Close connections by user
     operationId: DeleteConnectionsUser
+    parameters:
+    - in: header
+      name: X-Reason
+      required: false
+      schema:
+        type: string
+        default: Closed via management plugin
+      description: Reason sent to AMQP clients. MQTT clients are disconnected without a reason.
     responses:
       '204':
         description: The connections were closed successfully.

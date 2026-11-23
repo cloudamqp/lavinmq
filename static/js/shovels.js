@@ -102,6 +102,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   Table.renderCell(tr, 8, item.value['ack-mode'])
   Table.renderCell(tr, 9, item.value['src-delete-after'])
   Table.renderCell(tr, 10, renderState(item))
+  DOM.wireTooltipAnchors(tr)
   const btns = document.createElement('div')
   btns.classList.add('buttons')
   const deleteBtn = DOM.button.delete({
@@ -113,6 +114,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
             tr.parentNode.removeChild(tr)
             DOM.toast(`Shovel ${item.name} deleted`)
           })
+          .catch(() => {})
       }
     }
   })
@@ -125,6 +127,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
         'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange'],
         'src-offset': (_item) => consumerArgs['x-stream-offset']
       })
+      document.getElementById('add-shovel-dialog').showModal()
     }
   })
 
@@ -163,6 +166,9 @@ document.querySelector('[name=dest-uri]').addEventListener('change', function ()
   const isHttp = this.value.startsWith('http')
   document.querySelectorAll('.amqp-dest-field').forEach(e => {
     e.classList.toggle('hide', isHttp)
+  })
+  document.querySelectorAll('.http-dest-field').forEach(e => {
+    e.classList.toggle('hide', !isHttp)
   })
 })
 
@@ -205,7 +211,12 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       }
       break
   }
-  if (data.get('dest-type') === 'queue') {
+  const httpDest = data.get('dest-uri').startsWith('http')
+  if (httpDest) {
+    // HTTP destinations POST to the URI, there's no queue/exchange
+    const timeout = data.get('dest-timeout')
+    if (timeout) body.value['dest-timeout'] = parseFloat(timeout)
+  } else if (data.get('dest-type') === 'queue') {
     body.value['dest-queue'] = data.get('dest-endpoint')
   } else {
     body.value['dest-exchange'] = data.get('dest-endpoint')
@@ -215,7 +226,9 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       dataSource.reload()
       evt.target.reset()
       DOM.toast(`Shovel ${name} saved`)
+      document.getElementById('add-shovel-dialog').close()
     })
+    .catch(() => {})
 })
 
 // function updateAutocomplete (e, id) {

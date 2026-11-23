@@ -38,11 +38,13 @@ describe LavinMQ::HTTP::PermissionsController do
       with_http_server do |http, s|
         s.users.create("test_user", "pw")
         s.vhosts.create("test_vhost")
-        body = %({
-        "configure": ".*",
-        "read": ".*",
-        "write": ".*"
-      })
+        body = <<-JSON
+          {
+            "configure": ".*",
+            "read": ".*",
+            "write": ".*"
+          }
+          JSON
         response = http.put("/api/permissions/test_vhost/test_user", body: body)
         response.status_code.should eq 201
         s.users["test_user"].permissions["test_vhost"].should eq({config: /.*/, read: /.*/, write: /.*/})
@@ -54,11 +56,13 @@ describe LavinMQ::HTTP::PermissionsController do
         s.vhosts.create("test_vhost")
         s.users.add_permission("guest", "test_vhost", /.*/, /.*/, /.*/)
 
-        body = %({
-        "configure": ".*",
-        "read": ".*",
-        "write": "^tut"
-      })
+        body = <<-JSON
+          {
+            "configure": ".*",
+            "read": ".*",
+            "write": "^tut"
+          }
+          JSON
         response = http.put("/api/permissions/test_vhost/guest", body: body)
         response.status_code.should eq 204
         s.users["guest"].permissions["test_vhost"]["write"].should eq(/^tut/)

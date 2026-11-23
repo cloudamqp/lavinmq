@@ -171,7 +171,7 @@
   put:
     tags:
       - shovels
-    description: Resume a paused shovel. Requires policymaker access.
+    description: Resume a paused or aborted shovel. Requires policymaker access.
     summary: Resume shovel
     operationId: ResumeShovel
     responses:
@@ -184,7 +184,7 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
       '422':
-        description: Shovel is not in paused state
+        description: Shovel is not in paused or aborted state
         content:
           application/json:
             schema:

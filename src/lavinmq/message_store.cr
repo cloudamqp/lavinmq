@@ -1,10 +1,13 @@
 require "./mfile"
+require "./filesystem"
 require "./segment_position"
 require "./rate_limiter"
 require "log"
 require "file_utils"
 require "./clustering/server"
+require "./persister"
 require "./bool_channel"
+require "./rough_time"
 require "./message_store/requeued_store"
 
 module LavinMQ
@@ -24,30 +27,94 @@ module LavinMQ
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
     @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
+    # Set when data can't be read, at load or later. Nothing is read from or
+    # written to the store after that, only acks: it has to be deleted.
+    @failed = Atomic(Bool).new(false)
+    # When the reader moved into @rfile, see #read_fast?
+    @rfile_since : Time::Instant = RoughTime.instant
+    # Set once a publish to this store is synced, see #readahead_for_writes
+    @synced_writes = false
     getter closed
     getter bytesize = 0u64
     getter size = 0u32
     getter empty = BoolChannel.new(true)
 
-    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+    def initialize(@msg_dir : String, replicator : Clustering::Replicator?, durable : Bool = true,
+                   metadata : ::Log::Metadata = ::Log::Metadata.empty, persister : Persister? = nil)
       @log = Logger.new(Log, metadata)
       @durable = durable
       # Non-durable queues unlink their files at creation, so they cannot be
       # replicated by reading from disk. Skip replication entirely for them.
       @replicator = durable ? replicator : nil
+      @persister = durable ? persister : nil
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
-      load_segments_from_disk
-      load_acks_from_disk
+      # Another instance can have emptied segments in the same directory,
+      # e.g. the store of a deleted queue that is declared again
+      @persister.try &.flush_unlinks(@msg_dir)
+      close_on_error do
+        load_segments_from_disk
+        load_acks_from_disk
+      end
       @wfile_id = @segments.last_key
       @wfile = @segments.last_value
       @rfile_id = @segments.first_key
       @rfile = @segments.first_value
-      unless @closed
-        load_stats_from_segments
-        prune_orphaned_acks
-        delete_unused_segments
+      close_on_error do
+        load_stats_from_segments unless failed?
+        unless failed?
+          prune_orphaned_acks
+          delete_unused_segments
+        end
+        readahead_for_writes(@wfile)
+        @empty.set empty?
       end
-      @empty.set empty? unless @closed
+    end
+
+    # True if the store has data it can't read. Reads and writes raise.
+    def failed? : Bool
+      @failed.get(:relaxed)
+    end
+
+    # Data can't be loaded or read. The store stays open with its files as
+    # they are, so that what is delivered can still be acked.
+    private def mark_failed : Nil
+      @failed.set(true, :relaxed)
+    end
+
+    # Nothing is read from a closed store, or one with data it can't read
+    private def check_readable(mfile : MFile = @rfile) : Nil
+      raise ClosedError.new if @closed
+      raise UnreadableError.new(mfile) if failed?
+    end
+
+    # The error for a read that failed. The store is only failed if it was on
+    # data that can't be decoded: another error can pass, or be fixed by the
+    # recount of a restart, and mustn't need a delete of all the messages.
+    private def read_failed(mfile : MFile, cause : Exception) : Error
+      return Error.new(mfile, cause: cause) unless undecodable?(cause)
+      mark_failed
+      UnreadableError.new(mfile, cause: cause)
+    end
+
+    private def undecodable?(ex : Exception) : Bool
+      case ex
+      when NoMessage
+        false
+      when OverflowError, IndexError, ArgumentError, IO::EOFError, AMQ::Protocol::Error
+        true
+      else
+        false
+      end
+    end
+
+    # Unmaps the segments and ack files opened before a failure while
+    # loading, the caller gets no store to close. Doesn't call #close, which
+    # subclasses override to close what they set up after super.
+    private def close_on_error(&)
+      yield
+    rescue ex
+      close_store
+      raise ex
     end
 
     def push(msg) : SegmentPosition
@@ -69,15 +136,15 @@ module LavinMQ
       @empty.set false if was_empty
     end
 
-    def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
-      raise ClosedError.new if @closed
+    def first? : Envelope?
+      check_readable
       if sp = @requeued.first?
         seg = @segments[sp.segment]
         begin
           msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
-          return Envelope.new(sp, msg, redelivered: true)
+          return Envelope.new(sp, msg, redelivered: true, segment: seg)
         rescue ex
-          raise Error.new(seg, cause: ex)
+          raise read_failed(seg, ex)
         end
       end
 
@@ -88,29 +155,48 @@ module LavinMQ
         if pos == rfile.size # EOF?
           select_next_read_segment && next
           return if @size.zero?
-          raise IO::EOFError.new("EOF but @size=#{@size}")
+          recount_from_segments
+          return
         end
         if deleted?(seg, pos)
           BytesMessage.skip(rfile)
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
+        raise NoMessage.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
-        return Envelope.new(sp, msg, redelivered: false)
+        return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
+        # A message that runs past the end of its segment was half written,
+        # the rest of the segment is skipped
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
         return if @size.zero?
-        raise Error.new(@rfile, cause: ex)
+        raise read_failed(@rfile, ex)
       rescue ex
         @log.error(exception: ex) { "first? failed: #{state_snapshot}" }
-        raise Error.new(@rfile, cause: ex)
+        raise read_failed(@rfile, ex)
       end
     end
 
+    # Shifts the next message, under `lock`, and yields it outside the lock with
+    # its segment kept mapped until the block returns, even if the segment is
+    # deleted or the store closed meanwhile. For deliveries, which can be
+    # suspended in a socket write. Returns false if there was no message.
+    def shift_with_lease?(lock : Mutex, consumer = nil, & : Envelope -> _) : Bool
+      env = lock.synchronize { shift?(consumer).try &.lease } || return false
+      begin
+        yield env
+      ensure
+        env.release
+      end
+      true
+    end
+
+    # The envelope points into the segment, so it's only valid while the lock
+    # guarding the store is held, see #shift_with_lease? for using it outside it
     def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
-      raise ClosedError.new if @closed
+      check_readable
       if sp = @requeued.shift?
         begin
           segment = @segments[sp.segment]
@@ -118,7 +204,7 @@ module LavinMQ
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          return Envelope.new(sp, msg, redelivered: true)
+          return Envelope.new(sp, msg, redelivered: true, segment: segment)
         rescue ex
           # sp has already been removed from @requeued; drop its accounting too
           # so @size/@bytesize don't leak when the segment is gone or the
@@ -127,7 +213,7 @@ module LavinMQ
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          raise Error.new(@segments[sp.segment]? || @rfile, cause: ex)
+          raise read_failed(@segments[sp.segment]? || @rfile, ex)
         end
       end
 
@@ -138,28 +224,30 @@ module LavinMQ
         if pos == rfile.size # EOF?
           select_next_read_segment && next
           return if @size.zero?
-          raise IO::EOFError.new("EOF but @size=#{@size}")
+          recount_from_segments
+          return
         end
         if deleted?(seg, pos)
           BytesMessage.skip(rfile)
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
+        raise NoMessage.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         rfile.seek(sp.bytesize, IO::Seek::Current)
         @bytesize -= sp.bytesize
         @size -= 1
         @empty.set true if @size.zero?
-        return Envelope.new(sp, msg, redelivered: false)
+        return Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex : IndexError
+        # See #first?
         @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
         return if @size.zero?
-        raise Error.new(@rfile, cause: ex)
+        raise read_failed(@rfile, ex)
       rescue ex
         @log.error(exception: ex) { "shift? failed: #{state_snapshot}" }
-        raise Error.new(@rfile, cause: ex)
+        raise read_failed(@rfile, ex)
       end
     end
 
@@ -169,14 +257,31 @@ module LavinMQ
       begin
         BytesMessage.from_bytes(segment.to_slice + sp.position)
       rescue ex
-        raise Error.new(segment, cause: ex)
+        raise read_failed(segment, ex)
+      end
+    end
+
+    # Like `#[]`, as an envelope, with the segment position made from the message
+    def envelope(sp : SegmentPosition, redelivered = false) : Envelope
+      raise ClosedError.new if @closed
+      segment = @segments[sp.segment]
+      begin
+        msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+        Envelope.new(SegmentPosition.make(sp.segment, sp.position, msg), msg, redelivered: redelivered, segment: segment)
+      rescue ex
+        raise read_failed(segment, ex)
       end
     end
 
     def delete(sp) : Nil
       raise ClosedError.new if @closed
-      afile = @acks[sp.segment]
+      # A message routed outside the lock can have its segment purged meanwhile,
+      # and @acks would otherwise create an ack file for the deleted segment
+      segment = @segments[sp.segment]? || return
+      afile = nil
       begin
+        # The first ack of a segment opens its ack file, which can fail too
+        afile = @acks[sp.segment]
         ack_offset = afile.size.to_i64
         afile.write_bytes sp.position
         @replicator.try &.append_value(afile.path, sp.position, ack_offset)
@@ -188,26 +293,28 @@ module LavinMQ
         if ack_count == msg_count
           @log.debug { "Deleting segment #{sp.segment} (delete sp): #{state_snapshot}" }
           select_next_read_segment if sp.segment == @rfile_id
-          if a = @acks.delete(sp.segment)
-            delete_file(a)
-          end
-          if seg = @segments.delete(sp.segment)
-            delete_file(seg, including_meta: true)
-          end
+          unlink_segment(sp.segment)
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
         end
       rescue ex
-        raise Error.new(afile, cause: ex)
+        raise Error.new(afile || segment, cause: ex)
       end
     end
 
     # Deletes all "ready" messages (not unacked)
     def purge(max_count : Int = UInt32::MAX) : UInt32
+      purge(max_count) { }
+    end
+
+    # Yields the position of each purged message
+    def purge(max_count : Int = UInt32::MAX, & : SegmentPosition ->) : UInt32
       raise ClosedError.new if @closed
       count = 0u32
       while count < max_count && (env = shift?)
-        delete(env.segment_position)
+        sp = env.segment_position
+        delete(sp)
+        yield sp
         count += 1
         break if count >= max_count
         Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
@@ -216,52 +323,127 @@ module LavinMQ
     end
 
     def purge_all
-      # Drain @requeued and decrement @size/@bytesize for each entry
+      purge_all { }
+    end
+
+    # Calls on_requeued with each requeued message: the only purged messages
+    # that can have been delivered before
+    def purge_all(&on_requeued : SegmentPosition ->)
+      # Drain @requeued, acking each entry so it doesn't come back after a restart
       while sp = @requeued.shift?
         @size -= 1
         @bytesize -= sp.bytesize
+        delete(sp) if @segments.has_key?(sp.segment)
+        on_requeued.call(sp)
       end
 
       # Delete all segments except the current rfile and wfile
       @segments.reject! do |seg_id, file|
         next false if seg_id == @rfile_id || seg_id == @wfile_id
 
-        delete_file(file, including_meta: true)
         # Only decrement @size for unread segments. Read segments don't
         # contribute to @size: their msgs are either acked, in-flight, or
         # were drained from @requeued above.
-        if msg_count = @segment_msg_count.delete(seg_id)
-          @size -= msg_count if seg_id > @rfile_id
+        if (msg_count = @segment_msg_count.delete(seg_id)) && seg_id > @rfile_id
+          # msg_count is every msg ever written to the segment, acked ones
+          # included, while @size only counts the ready ones. Never take off
+          # more than @size holds: which msgs are ready is the subclass's to
+          # decide, and a purge must not underflow the counter here, outside
+          # the rescue below.
+          acked = @acks[seg_id]?.try { |f| (f.size // sizeof(UInt32)).to_u32 } || 0u32
+          ready = acked < msg_count ? msg_count - acked : 0u32
+          @size -= Math.min(ready, @size)
         end
-        if afile = @acks.delete(seg_id)
-          delete_file(afile)
-        end
+        unlink_files(file, @acks.delete(seg_id))
         @deleted.delete(seg_id)
         true
       end
 
       # Purge @rfile and @wfile. Swallow any inconsistency between @size and the
       # on-disk segments — purge_all's postcondition is an empty store, so we
-      # force the counters to zero below regardless of how the loop exits.
-      begin
-        while env = shift?
-          delete(env.segment_position)
+      # force the counters to zero below regardless of how the read stops. An
+      # ack that can't be written is raised: the message would come back.
+      loop do
+        env = begin
+          shift?
+        rescue ex : IO::EOFError | Error
+          @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
+          nil
         end
-      rescue ex : IO::EOFError | Error
-        @log.warn(exception: ex) { "purge_all: store state out of sync with segments, resetting counters" }
+        break unless env
+        delete(env.segment_position)
       end
+
+      # The msgs are gone, so their counts in the meta files are too
+      delete_meta_files
 
       @bytesize = 0_u64
       @size = 0_u32
       @empty.set true
     end
 
+    private def delete_meta_files : Nil
+      @segments.each_value do |file|
+        meta = meta_file_name(file)
+        next unless File.exists?(meta)
+        @replicator.try &.delete_file(meta)
+        File.delete?(meta)
+      end
+    end
+
     def delete
       @closed = true
       @empty.close
+      # Not left to the persister like an emptied segment: a queue's delete
+      # is durable in the definitions before its store is deleted, so its
+      # files have nothing left to recover. The messages moved out of them
+      # are only in their destinations now, so those are synced soon.
+      @persister.try &.drain_soon
       @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
+    end
+
+    # Messages moved out of a segment (dead-lettered, delayed, retried) can be
+    # unsynced in their destinations, and the unlink must not become durable
+    # first, so the persister unlinks the files, after its next sync. A
+    # non-durable store has none, and no copy to wait for.
+    private def unlink_segment(seg_id : UInt32) : Nil
+      if segment = @segments.delete(seg_id)
+        unlink_files(segment, @acks.delete(seg_id))
+      elsif acks = @acks.delete(seg_id)
+        delete_file(acks)
+      end
+    end
+
+    private def unlink_files(segment : MFile, acks : MFile?) : Nil
+      if persister = @persister
+        persister.unlink_after_sync(segment, meta_file_name(segment), acks)
+      else
+        # The segment first, see Persister#perform
+        delete_file(segment, including_meta: true)
+        acks.try { |file| delete_file(file) }
+      end
+    end
+
+    # Segment files are the source of truth: count their msgs and rewrite the
+    # meta files, as a load does without them
+    private def recount_from_segments : Nil
+      @log.warn { "#{@size} msgs counted but none left to read, recounting from the segment files" }
+      @segments.each do |seg, mfile|
+        read_pos = mfile.pos
+        count_messages(seg, mfile)
+        raise Error.new(mfile) if failed? # a corrupt segment
+        mfile.pos = read_pos
+      end
+      readahead_for_writes(@wfile) # count_messages left it advised for random access
+      # count_messages adds the msgs that aren't acked to the counters, as at
+      # load, but all of them have been read
+      @size = 0u32
+      @bytesize = 0u64
+      @empty.set true
+      # Segments whose msgs turned out to all be acked
+      delete_unused_segments
     end
 
     private def delete_file(file : MFile, including_meta = false)
@@ -271,7 +453,17 @@ module LavinMQ
         replicator.delete_file(file.path)
       end
       File.delete?(meta_file_name(file)) if including_meta
+      # A delivery may still be reading from the mapping, see Envelope#lease
       file.close
+    end
+
+    # Unmaps the pages of the segment being written, for when nothing will
+    # read it soon. Writing keeps them mapped until the segment is full,
+    # which for an idle queue can be never. They stay in the page cache, dirty
+    # ones too, so a later read or msync still finds them.
+    def release_idle_pages : Nil
+      return if @closed || @wfile.closed?
+      @wfile.dontneed
     end
 
     def empty?
@@ -279,9 +471,16 @@ module LavinMQ
     end
 
     def close : Nil
+      close_store
+    end
+
+    private def close_store : Nil
       return if @closed
       @closed = true
       @empty.close
+      # A delivery may still be reading from a segment, e.g. a basic.get that
+      # isn't waited for like consumers are, MFile#close only unmaps it once
+      # the delivery releases it (see Envelope#lease)
       if replicator = @replicator
         @segments.each_value do |segment|
           replicator.register_file segment.path
@@ -297,9 +496,12 @@ module LavinMQ
       end
     end
 
+    # Called without the queue's lock (HTTP API, stats), so @size and
+    # @bytesize can change in between the reads
     def avg_bytesize : UInt32
-      return 0u32 if @size.zero?
-      (@bytesize / @size).to_u32
+      size = @size
+      return 0u32 if size.zero?
+      Math.min(@bytesize // size, UInt32::MAX).to_u32
     end
 
     private def state_snapshot : String
@@ -314,14 +516,22 @@ module LavinMQ
     end
 
     private def select_next_read_segment : MFile?
-      @rfile.dontneed unless @rfile.closed?
+      # Nothing follows the segment being written. A consumer that has caught
+      # up with the publisher gets here on every take, so this must not scan
+      # the segments or drop the pages the publisher is about to write
+      return if @rfile_id == @wfile_id
       prev_id = @rfile_id
       # Expect @segments to be ordered
       if id = @segments.each_key.find { |sid| sid > @rfile_id }
+        @rfile.dontneed unless @rfile.closed?
         rfile = @segments[id]
-        rfile.advise(MFile::Advice::Sequential)
+        # Not the segment being written, it's read as it's written and cached
+        if id != @wfile_id && read_fast?(@rfile, @rfile_since)
+          rfile.advise(MFile::Advice::Sequential)
+        end
         @rfile_id = id
         @rfile = rfile
+        @rfile_since = RoughTime.instant
         @log.debug { "select_next_read_segment: #{prev_id} -> #{id}, segments=#{@segments.keys}" }
         rfile
       else
@@ -331,37 +541,131 @@ module LavinMQ
     end
 
     private def write_to_disk(msg) : SegmentPosition
+      # Its publishers are refused before this, see Queue#publish_internal
+      raise UnreadableError.new(@wfile) if failed?
       wfile = @wfile
       if wfile.capacity < wfile.size + msg.bytesize
         wfile = open_new_segment(msg.bytesize)
       end
       wfile_id = @wfile_id
       sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
-      wfile.write_bytes msg
+      write_message(wfile, msg)
       @replicator.try &.append(wfile.path, sp.position, wfile.size - sp.position)
+      # After the replication dispatch, so the fsync request the persister
+      # sends followers comes after this append in the stream
+      if (msg.needs_sync? || msg.moved?) && (persister = @persister)
+        persister.mark_dirty(wfile)
+      end
+      random_access_for_sync(wfile) if !@synced_writes && synced?(msg)
       @segment_msg_count[wfile_id] += 1
       sp
+    end
+
+    # A message whose body can't be read is removed, so that half of it isn't
+    # left for the next one to be written after
+    private def write_message(wfile : MFile, msg) : Nil
+      pos = wfile.size
+      wfile.write_bytes msg
+    rescue ex
+      wfile.erase(pos) if pos && !wfile.closed?
+      raise ex
+    end
+
+    private def synced?(msg) : Bool
+      (msg.needs_sync? || msg.synced_by_commit?) && @durable && Config.instance.sync?
+    end
+
+    # The segment being written is mapped with readahead, which caches it in
+    # large folios and halves the CPU time of writing it. But an msync writes
+    # whole folios, so a confirm would write up to 128 KiB for a small
+    # message. Once a publish to the store is synced, its write segments are
+    # mapped without readahead and a sync only writes the pages that changed.
+    private def readahead_for_writes(wfile : MFile) : Nil
+      wfile.advise(MFile::Advice::Normal) unless @synced_writes
+    end
+
+    private def random_access_for_sync(wfile : MFile) : Nil
+      @synced_writes = true
+      wfile.advise(MFile::Advice::Random)
+    end
+
+    # Segments are mapped without readahead. Readahead on a page fault caches
+    # up to the readahead window (4 MiB on btrfs, 128 KiB on ext4/XFS) around
+    # it: for a slow reader the part it hasn't reached yet, kept for as long
+    # as the queue is read, which with many queues adds up to gigabytes.
+    # Fast readers get readahead back, see #read_fast?, and so does loading
+    # at startup, see #load_stats_from_segments. The segment being written
+    # is the exception, see #readahead_for_writes.
+    private def open_segment(path : String, capacity : Int? = nil) : MFile
+      mfile = MFile.new(path, capacity)
+      mfile.advise(MFile::Advice::Random)
+      mfile
+    end
+
+    # The last segment isn't full, so it's mapped with room to write to, and
+    # it has no metadata file, so it's read through to count its messages
+    # (see #load_stats_from_segments): fetch it in one readahead instead of
+    # a page fault at a time. A segment a crash left at its capacity is
+    # sparse past its data, so the readahead is bounded by what's allocated.
+    # Only on Linux: APFS allocates a segment's whole capacity on its first
+    # msync, so there the bound doesn't hold, and the readahead made stops
+    # and starts after a crash slower on macOS.
+    private def open_last_segment(path : String) : MFile
+      mfile = open_segment(path, Config.instance.segment_size)
+      {% if flag?(:linux) %}
+        length = Math.min(mfile.size, mfile.allocated_size)
+        mfile.advise(MFile::Advice::WillNeed, length: length) unless length.zero?
+      {% end %}
+      mfile
+    end
+
+    # A reader that got through its previous segment at least this fast gets
+    # readahead for its next one. A slower reader isn't waiting on the disk,
+    # so readahead wouldn't speed it up. Reading a segment a page per fault,
+    # without readahead, is faster than this even on slow disks, so a reader
+    # that is held back by the disk still gets it.
+    READAHEAD_MIN_BYTES_PER_SECOND = 1024 * 1024
+
+    private def read_fast?(segment : MFile, since : Time::Instant) : Bool
+      segment.size >= READAHEAD_MIN_BYTES_PER_SECOND * (RoughTime.instant - since).total_seconds
+    end
+
+    # Called on rollover for the segment that was just written to
+    private def unmap_finished_segment(seg : UInt32, mfile : MFile) : Nil
+      mfile.dontneed unless mfile == @rfile
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
       unless @wfile_id.zero?
         write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
+        @wfile.advise(MFile::Advice::Random) unless @synced_writes
       end
-      @wfile.dontneed unless @wfile == @rfile
+      unmap_finished_segment(@wfile_id, @wfile)
       next_id = @wfile_id + 1
-      path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
       capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
-      wfile = MFile.new(path, capacity)
-      wfile.write_bytes Schema::VERSION
-      wfile.pos = 4
-      @replicator.try &.register_file wfile
-      @replicator.try &.append_value path, Schema::VERSION, 0i64
+      wfile = create_segment(next_id, capacity)
+      readahead_for_writes(wfile)
       @wfile_id = next_id
       @wfile = @segments[next_id] = wfile
       delete_unused_segments
-      @wfile.delete unless @durable # mark as deleted if non-durable
       wfile
+    end
+
+    # A new segment holding only the schema version
+    private def create_segment(seg : UInt32, capacity = Config.instance.segment_size) : MFile
+      path = segment_path(seg)
+      mfile = open_segment(path, capacity)
+      mfile.write_bytes Schema::VERSION
+      mfile.pos = 4
+      @replicator.try &.register_file mfile
+      @replicator.try &.append_value path, Schema::VERSION, 0i64
+      mfile.delete unless @durable # mark as deleted if non-durable
+      mfile
+    end
+
+    private def segment_path(seg : UInt32) : String
+      File.join(@msg_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
     end
 
     private def write_metadata_file(seg : UInt32, wfile : MFile)
@@ -383,6 +687,10 @@ module LavinMQ
       path = File.join(@msg_dir, "acks.#{id.to_s.rjust(10, '0')}")
       capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
       mfile = MFile.new(path, capacity, writeonly: true)
+      # Page sized folios, so a sync doesn't rewrite up to 128 KiB of acks
+      # for each 4 byte append (see #open_segment). A page fault
+      # still covers 1024 acks, so it's cheap enough to always do.
+      mfile.advise(MFile::Advice::Random)
       mfile.delete unless @durable # mark as deleted if non-durable
       @replicator.try &.register_file mfile
       mfile
@@ -402,7 +710,7 @@ module LavinMQ
         path = File.join(@msg_dir, f)
 
         # The ack file is orphaned if there is no corresponding msg file
-        msgs_path = File.join(@msg_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
+        msgs_path = segment_path(seg)
         unless File.exists?(msgs_path)
           @log.warn { "Deleting orphaned ack file: #{path}" }
           File.delete(path)
@@ -439,6 +747,15 @@ module LavinMQ
       # msg_dir does not exist, nothing to load
     end
 
+    # A crash can leave a 0-byte segment, which can't be mapped without a capacity
+    private def open_segment_at_load(path : String, last : Bool) : MFile
+      last || File.size(path).zero? ? open_last_segment(path) : open_segment(path)
+    end
+
+    private def delete_empty_segment(seg : UInt32, file : MFile) : Nil
+      delete_file(file, including_meta: true)
+    end
+
     private def load_segments_from_disk : Nil
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
@@ -447,57 +764,45 @@ module LavinMQ
         end
       end
       ids.sort!
-      was_empty = ids.empty?
-      ids << 1_u32 if was_empty
+      if ids.empty?
+        @segments[1_u32] = create_segment(1_u32)
+        return
+      end
       last_idx = ids.size - 1
       ids.each_with_index do |seg, idx|
-        filename = "msgs.#{seg.to_s.rjust(10, '0')}"
-        path = File.join(@msg_dir, filename)
-        file = if idx == last_idx
-                 # expand the last segment
-                 MFile.new(path, Config.instance.segment_size)
-               else
-                 MFile.new(path)
-               end
+        path = segment_path(seg)
+        file = open_segment_at_load(path, idx == last_idx)
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
 
-        if was_empty
-          file.write_bytes Schema::VERSION
-          @replicator.try &.append_value path, Schema::VERSION, 0i64
-        else
-          begin
-            SchemaVersion.verify(file, :message)
-          rescue IO::EOFError
-            # delete empty file, it will be recreated if it's needed
-            @log.warn { "Empty file at #{path}, deleting it" }
-            delete_file(file, including_meta: true)
-            if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
-              file = MFile.new(path, Config.instance.segment_size)
-              file.write_bytes Schema::VERSION
-              @replicator.try &.append_value path, Schema::VERSION, 0i64
-            else
-              @segments.delete seg
-              next
-            end
-          rescue ex
-            @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }
-            @segments[seg] = file
-            # Register remaining segments by path so the replicator knows about
-            # all files on disk even though we won't load them due to the abort.
-            if replicator = @replicator
-              ids[(idx + 1)..].each do |remaining_seg|
-                replicator.register_file File.join(@msg_dir, "msgs.#{remaining_seg.to_s.rjust(10, '0')}")
-              end
-            end
-            close
-            break
+        begin
+          SchemaVersion.verify(file, :message)
+        rescue IO::EOFError
+          # delete empty file, it will be recreated if it's needed
+          @log.warn { "Empty file at #{path}, deleting it" }
+          delete_empty_segment(seg, file)
+          # One segment must exist, and the last one takes the writes
+          if idx == 0 || idx == last_idx
+            seg = recreated_segment_id(seg)
+            file = create_segment(seg)
+          else
+            @segments.delete seg
+            next
           end
+        rescue ex
+          @log.error { "Could not initialize segment #{seg}: #{ex.message}" }
+          @segments[seg] = file
+          mark_failed
         end
         file.pos = 4
         @segments[seg] = file
         Fiber.yield
       end
+    end
+
+    # No gap in the ids, a stream finds a segment's first offset from the one before it
+    private def recreated_segment_id(seg : UInt32) : UInt32
+      @segments.last_key?.try(&.succ) || seg
     end
 
     # Populate bytesize, size and segment_msg_count
@@ -511,13 +816,23 @@ module LavinMQ
       end
       log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
-        begin
-          read_metadata_file(seg, mfile)
-        rescue File::NotFoundError | MetadataError
-          produce_metadata(seg, mfile)
-          break if @closed
-          write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
+        if File.exists?(meta_file_name(mfile))
+          begin
+            if @deleted.has_key?(seg)
+              # Skipping the acked messages reads the segment in order.
+              # Without readahead (see #open_segment) that would fault it in
+              # a page at a time.
+              with_advice(mfile, MFile::Advice::Sequential) { read_metadata_file(seg, mfile) }
+            else
+              read_metadata_file(seg, mfile)
+            end
+          rescue MetadataError
+            count_messages(seg, mfile)
+          end
+        else
+          count_messages(seg, mfile)
         end
+        break if failed? # a corrupt segment
 
         counter &+= 1
         if is_long_queue
@@ -529,6 +844,29 @@ module LavinMQ
       @log.info { "Loaded #{counter} segments, #{@size} messages" }
     end
 
+    # Reads a segment through to count its messages, with readahead. The
+    # last segment was fetched when it was opened (see #open_last_segment),
+    # but only as far as it's allocated, which on a compressing filesystem is
+    # less than its data, so it's read ahead here too. It isn't full yet, so
+    # it gets no metadata file.
+    private def count_messages(seg, mfile)
+      with_advice(mfile, MFile::Advice::Sequential) { produce_metadata(seg, mfile) }
+      return if failed? # a corrupt segment
+      write_metadata_file(seg, mfile) unless seg == @segments.last_key
+    end
+
+    # Advises *mfile* for the block, then back to random access (see
+    # #open_segment), also when the block raises. A segment a corrupt record
+    # closed is unmapped, so it's left alone.
+    private def with_advice(mfile : MFile, advice : MFile::Advice, &)
+      mfile.advise(advice)
+      yield
+    ensure
+      mfile.advise(MFile::Advice::Random) unless mfile.closed?
+    end
+
+    # Overridden by specs to see how a segment is advised and cached as its
+    # load starts (AdviceOnLoadStore in spec/message_store_spec.cr)
     private def read_metadata_file(seg, mfile)
       metafile = meta_file_name(mfile)
       count = File.open(metafile) do |file|
@@ -550,6 +888,12 @@ module LavinMQ
           @log.error { "Error reading metadata file #{metafile}, pos: #{pos}, seg: #{seg}, count: #{count}, bytesize: #{bytesize}" }
           raise ex
         end
+      end
+      # Every msg is at least MIN_BYTESIZE, so the msgs left in the segment have
+      # to fit in the bytes the acked msgs don't take up. If they don't, the
+      # meta file counts msgs that the segment doesn't hold.
+      if count.to_u64 * BytesMessage::MIN_BYTESIZE > bytesize
+        raise MetadataError.new("Metadata file #{metafile} counts #{count} msgs left in #{bytesize} bytes")
       end
       mfile.pos = 4
       mfile.dontneed
@@ -586,10 +930,10 @@ module LavinMQ
       orphan_count = positions.size - valid.size
       return if orphan_count.zero?
 
-      @log.warn {
+      @log.warn do
         "Msgs/acks files for segment #{seg} are out of sync (possibly because of " \
         "an unclean shutdown). Removing #{orphan_count} orphaned ack position(s)."
-      }
+      end
 
       if valid.empty?
         @deleted.delete(seg)
@@ -609,7 +953,6 @@ module LavinMQ
 
       File.open(tmp_path, "w") do |f|
         positions.each { |p| f.write_bytes(p, IO::ByteFormat::SystemEndian) }
-        f.fsync
       end
 
       # Unmap the old file before renaming so mmap stops pinning the old inode.
@@ -617,7 +960,7 @@ module LavinMQ
         old.close(truncate_to_size: false)
       end
 
-      File.rename(tmp_path, final_path)
+      FileSystem.durable_rename(tmp_path, final_path)
 
       # Ship the rewritten (short) file to followers before reopening, so
       # ReplaceAction captures the post-rename file size rather than the
@@ -626,23 +969,30 @@ module LavinMQ
       @acks[seg] = open_ack_file(seg)
     end
 
+    # Overridden by specs, like #read_metadata_file
     private def produce_metadata(seg, mfile)
       count = 0u32
       mfile.pos = 4
       loop do
         pos = mfile.pos
         ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
-        break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
+        break end_of_messages(seg, mfile, pos) if ts.zero?
         bytesize = BytesMessage.skip(mfile)
         count += 1
         next if deleted?(seg, pos)
         @bytesize += bytesize
         @size += 1
-      rescue ex : IO::EOFError
+      rescue IO::EOFError
+        # EOF at a record boundary is the normal end of an intact segment;
+        # anything before it is an incomplete record to drop.
+        if pos && pos < mfile.size
+          drop_incomplete_message(seg, mfile, pos)
+          @replicator.try &.replace_file(mfile) # followers append at their own end
+        end
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-        @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-        close
+        @log.error { "Could not initialize segment: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
+        mark_failed
         return count
       end
       mfile.pos = 4
@@ -652,7 +1002,38 @@ module LavinMQ
       @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
     end
 
+    # A zero timestamp at *pos* ends the messages of a segment: either the rest
+    # of the file is zero, or a crash cut off the message that was being
+    # written there, as its timestamp is written last (see Message#to_io).
+    private def end_of_messages(seg : UInt32, mfile : MFile, pos : Int64) : Nil
+      if unfinished_message?(mfile, pos)
+        drop_incomplete_message(seg, mfile, pos)
+      else
+        mfile.resize(pos)
+      end
+    end
+
+    # In the segment that's written to, what's left of the message is zeroed.
+    # Else a shorter message written over it would leave its tail in the
+    # file, to be loaded as a message after the next crash. The other
+    # segments are mapped read only, and nothing more is written to them.
+    private def drop_incomplete_message(seg : UInt32, mfile : MFile, pos : Int64) : Nil
+      @log.warn { "Dropping incomplete trailing message in segment #{seg} at pos #{pos}" }
+      seg == @segments.last_key ? mfile.erase(pos) : mfile.resize(pos)
+    end
+
+    # The first byte that isn't zero in a message without a timestamp is in
+    # the length of its exchange name or routing key, in its property flags
+    # or in its body size. They're written in that order and before anything
+    # else, so they tell if a message was being written. Without any of them
+    # the message is all zero and nothing needs to be zeroed.
+    private def unfinished_message?(mfile : MFile, pos : Int64) : Bool
+      length = Math.min(BytesMessage::MIN_BYTESIZE.to_i64, mfile.size - pos)
+      mfile.to_slice(pos, length).any? { |byte| !byte.zero? }
+    end
+
     private def delete_unused_segments : Nil
+      return if failed? # its segments aren't counted
       current_seg = @segments.last_key
       @segments.reject! do |seg, mfile|
         next if seg == current_seg # don't the delete the segment still being written to
@@ -662,10 +1043,7 @@ module LavinMQ
           select_next_read_segment if seg == @rfile_id
           @segment_msg_count.delete seg
           @deleted.delete seg
-          if ack = @acks.delete(seg)
-            delete_file(ack)
-          end
-          delete_file(mfile, including_meta: true)
+          unlink_files(mfile, @acks.delete(seg))
           true
         else
           false
@@ -703,9 +1081,20 @@ module LavinMQ
 
     class MetadataError < Exception; end
 
+    # Counted but not there: the counters are ahead of the segments
+    class NoMessage < IndexError; end
+
     class Error < Exception
       def initialize(mfile : MFile, cause = nil)
         super("path=#{mfile.path} pos=#{mfile.pos} size=#{mfile.size}", cause: cause)
+      end
+    end
+
+    # From a store with data it can't read, which stays failed until it's deleted
+    class UnreadableError < Error
+      # What an operator can do about it, for a `kind` such as "queue"
+      def self.advice(kind : String) : String
+        "Delete the #{kind} to remove it, or fail over to a node with a good copy"
       end
     end
   end

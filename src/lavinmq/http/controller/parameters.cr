@@ -68,7 +68,7 @@ module LavinMQ
             component = params["component"]
             name = params["name"]
             param = param(context, vhost.parameters, {component, name})
-            map_parameter(vhost.name, param).to_json(context.response)
+            map_parameter(vhost.name, param).to_json(context.response.output)
           end
         end
 
@@ -116,7 +116,7 @@ module LavinMQ
           refuse_unless_policymaker(context, user(context))
           name = params["name"]
           param = param(context, @server.parameters, {nil, name})
-          map_parameter(nil, param).to_json(context.response)
+          map_parameter(nil, param).to_json(context.response.output)
           context
         end
 
@@ -162,7 +162,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
             name = params["name"]
-            policy(context, name, vhost).to_json(context.response)
+            policy(context, name, vhost).to_json(context.response.output)
           end
         end
 
@@ -178,14 +178,7 @@ module LavinMQ
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
             end
-            definition.keys.all? do |k|
-              case k
-              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
-                bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
-              else
-                bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
-              end
-            end
+            validate_policy_definition(context, definition)
             is_update = vhost.policies[name]?
             vhost.add_policy(name, pattern, apply_to, definition, priority.to_i8)
             context.response.status_code = is_update ? 204 : 201
@@ -220,7 +213,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context))
             name = params["name"]
-            operator_policy(context, name, vhost).to_json(context.response)
+            operator_policy(context, name, vhost).to_json(context.response.output)
           end
         end
 
@@ -236,14 +229,10 @@ module LavinMQ
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
             end
-            definition.keys.all? do |k|
-              case k
-              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
-                bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
-              else
-                bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
-              end
+            definition.each_key do |k|
+              bad_request(context, "Operator policy definition '#{k}' is not allowed") unless OperatorPolicy::ALLOWED_ARGUMENTS.includes?(k)
             end
+            validate_policy_definition(context, definition)
             is_update = vhost.operator_policies[name]?
             vhost.add_operator_policy(name, pattern, apply_to, definition, priority.to_i8)
             context.response.status_code = is_update ? 204 : 201
@@ -267,6 +256,23 @@ module LavinMQ
 
       private def param(context, parameters, id)
         parameters[id]? || not_found(context)
+      end
+
+      private def validate_policy_definition(context, definition)
+        definition.each do |k, v|
+          # Other keys are ignored when applied, e.g. RabbitMQ's ha-params
+          next unless Policy::SUPPORTED_POLICIES.includes?(k)
+          case k
+          when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
+            bad_request(context, "Policy definition '#{k}' should be of type Int") unless v.as_i64?
+          when "delayed-retry-min", "delayed-retry-max"
+            bad_request(context, "Policy definition '#{k}' should be an Int of at least 1") unless v.as_i64?.try &.>= 1
+          when "delayed-retry-multiplier"
+            bad_request(context, "Policy definition '#{k}' should be an Int between 1 and #{Int32::MAX}") unless v.as_i64?.try { |i| 1 <= i <= Int32::MAX }
+          else
+            bad_request(context, "Policy definition '#{k}' should be of type String") unless v.as_s?
+          end
+        end
       end
 
       private def policy(context, name, vhost)

@@ -1,5 +1,13 @@
 require "../spec_helper.cr"
 
+class LavinMQ::MQTT::Session
+  # Called directly, as a delivery through a `next_id` that wrongly returns
+  # nil spins the deliver loop and hangs the spec instead of failing it
+  def next_id_for_spec
+    next_id
+  end
+end
+
 module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
@@ -318,6 +326,46 @@ module MqttSpecs
       ensure
         LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
       end
+
+      it "never exceeds a limit that was lowered while messages were in flight" do
+        LavinMQ::Config.instance.max_inflight_messages = 3u16
+        with_server do |server|
+          with_client_io(server) do |io|
+            connect(io, client_id: "subscriber")
+            subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+
+            with_client_io(server) do |pub_io|
+              connect(pub_io, client_id: "publisher")
+              5.times { |i| publish(pub_io, topic: "a/b", payload: "#{i}".to_slice, qos: 1u8) }
+              disconnect(pub_io)
+            end
+
+            first = read_publish(io)
+            second = read_publish(io)
+            third = read_publish(io)
+            read_packet(io).should be_nil
+
+            LavinMQ::Config.instance.max_inflight_messages = 1u16
+
+            # Acking frees a slot, but two are still in flight against a limit of
+            # one, so nothing may be sent.
+            puback(io, first.packet_id)
+            read_packet(io).should be_nil
+
+            # Draining the rest brings the window back under the limit and
+            # resumes delivery; a gate left closed on a stale reading would stall
+            # here, with no ack left to re-open it.
+            puback(io, second.packet_id)
+            read_packet(io).should be_nil
+            puback(io, third.packet_id)
+            read_publish(io) # the fourth message, at last
+
+            disconnect(io)
+          end
+        end
+      ensure
+        LavinMQ::Config.instance.max_inflight_messages = UInt16::MAX
+      end
     end
 
     it "should not enqueue messages with QoS 0 if no client is connected to the session" do
@@ -332,6 +380,8 @@ module MqttSpecs
         with_client_io(server) do |publisher_io|
           connect(publisher_io, client_id: "publisher")
           publish(publisher_io, topic: "a/b", qos: 0u8)
+          # Publishes are routed in order, so once this is acked the QoS 0 one has been routed
+          publish(publisher_io, topic: "sync", qos: 1u8)
           disconnect(publisher_io)
         end
 
@@ -340,6 +390,73 @@ module MqttSpecs
           pkt = read_packet(io)
           pkt.should be_nil
           disconnect(io)
+        end
+      end
+    end
+
+    it "does not send packet id 0 after the packet id counter wraps [MQTT-2.3.1-1]" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          session = server.vhosts["/"].session("mqtt.subscriber")
+          # As after handing out 65535 ids
+          pointerof(session.@count).value = UInt16::MAX
+
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "publisher")
+            publish(pub_io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+            disconnect(pub_io)
+          end
+
+          read_publish(io).packet_id.should eq 1u16
+          disconnect(io)
+        end
+      end
+    end
+
+    it "hands out the last packet id when it is the only one free" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          session = server.vhosts["/"].session("mqtt.subscriber")
+          # Every id but the last one handed out is held, one short of the
+          # default window of 65535
+          free = 100u16
+          pointerof(session.@count).value = free
+          held = LavinMQ::SegmentPosition.new(0u32, 0u32, 0u32)
+          (1u16..UInt16::MAX).each { |id| session.@unacked[id] = held unless id == free }
+
+          session.next_id_for_spec.should eq free
+          # Nothing to requeue for the planted ids on disconnect
+          session.@unacked.clear
+          disconnect(io)
+        end
+      end
+    end
+
+    it "closes a publisher that sends a QoS 1 PUBLISH with packet id 0 [MQTT-2.3.1-1]" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "subscriber")
+          subscribe(sub_io, topic_filters: mk_topic_filters({"a/b", 0u8}, {"will/t", 0u8}))
+
+          with_client_io(server) do |io|
+            will = MQTT::Protocol::Will.new(
+              topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
+            connect(io, client_id: "publisher", will: will)
+            publish(io, topic: "a/b", payload: "1".to_slice, qos: 1u8,
+              packet_id: 0u16, expect_response: false)
+            io.should be_closed
+          end
+
+          # The Will, and not the publish with packet id 0
+          pub = read_packet(sub_io).should be_a(MQTT::Protocol::Publish)
+          pub.topic.should eq "will/t"
+          pub.payload.should eq "dead".to_slice
+          sub_io.should be_drained
+          disconnect(sub_io)
         end
       end
     end

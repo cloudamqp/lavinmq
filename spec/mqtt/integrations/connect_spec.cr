@@ -4,6 +4,37 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
   describe "connect [MQTT-3.1.4-1]" do
+    # As when the vhost closes while the client connects, e.g. on shutdown:
+    # the client is added once it's closed, before its read loop has started
+    it "disconnects a client added to a closed vhost" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        broker = server.mqtt_server.broker("/")
+        vhost.close
+        client_end, server_end = UNIXSocket.pair
+        begin
+          packet = MQTT::Protocol::Connect.new(client_id: "late", clean_session: true, keepalive: 30u16,
+            username: "guest", password: "guest".to_slice, will: nil)
+          added = Channel(Nil).new
+          spawn do
+            broker.add_client(MQTT::Protocol::IO.new(server_end), LavinMQ::ConnectionInfo.local,
+              server.users["guest"], packet)
+            added.close
+          end
+          select
+          when added.receive?
+          when timeout(5.seconds)
+            fail "adding the client hung"
+          end
+          client_end.read_timeout = 5.seconds
+          MQTT::Protocol::IO.new(client_end).should be_closed
+        ensure
+          client_end.close
+          server_end.close
+        end
+      end
+    end
+
     describe "when client already connected" do
       it "should replace the already connected client [MQTT-3.1.4-2]" do
         with_server do |server|
@@ -32,7 +63,7 @@ module MqttSpecs
               new_client = wait_for do
                 c = broker.@clients[client_id]?
                 c if c && !c.same?(old_client)
-              end.not_nil!
+              end
 
               io.should be_closed
               wait_for { vhost.connections.none?(&.same?(old_client)) }
@@ -327,6 +358,17 @@ module MqttSpecs
               io.write_bytes_raw connect
 
               io.should be_closed
+            end
+          end
+        end
+
+        it "refuses a CONNECT with a will topic longer than 255 bytes" do
+          with_server do |server|
+            with_client_io(server) do |io|
+              will = MQTT::Protocol::Will.new(topic: "a/#{"x" * 300}", payload: "dead".to_slice, qos: 0u8, retain: false)
+              expect_raises(IO::Error) do
+                connect(io, will: will)
+              end
             end
           end
         end

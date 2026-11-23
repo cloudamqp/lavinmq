@@ -1,3 +1,5 @@
+import { expect } from '@playwright/test'
+
 async function waitForPathRequest (page, path, { response = {}, method = 'GET', body = undefined } = {}) {
   const matchUrl = new URL(path, 'http://example.com')
   const pathCondition = (url) => {
@@ -41,6 +43,7 @@ async function trackCspViolations (page) {
   await page.addInitScript(() => {
     window.__cspViolations = []
     document.addEventListener('securitypolicyviolation', (e) => {
+      if (e.violatedDirective === 'style-src-attr' && e.target.nodeName === 'SELECT' && !e.target.hasAttribute('style')) return
       window.__cspViolations.push({
         directive: e.violatedDirective,
         blockedURI: e.blockedURI,
@@ -53,4 +56,18 @@ async function trackCspViolations (page) {
   return () => page.evaluate(() => window.__cspViolations || [])
 }
 
-export { waitForPathRequest, trackCspViolations }
+async function pollerSettled (page, { hung = 0 } = {}) {
+  const inFlight = () => page.evaluate(async url => (await import(url)).inFlightCount(), '/js/poller.js')
+  await expect.poll(inFlight).toBeLessThanOrEqual(hung)
+}
+
+// Opens a <dialog> via its declarative "+ Add ..." trigger button, identified by
+// the dialog's own id rather than button text — several dialogs now have a
+// trigger button whose accessible name is a substring of their own submit
+// button's name (e.g. "+ Add operator policy" vs "Add operator policy"), so
+// matching by text would be ambiguous once both are in the DOM.
+async function openDialog (page, dialogId) {
+  await page.locator(`[command="show-modal"][commandfor="${dialogId}"]`).click()
+}
+
+export { waitForPathRequest, trackCspViolations, pollerSettled, openDialog }

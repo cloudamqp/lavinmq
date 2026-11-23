@@ -9,7 +9,7 @@ module LavinMQ
       PUBLIC_DIR = "#{__DIR__}/../../../../static"
 
       LAYOUT_INLINE_JS_SHA    = "sha256-xCBzVV2TewAz4Dk/CrTquSJ4NTH48Y5fckwTF8Lg5bE="
-      LOGIN_INLINE_JS_SHA     = "sha256-3bUZcnRc7hbNc+igS1dxqJNEEypKXCvZ9ozHwAxXIvc="
+      LOGIN_INLINE_JS_SHA     = "sha256-BwNjdpOa9cQi7+ZL4zwDl8budK/rj2yv7j2o3D5AEus="
       VERSION_INLINE_JS_SHA   = "sha256-GgZA/DYl7oCp6n7XdT+Bi2RHOQdZ/onfVRmY6d8/Jow="
       CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' '#{LAYOUT_INLINE_JS_SHA}' '#{LOGIN_INLINE_JS_SHA}' '#{VERSION_INLINE_JS_SHA}'"
 
@@ -129,7 +129,6 @@ module LavinMQ
         end
       {% end %}
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def mime_type(path)
         case File.extname(path)
         when ".txt"        then "text/plain;charset=utf-8"

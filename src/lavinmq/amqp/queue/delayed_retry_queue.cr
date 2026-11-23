@@ -1,0 +1,116 @@
+require "./delayed_queue"
+
+module LavinMQ::AMQP
+  # Internal queue that holds messages rejected from its primary queue until
+  # their backoff delay expires, then publishes them back for redelivery.
+  # Created and deleted together with the primary queue.
+  class DelayedRetryQueue < DelayedQueue
+    @primary_queue : Queue
+
+    def self.queue_name(primary_queue_name : String) : String
+      "amq.retry-#{primary_queue_name}"
+    end
+
+    def self.create(vhost : VHost, primary_queue : Queue)
+      q_name = queue_name(primary_queue.name)
+      raise LavinMQ::Error::PreconditionFailed.new("Retry queue name too long") if q_name.bytesize > MAX_NAME_LENGTH
+      if primary_queue.durable?
+        DurableDelayedRetryQueue.new(vhost, q_name, primary_queue)
+      else
+        DelayedRetryQueue.new(vhost, q_name, primary_queue)
+      end
+    end
+
+    protected def initialize(@vhost : VHost, @name : String, @primary_queue : Queue)
+      super(@vhost, @name, false, false, AMQP::Table.new)
+    end
+
+    def primary_queue_name : String?
+      @primary_queue.name
+    end
+
+    # Never closes or deletes the queue, which would take the definitions lock
+    # while the rejecting channel holds its own lock
+    def delay(msg : Message) : Bool
+      return false if closed?
+      @msg_store_lock.synchronize do
+        # The store has data it can't read, the message is requeued instantly
+        return false if @msg_store.failed?
+        @msg_store.push(msg)
+      end
+      @publish_count.add(1, :relaxed)
+      @message_ttl_change.try_send? nil
+      ensure_expire_fiber
+      true
+    rescue MessageStore::ClosedError
+      false
+    rescue ex : MessageStore::Error | IO::Error
+      @log.error(ex) { "Failed to delay message, requeuing instantly" }
+      false
+    end
+
+    # A failed primary queue refuses every message released to it, and is only
+    # ever deleted, which deletes this queue too. Nothing is released until
+    # then, instead of delaying each message again every backoff.
+    private def next_expired_message : Envelope?
+      if @primary_queue.state.failed?
+        @log.info { "Primary queue #{@primary_queue.name} failed, nothing is released until it's deleted" }
+        wait_for_close
+      end
+      super
+    end
+
+    # Raises ::Channel::ClosedError once the queue is closed. It goes up
+    # through #expire_messages to DelayedQueue#message_expire_loop, whose
+    # rescue of it ends the release loop.
+    private def wait_for_close : NoReturn
+      loop { @message_ttl_change.receive }
+    end
+
+    # Publishes an expired message back to the primary queue. The message kept
+    # its original timestamp while delayed, so x-message-ttl keeps applying to
+    # the message's total age; a message that outlived it is dead-lettered by
+    # the primary queue instead of being redelivered
+    private def expire_msg(env : Envelope, reason : Symbol)
+      sp = env.segment_position
+      msg = env.message
+      if headers = msg.properties.headers
+        headers.delete("x-delay")
+        msg.properties.headers = headers
+      end
+      if @primary_queue.expired_while_delayed?(msg)
+        @log.debug { "Retry #{sp} expired by message TTL, dead-lettering from #{@primary_queue.name}" }
+        return @primary_queue.dead_letter_delayed(msg, :expired) { |stored| delete_message sp if stored }
+      end
+      @log.debug { "Retry expired #{sp}, publishing back to #{@primary_queue.name}" }
+      result = @primary_queue.publish_internal(Message.moved_copy(msg))
+      return redelay(env) unless result.ok?
+      delete_message sp
+    end
+
+    # The primary queue is full with overflow=reject-publish, or closed; delay
+    # the message again for one more backoff period instead of losing it
+    private def redelay(env : Envelope) : Nil
+      sp = env.segment_position
+      msg = env.message
+      h = msg.properties.headers || AMQP::Table.new
+      delivery_count = h["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32) || 1
+      backoff = @primary_queue.retry_delay_for(delivery_count)
+      h["x-delay"] = @primary_queue.delay_from(msg, backoff)
+      msg.properties.headers = h
+      redelayed = Message.moved_copy(msg)
+      if delay(redelayed)
+        @log.info { "Primary queue #{@primary_queue.name} unavailable, delaying message #{sp} for another #{backoff}ms" }
+        delete_message sp
+      else
+        @log.warn { "Retry queue closed, message #{sp} kept on disk until restart" }
+      end
+    end
+  end
+
+  class DurableDelayedRetryQueue < DelayedRetryQueue
+    def durable?
+      true
+    end
+  end
+end

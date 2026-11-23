@@ -2,34 +2,40 @@ require "./destination"
 
 module LavinMQ
   module Shovel
-    class MultiDestinationHandler < Destination
-      @current_dest : Destination?
+    # A shovel's list of `dest-uri`s, used one at a time: every start draws one
+    # at random and all deliveries of that run go to it. There is no failover.
+    # The chosen destination reports its outcomes straight to the Runner, so an
+    # Abort counts towards the shovel's abort threshold as it would with a
+    # single destination. If the chosen destination cannot start, start raises
+    # and the Runner reconnects with backoff; that next start draws again, as
+    # does every start after a pause or a reconnect.
+    class MultiDestination < Destination
+      @current : Destination?
 
       def initialize(@destinations : Array(Destination))
+        raise ArgumentError.new("No destinations configured") if @destinations.empty?
       end
 
       def start
         return if started?
-        next_dest = @destinations.sample
-        return unless next_dest
-        next_dest.start
-        @current_dest = next_dest
+        dest = @destinations.sample
+        dest.listener = @listener
+        dest.start
+        @current = dest
       end
 
       def stop
-        @current_dest.try &.stop
-        @current_dest = nil
-      end
-
-      def push(msg, source)
-        @current_dest.try &.push(msg, source)
+        @current.try &.stop
+        @current = nil
       end
 
       def started? : Bool
-        if dest = @current_dest
-          return dest.started?
-        end
-        false
+        @current.try(&.started?) || false
+      end
+
+      def push(msg) : Nil
+        dest = @current || raise "Not started"
+        dest.push(msg)
       end
     end
   end

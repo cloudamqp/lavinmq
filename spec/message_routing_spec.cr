@@ -1,10 +1,10 @@
 require "./spec_helper"
 
 module MessageRoutingSpec
-  def self.matches(exchange : LavinMQ::Exchange, routing_key, headers = nil) : Set(LavinMQ::Destination)
-    s = Set(LavinMQ::Destination).new
+  def self.matches(exchange : LavinMQ::Exchange, routing_key, headers = nil) : Set(LavinMQ::Queue | LavinMQ::Exchange)
+    s = Set(LavinMQ::Queue | LavinMQ::Exchange).new
     qs = Set(LavinMQ::AMQP::Queue).new
-    es = Set(LavinMQ::Exchange).new
+    es = Set(LavinMQ::AMQP::Exchange).new
     exchange.find_queues(routing_key, headers, qs, es)
     qs.each { |q| s << q }
     s
@@ -535,14 +535,11 @@ module MessageRoutingSpec
         vhost = s.vhosts.create("x")
         q1 = LavinMQ::QueueFactory.make(vhost, "q1")
         s1 = LavinMQ::QueueFactory.make(vhost, "q1", arguments: LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
-        index = LavinMQ::MQTT::TopicTree(String).new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
-        x = LavinMQ::MQTT::Exchange.new(vhost, "", store)
+        x = LavinMQ::MQTT::Exchange.new(vhost, "")
         x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
         expect_raises(LavinMQ::Exchange::AccessRefused) do
           x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         end
-        store.close
       end
     end
   end

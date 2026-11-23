@@ -1,29 +1,37 @@
 require "../consumer"
 require "../../segment_position"
-require "./filters/kv"
-require "./filters/x_stream_filter"
-require "./filters/gis"
+require "../../rough_time"
+require "./filters/consumer_filter"
+require "./stream_cursor"
+require "./stream_offset"
 
 module LavinMQ
   module AMQP
     class StreamConsumer < Consumer
       include SortableJSON
-      property offset : Int64
-      property segment : UInt32
-      property pos : UInt32
-      getter requeued = Deque(SegmentPosition).new
-      @filters = Array(StreamFilter).new
-      @filter_match_all = true
-      @match_unfiltered = false
+      getter cursor : StreamCursor
       @track_offset = false
 
       def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
         validate_preconditions(frame)
-        offset = frame.arguments["x-stream-offset"]?
-        @offset, @segment, @pos = stream_queue.find_offset(offset, @tag, @track_offset)
+        start = StreamOffset.from_amqp(frame.arguments["x-stream-offset"]?)
+        @track_offset = track_offset?(frame, start)
+        filter = ConsumerFilter.from_arguments(frame.arguments)
+        # The stored offset wins when tracking offsets or when no offset is given
+        stored_offset_tag = @tag if @track_offset || start.nil?
+        @cursor = new_cursor(start || StreamOffset::Absolute.new(0), filter, stored_offset_tag)
         super
         @new_message_available = BoolChannel.new(false)
+      end
+
+      # A seek that reaches data that can't be read pauses or fails the stream,
+      # see Stream#cursor. Only this channel is closed for it, not the client's
+      # connection with its other channels.
+      private def new_cursor(start, filter, stored_offset_tag) : StreamCursor
+        stream_queue.cursor(start, filter, stored_offset_tag)
+      rescue MessageStore::Error
+        raise LavinMQ::Error::PreconditionFailed.new("Message data in stream '#{@queue.name}' can't be read, see its state")
       end
 
       private def validate_preconditions(frame)
@@ -42,51 +50,22 @@ module LavinMQ
         if frame.arguments.has_key? "x-priority"
           raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on streams")
         end
-        validate_stream_offset(frame)
-        @filters = StreamFilter.from_arguments(frame.arguments)
-        validate_filter_match_type(frame)
-        case match_unfiltered = frame.arguments["x-stream-match-unfiltered"]?
-        when Bool
-          @match_unfiltered = match_unfiltered
-        when Nil
-          # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-match-unfiltered must be a boolean")
-        end
       end
 
-      private def validate_stream_offset(frame)
-        case frame.arguments["x-stream-offset"]?
-        when Nil
-          @track_offset = true unless @tag.starts_with?("amq.ctag-")
-        when Int, Time, "first", "next", "last"
-          case frame.arguments["x-stream-automatic-offset-tracking"]?
-          when Bool
-            @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]?.as(Bool)
-          when String
-            @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]? == "true"
-          end
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
-        end
-      end
-
-      private def validate_filter_match_type(frame)
-        case filter_match_type = frame.arguments["x-filter-match-type"]?
-        when String
-          if filter_match_type.downcase == "all"
-            @filter_match_all = true
-          elsif filter_match_type.downcase == "any"
-            @filter_match_all = false
-          else
-            raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
-          end
-        when Nil
-          # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
+      private def track_offset?(frame, start : StreamOffset::Any?) : Bool
+        return !@tag.starts_with?("amq.ctag-") if start.nil?
+        case tracking = frame.arguments["x-stream-automatic-offset-tracking"]?
+        when Bool   then tracking
+        when String then tracking == "true"
+        else             false
         end
       end
 
       private def deliver_loop
-        i = 0
+        delivered_bytes = 0_i32
+        iterations = 0
+        yield_each_delivered_bytes = Config.instance.yield_each_delivered_bytes
+
         loop do
           wait_for_capacity
           loop do
@@ -99,10 +78,16 @@ module LavinMQ
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}
-          stream_queue.consume_get(self) do |env|
+          stream_queue.consume_get(cursor) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
+            delivered_bytes &+= env.segment_position.bytesize
           end
-          Fiber.yield if (i &+= 1) % 32768 == 0
+          iterations &+= 1
+          if delivered_bytes >= yield_each_delivered_bytes || iterations >= 32_768
+            delivered_bytes = 0
+            iterations = 0
+            Fiber.yield
+          end
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
@@ -111,7 +96,7 @@ module LavinMQ
       end
 
       private def wait_for_queue_ready
-        if @offset > stream_queue.last_offset && @requeued.empty?
+        if @cursor.caught_up? # unlocked, a stale answer only delays or repeats a wait
           @log.debug { "Waiting for queue not to be empty" }
           flush
           select
@@ -120,7 +105,7 @@ module LavinMQ
             @new_message_available.set(false) # Reset the flag
           when @notify_closed.receive
           end
-          return true
+          true
         end
       end
 
@@ -134,12 +119,12 @@ module LavinMQ
       end
 
       def waiting_for_messages?
-        (@offset + @prefetch_count) >= stream_queue.last_offset && accepts?
+        (@cursor.offset + @prefetch_count) >= stream_queue.last_offset && accepts?
       end
 
       def ack(sp)
         begin
-          stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
+          stream_queue.store_consumer_offset(@tag, @cursor.offset) if @track_offset
         rescue MessageStore::ClosedError
           # The queue was closed/deleted while this ack was in flight. Storing the
           # offset is now a no-op; don't let it tear down the connection read_loop.
@@ -150,8 +135,10 @@ module LavinMQ
       def reject(sp, requeue : Bool)
         super
         if requeue
-          @requeued.push(sp)
-          @new_message_available.set(true) if @requeued.size == 1
+          # Set after the push, so a deliver loop that found the cursor's
+          # requeued messages empty is woken up by the notification instead
+          was_empty = stream_queue.requeue(@cursor, sp)
+          @new_message_available.set(true) if was_empty
         end
       end
 
@@ -159,21 +146,6 @@ module LavinMQ
         return if closed?
         @new_message_available.close
         super
-      end
-
-      def filter_match?(msg_headers) : Bool
-        return true if @filters.empty? # No consumer filters, always match
-        if @match_unfiltered
-          return true unless msg_headers.try &.has_key?("x-stream-filter-value")
-        end
-        return false unless headers = msg_headers
-
-        case @filter_match_all
-        when false
-          @filters.any?(&.match?(headers))
-        else
-          @filters.all?(&.match?(headers))
-        end
       end
     end
   end

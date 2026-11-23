@@ -8,7 +8,7 @@ module MqttMatchers
       return true if actual.closed?
       read_packet(actual)
       false
-    rescue e : IO::Error
+    rescue IO::Error
       true
     end
 
