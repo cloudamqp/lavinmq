@@ -59,7 +59,7 @@ private class StoreOrderRunner < LavinMQ::StandaloneRunner
 end
 
 # Stops the launcher just before yielding to start serving, as a shutdown can
-# race with a clustering controller's election. With *during_start* it stops
+# race with a clustering runner's election. With *during_start* it stops
 # it from #start's first call back into the runner instead, as a shutdown can
 # arrive while the broker loads.
 private class StoppingRunner < LavinMQ::StandaloneRunner
