@@ -12,3 +12,11 @@
     fun get_grow_mark_stack = GC_get_grow_mark_stack : Int
   end
 {% end %}
+
+{% if !flag?(:gc_none) && !flag?(:interpreted) %}
+  lib LibGC
+    # Collects, then returns all free heap blocks to the OS right away,
+    # regardless of GC_UNMAP_THRESHOLD.
+    fun gcollect_and_unmap = GC_gcollect_and_unmap
+  end
+{% end %}

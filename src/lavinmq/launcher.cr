@@ -15,14 +15,13 @@ require "./clustering/controller"
 require "./clustering/etcd_coordinator"
 require "./standalone_runner"
 require "./definitions"
+require "./memory_pressure_reclaimer"
 require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
   class Launcher
     Log              = LavinMQ::Log.for "launcher"
     SHUTDOWN_TIMEOUT = 10.seconds
-    # Minimum time between GCs triggered by systemd memory pressure events
-    MEMORY_PRESSURE_GC_INTERVAL = 30.seconds
     @amqp_tls_context : OpenSSL::SSL::Context::Server?
     @mqtt_tls_context : OpenSSL::SSL::Context::Server?
     @http_tls_context : OpenSSL::SSL::Context::Server?
@@ -369,19 +368,9 @@ module LavinMQ
       end
     end
 
-    # Collect on memory pressure, but at most once per MEMORY_PRESSURE_GC_INTERVAL,
-    # so sustained pressure doesn't cause back-to-back stop-the-world collections.
-    # The block only runs on systemd.cr's single monitor thread, so last_gc isn't shared.
     private def monitor_memory_pressure
-      last_gc : Time::Instant? = nil
-      SystemD::MemoryPressure.monitor do
-        if (t = last_gc) && (elapsed = t.elapsed) < MEMORY_PRESSURE_GC_INTERVAL
-          Log.debug { "Memory pressure: skipping GC, last one #{elapsed.total_seconds.round(1)}s ago" }
-          next
-        end
-        GC.collect
-        last_gc = Time.instant
-      end
+      reclaimer = MemoryPressureReclaimer.new
+      SystemD::MemoryPressure.monitor { reclaimer.on_pressure }
     end
 
     private def setup_signal_traps
