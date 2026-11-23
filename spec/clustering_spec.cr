@@ -810,10 +810,9 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
 
   it "doesn't become leader if it's stopped before it starts" do
     with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.clustering_etcd_endpoints = "localhost:12379"
-      config.clustering_advertised_uri = "tcp://localhost:5687"
+      # No client ports: #stop doesn't end the follower monitor, so a follower
+      # client it makes for a later spec's leader would bind them
+      config = lease_spec_config(data_dir, 5687)
       hook_ran = File.join(data_dir, "leader_elected")
       config.clustering_on_leader_elected = "touch #{hook_ran}"
       controller = LavinMQ::Clustering::Controller.new(config)
