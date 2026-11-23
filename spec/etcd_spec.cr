@@ -508,9 +508,10 @@ private class RecordingEtcd < LavinMQ::Etcd
     @revoke_error.try { |ex| raise ex }
   end
 
-  def lease_keepalive(id, timeout : Time::Span? = nil) : Int32
+  def lease_keepalive(id, timeout : Time::Span? = nil) : {Int32, Time::Instant}
     if keepalive = @keepalive
-      return keepalive.call(id.to_i64)
+      sent = Time.instant
+      return {keepalive.call(id.to_i64), sent}
     end
     raise LavinMQ::Etcd::LeaseNotFound.new("stand-in")
   end

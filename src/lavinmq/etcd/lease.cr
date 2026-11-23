@@ -7,7 +7,7 @@ module LavinMQ
     class Lease
       getter id, expired
 
-      # *started* is when the grant was requested, etcd's TTL counts from the grant
+      # *started* is when the grant etcd answered was sent, its TTL counts from no earlier
       def initialize(@etcd : Etcd, @id : Int64, ttl : Int32, @started : Time::Instant = Time.instant)
         @expired = Channel(Exception?).new
         @released = Atomic(Bool).new(false)
@@ -61,6 +61,8 @@ module LavinMQ
       # Keepalives go out a third of the TTL after the previous one was sent,
       # not after it was answered, so a slow answer doesn't eat into the margin
       # to the deadline. A failed one is retried sooner.
+      # Answers slower than *request_timeout* are cut off even if etcd renewed
+      # the lease, so a sustained multi-second etcd latency ends the lease.
       private def keepalive_loop(ttl : Int32)
         request_timeout = (ttl / 3).seconds
         next_at = @started + (ttl / 3).seconds
@@ -71,9 +73,8 @@ module LavinMQ
             return
           when timeout({next_at - Time.instant, Time::Span.zero}.max)
           end
-          sent = Time.instant
           begin
-            ttl = @etcd.lease_keepalive(@id, request_timeout)
+            ttl, sent = @etcd.lease_keepalive(@id, request_timeout)
             @deadline.set((sent + ttl.seconds - @started).total_nanoseconds.to_i64)
             next_at = sent + (ttl / 3).seconds
             Log.info { "Lease #{@id} keepalive succeeded again after #{failures} failed attempts" } if failures > 0
