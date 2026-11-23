@@ -138,7 +138,7 @@ module LavinMQ
     end
 
     # Timestamp (unix ms) of the message at the head of the store
-    def first_timestamp? : Int64?
+    def head_message_timestamp : Int64?
       first?.try &.message.timestamp
     end
 

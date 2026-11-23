@@ -169,9 +169,9 @@ module LavinMQ::AMQP
 
       # The earliest head timestamp across priorities: a lower priority head can
       # be older than #first?
-      def first_timestamp? : Int64?
+      def head_message_timestamp : Int64?
         raise ClosedError.new if @closed
-        @stores.compact_map(&.first_timestamp?).min?
+        @stores.compact_map(&.head_message_timestamp).min?
       end
 
       def shift?(consumer = nil) : Envelope?

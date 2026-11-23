@@ -203,7 +203,7 @@ message:
     published_at:
       type: integer
       format: int64
-      description: Timestamp the broker set when it received the message, in unix milliseconds. Matches the `head_message_timestamp` of the queue when this is the head message. Only returned by `POST /queues/{vhost}/{name}/get`.
+      description: Timestamp the broker set when it received the message, in unix milliseconds. Only returned by `POST /queues/{vhost}/{name}/get`.
     exchange:
       type: string
     routing_key:

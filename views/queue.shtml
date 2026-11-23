@@ -39,7 +39,7 @@
             </tr>
             <tr>
               <th>Head message timestamp</th>
-              <td id="q-head-message"></td>
+              <td id="q-head-message-timestamp"></td>
             </tr>
             <tr>
               <th>Policy</th>
@@ -361,7 +361,7 @@
             </tr>
             <tr>
               <th>Published</th>
-              <td class="message-published"></td>
+              <td class="message-published-at"></td>
             </tr>
             <tr>
               <th>Properties</th>

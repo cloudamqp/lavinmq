@@ -836,7 +836,7 @@ module LavinMQ::AMQP
     # delayed retry keep it, dead-lettered messages get a new one.
     def head_message_timestamp : Int64?
       return if empty?
-      @msg_store_lock.synchronize { @msg_store.first_timestamp? }
+      @msg_store_lock.synchronize { @msg_store.head_message_timestamp }
     rescue MessageStore::ClosedError | MessageStore::Error
       nil # closed or deleted meanwhile; the delivery path handles store errors
     end
