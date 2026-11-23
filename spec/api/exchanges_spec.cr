@@ -226,6 +226,14 @@ describe LavinMQ::HTTP::ExchangesController do
       end
     end
 
+    it "should not delete the default exchange" do
+      with_http_server do |http, s|
+        response = http.delete("/api/exchanges/%2f/amq.default")
+        response.status_code.should eq 403
+        s.vhosts["/"].exchange?("").should_not be_nil
+      end
+    end
+
     it "should not delete exchange if in use as source when query param if-unused is set" do
       with_http_server do |http, s|
         s.vhosts["/"].declare_exchange("spechange", "topic", false, false)
