@@ -224,6 +224,21 @@ describe LavinMQ::Server do
         end
       end
     end
+
+    it "keeps the other connections in the order they were opened" do
+      with_amqp_server do |s|
+        conns = [] of AMQP::Client::Connection
+        clients = Array.new(4) do |i|
+          conns << AMQP::Client.new(port: amqp_port(s)).connect
+          wait_for { s.connections.size == i + 1 }
+          s.connections.last
+        end
+        conns[1].close(no_wait: false)
+        wait_for { s.connections.size == 3 }
+        s.connections.should eq [clients[0], clients[2], clients[3]]
+        conns.each &.close
+      end
+    end
   end
 
   describe "unexpected frames" do

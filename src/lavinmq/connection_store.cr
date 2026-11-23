@@ -4,8 +4,10 @@ require "./logger"
 
 module LavinMQ
   class ConnectionStore
+    # A Set, as closing one of many connections would otherwise scan them
+    # all; like Hash it keeps the order they were added in
     def initialize
-      @connections = Array(Client).new(512)
+      @connections = Set(Client).new(512)
     end
 
     def add(client : Client)
@@ -21,7 +23,7 @@ module LavinMQ
     end
 
     def to_a : Array(Client)
-      @connections.dup
+      @connections.to_a
     end
 
     def size : Int32
