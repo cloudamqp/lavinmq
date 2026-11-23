@@ -46,34 +46,52 @@ private class StoreOrderRunner < LavinMQ::StandaloneRunner
     @replicator = StoreOrderServer.new(config, NullCoordinator.new, 1)
   end
 
-  def run(&)
+  def run(& : LavinMQ::Clustering::Replicator? -> _)
     super do
-      yield
+      yield @replicator
       @started.close
     end
   end
 
-  def new_replicator : LavinMQ::Clustering::Server?
-    @replicator
+  def broker_closed : Nil
+    @replicator.close
+  end
+end
+
+# Calls *on_write* at the broker's first replicated write, which loading a
+# new data dir makes
+private class FirstWriteServer < LavinMQ::Clustering::Server
+  def initialize(config : LavinMQ::Config, @on_write : Proc(Nil))
+    super(config, NullCoordinator.new, 1)
+  end
+
+  def replace_file(path : String)
+    @on_write.try &.call
+    @on_write = nil
+    super
   end
 end
 
 # Stops the launcher just before yielding to start serving, as a shutdown can
-# race with a clustering runner's election. With *during_start* it stops
-# it from #start's first call back into the runner instead, as a shutdown can
-# arrive while the broker loads.
+# race with a clustering runner's election. With *during_start* it stops it
+# at the broker's first replicated write instead, as a shutdown can arrive
+# while the broker loads.
 private class StoppingRunner < LavinMQ::StandaloneRunner
-  def initialize(@stop_launcher : Proc(Nil), @during_start = false)
+  @replicator : FirstWriteServer?
+
+  def initialize(@config : LavinMQ::Config, @stop_launcher : Proc(Nil), @during_start = false)
   end
 
-  def run(&)
+  def run(& : LavinMQ::Clustering::Replicator? -> _)
     @stop_launcher.call unless @during_start
-    super { yield }
+    replicator = @replicator = FirstWriteServer.new(@config, @stop_launcher) if @during_start
+    super do
+      yield replicator
+    end
   end
 
-  def new_replicator : LavinMQ::Clustering::Server?
-    @stop_launcher.call if @during_start
-    nil
+  def broker_closed : Nil
+    @replicator.try &.close
   end
 end
 
@@ -94,8 +112,10 @@ private class StaleLeaderRunner < LavinMQ::StandaloneRunner
   def initialize(@config : LavinMQ::Config)
   end
 
-  def new_replicator : LavinMQ::Clustering::Server?
-    LavinMQ::Clustering::Server.new(@config, StaleCoordinator.new, 1)
+  def run(& : LavinMQ::Clustering::Replicator? -> _)
+    super do
+      yield LavinMQ::Clustering::Server.new(@config, StaleCoordinator.new, 1)
+    end
   end
 end
 
@@ -121,8 +141,8 @@ private class EarlyReturnRunner < LavinMQ::Runner
   getter started = Channel(Nil).new
   @stopping = Channel(Nil).new
 
-  def run(&)
-    yield
+  def run(& : LavinMQ::Clustering::Replicator? -> _)
+    yield nil
     @started.close
     @stopping.receive?
   end
@@ -164,8 +184,9 @@ describe LavinMQ::Launcher do
 
   it "doesn't start serving once stopped" do
     with_datadir do |data_dir|
-      launcher = LavinMQ::Launcher.new(standalone_config(data_dir))
-      launcher.runner_for_spec = StoppingRunner.new(-> { launcher.stop })
+      config = standalone_config(data_dir)
+      launcher = LavinMQ::Launcher.new(config)
+      launcher.runner_for_spec = StoppingRunner.new(config, -> { launcher.stop })
       begin
         run_until_stopped(launcher)
         launcher.@server.should be_nil
@@ -177,8 +198,9 @@ describe LavinMQ::Launcher do
 
   it "closes the broker it was starting when stopped meanwhile" do
     with_datadir do |data_dir|
-      launcher = LavinMQ::Launcher.new(standalone_config(data_dir))
-      launcher.runner_for_spec = StoppingRunner.new(-> { launcher.stop }, during_start: true)
+      config = standalone_config(data_dir)
+      launcher = LavinMQ::Launcher.new(config)
+      launcher.runner_for_spec = StoppingRunner.new(config, -> { launcher.stop }, during_start: true)
       begin
         run_until_stopped(launcher)
         # The process exits once #run has returned, what's open then is never closed
