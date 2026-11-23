@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.2] - 2026-11-23
+
+### Fixed
+
+- After a power loss that left a queue's newest segment zero-filled, the first message written to the queue could crash the broker with a segmentation fault. The empty segment was deleted at startup, but the segment before it stayed mapped read-only and became the one written to. Now a new empty segment takes the writes [#2700](https://github.com/cloudamqp/lavinmq/pull/2700)
+- A vhost failed to load with `mmap: Invalid argument` when a queue had an empty segment file that wasn't its last one, which a crash or power loss can leave. The empty segment is now deleted at startup, as an empty last segment already was [#2695](https://github.com/cloudamqp/lavinmq/pull/2695)
+- A stream numbered the messages of its last segment from offset 1 again when the segment before it was empty after a crash or power loss and was deleted at startup [#2800](https://github.com/cloudamqp/lavinmq/pull/2800)
+- A manually declared `x-federation-upstream` exchange corrupted `definitions.amqp` and stopped the broker at the next start [#2813](https://github.com/cloudamqp/lavinmq/pull/2813)
+- A damaged segment file with a zero schema version but data after it was read as empty at startup and deleted. The file is now kept and the queue is closed [#2785](https://github.com/cloudamqp/lavinmq/pull/2785)
+- A follower that synced from a leader after the leader's start deleted every MQTT retained message stored before that start, as the leader only registered the retained-message index with the replicator, not the message files. A failover to that follower lost the retained messages [#2552](https://github.com/cloudamqp/lavinmq/pull/2552)
+- A clustered node that restarted in the last second of its old etcd lease exited with code 1. It now waits for the old lease to expire and starts [#2797](https://github.com/cloudamqp/lavinmq/pull/2797)
+- Since 2.10.3, when several consumers on a queue had free prefetch capacity, the one that got the first message got every later message too, while the others sat idle. Consumers take turns again [#2768](https://github.com/cloudamqp/lavinmq/pull/2768)
+- A message requeued because its channel closed before a consumer delivery or a `basic.get` reached the client counted as a delivery attempt toward `x-delivery-limit` and as a reject. With `x-delivery-limit` 0 it was dropped, or dead-lettered, though no client got it. It's now put back without counting the attempt [#2634](https://github.com/cloudamqp/lavinmq/pull/2634)
+- In a transaction, `basic.ack` or `basic.nack` with delivery tag 0 and `multiple` set closed the connection with an internal error (541) when the channel had no unacked deliveries. It's now a no-op, as it is outside a transaction [#2802](https://github.com/cloudamqp/lavinmq/pull/2802)
+- Since 2.11.1, every closed connection left about 700 bytes of memory behind until restart, and each GC printed a "GC Warning: Finalization cycle" line per closed connection since start, which also made GC pauses longer [#2793](https://github.com/cloudamqp/lavinmq/pull/2793)
+- Every config reload (SIGHUP) leaked the previous log backend: its dispatcher fiber, a 2048-entry channel and, with `log_file` set, the open file [#2442](https://github.com/cloudamqp/lavinmq/pull/2442)
+- `GET /api/queues/:vhost/:name/unacked` listed every unacked delivery once per consumer when several consumers of the queue shared a channel [#2803](https://github.com/cloudamqp/lavinmq/pull/2803)
+
 ## [2.11.1] - 2026-11-16
 
 ### Added
