@@ -9,6 +9,10 @@ module LavinMQ
         "direct"
       end
 
+      def default_exchange? : Bool
+        true
+      end
+
       def bindings_details : Array(BindingDetails)
         [] of BindingDetails
       end

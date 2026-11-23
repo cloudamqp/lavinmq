@@ -35,7 +35,7 @@ module LavinMQ
             # AMQP or MQTT array; collect into one array so the default binding can be prepended.
             arr = Array(AMQP::BindingDetails | MQTT::SubscriptionDetails).new
             e.bindings_details.each { |db| arr << db if db.destination == q }
-            if e.name.empty?
+            if e.default_exchange?
               binding_key = AMQP::BindingKey.new(q.name)
               arr.unshift(AMQP::BindingDetails.new("", q.vhost.name, binding_key, q))
             end
@@ -53,7 +53,7 @@ module LavinMQ
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")
             elsif !user.can_write?(vhost.name, q.name)
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
-            elsif e.name.empty?
+            elsif e.default_exchange?
               access_refused(context, "Not allowed to bind to the default exchange")
             elsif q.internal?
               access_refused(context, "Queue '#{q.name}' is an internal queue")
@@ -96,7 +96,7 @@ module LavinMQ
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")
             elsif !user.can_write?(vhost.name, q.name)
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
-            elsif e.name.empty?
+            elsif e.default_exchange?
               access_refused(context, "Not allowed to unbind from the default exchange")
             end
             props = params["props"]
@@ -137,7 +137,7 @@ module LavinMQ
               access_refused(context, "User doesn't have read permissions to exchange '#{source.name}'")
             elsif !user.can_write?(vhost.name, destination.name)
               access_refused(context, "User doesn't have write permissions to exchange '#{destination.name}'")
-            elsif source.name.empty? || destination.name.empty?
+            elsif source.default_exchange? || destination.default_exchange?
               access_refused(context, "Not allowed to bind to the default exchange")
             elsif destination.internal?
               bad_request(context, "Not allowed to bind to an internal exchange")
@@ -177,7 +177,7 @@ module LavinMQ
               access_refused(context, "User doesn't have read permissions to exchange '#{source.name}'")
             elsif !user.can_write?(vhost.name, destination.name)
               access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
-            elsif source.name.empty? || destination.name.empty?
+            elsif source.default_exchange? || destination.default_exchange?
               access_refused(context, "Not allowed to unbind from the default exchange")
             elsif destination.internal?
               bad_request(context, "Not allowed to unbind from an internal exchange")

@@ -45,6 +45,16 @@ describe LavinMQ::HTTP::BindingsController do
       end
     end
 
+    it "should return the implicit binding for the default exchange" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("bindings_q1", false, false)
+        response = http.get("/api/bindings/%2f/e/amq.default/q/bindings_q1")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body[0]["routing_key"].should eq "bindings_q1"
+      end
+    end
+
     it "should return 404 if exchange does not exist" do
       with_http_server do |http, _|
         response = http.get("/api/bindings/%2f/e/404/q/404")
@@ -179,6 +189,14 @@ describe LavinMQ::HTTP::BindingsController do
         s.vhosts["/"].exchange("be1").bindings_details.empty?.should be_true
       end
     end
+
+    it "should return forbidden for the default exchange" do
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("bindings_q1", false, false)
+        response = http.delete("/api/bindings/%2f/e/amq.default/q/bindings_q1/bindings_q1")
+        response.status_code.should eq 403
+      end
+    end
   end
 
   describe "GET /api/bindings/vhost/e/source/e/destination" do
@@ -251,6 +269,13 @@ describe LavinMQ::HTTP::BindingsController do
         props = binding[0]["properties_key"].as_s
         response = http.delete("/api/bindings/%2f/e/be1/e/be2/#{props}")
         response.status_code.should eq 204
+      end
+    end
+
+    it "should return forbidden for the default exchange" do
+      with_http_server do |http, _|
+        response = http.delete("/api/bindings/%2f/e/amq.default/e/amq.direct/rk")
+        response.status_code.should eq 403
       end
     end
   end

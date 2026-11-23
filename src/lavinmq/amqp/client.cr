@@ -37,8 +37,7 @@ module LavinMQ
       @last_recv_frame = RoughTime.instant
       @last_sent_frame = RoughTime.instant
       rate_stats({"send_oct", "recv_oct"})
-      DEFAULT_EX = "amq.default"
-      Log        = LavinMQ::Log.for "amqp.client"
+      Log = LavinMQ::Log.for "amqp.client"
 
       # Channel accessors
 
@@ -1003,7 +1002,7 @@ module LavinMQ
           send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.source}'")
         elsif !@user.can_write?(@vhost.name, frame.destination)
           send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to exchange '#{frame.destination}'")
-        elsif frame.source.empty? || frame.destination.empty?
+        elsif source.default_exchange? || destination.default_exchange?
           send_access_refused(frame, "Not allowed to bind to the default exchange")
         else
           @vhost.apply(frame)
@@ -1024,7 +1023,7 @@ module LavinMQ
           send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.source}'")
         elsif !@user.can_write?(@vhost.name, frame.destination)
           send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to exchange '#{frame.destination}'")
-        elsif frame.source.empty? || frame.destination.empty? || frame.source == DEFAULT_EX || frame.destination == DEFAULT_EX
+        elsif source.default_exchange? || destination.default_exchange?
           send_access_refused(frame, "Not allowed to unbind from the default exchange")
         else
           @vhost.apply(frame)
