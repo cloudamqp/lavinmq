@@ -2,7 +2,7 @@ require "log/spec"
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
-require "../src/lavinmq/clustering/controller"
+require "../src/lavinmq/clustering/runner"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
@@ -68,7 +68,7 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
   end
 end
 
-describe LavinMQ::Clustering::Controller do
+describe LavinMQ::Clustering::Runner do
   describe ".advertised_uri" do
     it "advertises the client ports the node listens on" do
       config = LavinMQ::Config.new
@@ -76,7 +76,7 @@ describe LavinMQ::Clustering::Controller do
       config.amqp_port = 5682
       config.mqtt_port = 1884
       config.http_port = 15682
-      uri = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config))
+      uri = URI.parse(LavinMQ::Clustering::Runner.advertised_uri(config))
       uri.host.should eq "leader"
       uri.port.should eq 5679
       uri.query_params.to_h.should eq({"amqp" => "5682", "mqtt" => "1884", "http" => "15682"})
@@ -88,7 +88,7 @@ describe LavinMQ::Clustering::Controller do
       config.tls_cert_path = "spec/resources/server_certificate.pem"
       config.amqps_port = 5681
       config.mqtts_port = 0 # disabled
-      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params = URI.parse(LavinMQ::Clustering::Runner.advertised_uri(config)).query_params
       params["amqps"].should eq "5681"
       params["https"].should eq config.https_port.to_s
       params.has_key?("mqtts").should be_false
@@ -98,7 +98,7 @@ describe LavinMQ::Clustering::Controller do
       config = LavinMQ::Config.new
       config.clustering_advertised_uri = "tcp://leader:5679?amqp=30672"
       config.amqp_port = 5672
-      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params = URI.parse(LavinMQ::Clustering::Runner.advertised_uri(config)).query_params
       params.fetch_all("amqp").should eq ["30672"]
       params["http"].should eq config.http_port.to_s
     end
@@ -107,7 +107,7 @@ describe LavinMQ::Clustering::Controller do
       config = LavinMQ::Config.new
       config.clustering_advertised_uri = "tcp://leader:5679"
       config.mqtt_port = -1
-      params = URI.parse(LavinMQ::Clustering::Controller.advertised_uri(config)).query_params
+      params = URI.parse(LavinMQ::Clustering::Runner.advertised_uri(config)).query_params
       params.has_key?("mqtt").should be_false
     end
   end

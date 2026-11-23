@@ -1,6 +1,6 @@
 module LavinMQ
   # Decides when this node serves clients: StandaloneRunner right away, a
-  # clustering controller (Clustering::Controller) once it leads. The
+  # clustering runner (Clustering::Runner) once it leads. The
   # Launcher only uses it through this, the defaults are for a node without
   # clustering.
   abstract class Runner
@@ -14,7 +14,7 @@ module LavinMQ
     end
 
     # How the Launcher stops serving when this node stops leading, while the
-    # process keeps running, see Clustering::Controller#on_demote
+    # process keeps running, see Clustering::Runner#on_demote
     def on_demote(&_block : Proc(Nil)? ->) : Nil
     end
 
