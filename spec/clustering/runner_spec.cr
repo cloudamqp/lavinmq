@@ -1,6 +1,6 @@
 require "../spec_helper"
 require "../../src/lavinmq/launcher"
-require "../../src/lavinmq/clustering/controller"
+require "../../src/lavinmq/clustering/runner"
 
 private def clustering_config(data_dir : String) : LavinMQ::Config
   config = LavinMQ::Config.new
@@ -11,7 +11,7 @@ private def clustering_config(data_dir : String) : LavinMQ::Config
   config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
   config.clustering_raft_port = free_port
   config.clustering_raft_advertised_address = "127.0.0.1:#{config.clustering_raft_port}"
-  config.clustering_secret = "controller-spec"
+  config.clustering_secret = "runner-spec"
   config
 end
 
@@ -65,9 +65,9 @@ rescue
 end
 
 # Each node's role, replication and ISR, for a wait that didn't complete
-private def launcher_state(configs, controllers) : String
+private def launcher_state(configs, runners) : String
   configs.each_index.join("; ") do |i|
-    node = controllers[i].node
+    node = runners[i].node
     metrics = metrics_of(configs[i])
     "node #{i}: leader #{node.leader?}, serving #{metrics.includes?("lavinmq_uptime")}, " \
     "following #{metrics.includes?("lavinmq_cluster_received_bytes_total")}, " \
@@ -84,10 +84,10 @@ ensure
   client.try &.close
 end
 
-describe LavinMQ::Clustering::Controller do
+describe LavinMQ::Clustering::Runner do
   it "uses the etcd backend by default" do
     with_datadir do |data_dir|
-      LavinMQ::Clustering::Controller.create(clustering_config(data_dir)).should be_a LavinMQ::Clustering::EtcdController
+      LavinMQ::Clustering::Runner.create(clustering_config(data_dir)).should be_a LavinMQ::Clustering::EtcdRunner
     end
   end
 
@@ -95,7 +95,7 @@ describe LavinMQ::Clustering::Controller do
     with_datadir do |data_dir|
       config = clustering_config(data_dir)
       config.clustering_backend = LavinMQ::ClusteringBackend::Raft
-      LavinMQ::Clustering::Controller.create(config).should be_a LavinMQ::Clustering::RaftController
+      LavinMQ::Clustering::Runner.create(config).should be_a LavinMQ::Clustering::RaftRunner
     end
   end
 
@@ -184,38 +184,38 @@ describe LavinMQ::Clustering::Controller do
         launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
         exited = Channel(Nil).new(2)
         launchers.each { |l| run_launcher(l, exited) }
-        controllers = launchers.map { |l| l.@runner.as(LavinMQ::Clustering::RaftController) }
+        runners = launchers.map { |l| l.@runner.as(LavinMQ::Clustering::RaftRunner) }
         serving = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_uptime") }
         following = ->(i : Int32) { metrics_of(configs[i]).includes?("lavinmq_cluster_received_bytes_total") }
-        in_sync = ->(i : Int32) { controllers[1 - i].node.committed_isr.try(&.includes?(controllers[i].id)) || false }
+        in_sync = ->(i : Int32) { runners[1 - i].node.committed_isr.try(&.includes?(runners[i].id)) || false }
         begin
           wait_for(10.seconds) { serving.call(0) && following.call(1) && in_sync.call(1) }
         rescue ex
-          fail "node 0 didn't lead with node 1 in sync (#{ex.message}): #{launcher_state(configs, controllers)}"
+          fail "node 0 didn't lead with node 1 in sync (#{ex.message}): #{launcher_state(configs, runners)}"
         end
         {0, 1}.each do |from|
           to = 1 - from
-          plan = controllers[from].request_transfer.as(LavinMQ::Clustering::RaftController::Transfer)
-          plan.target.should eq controllers[to].id
-          controllers[from].step_down(plan)
+          plan = runners[from].request_transfer.as(LavinMQ::Clustering::RaftRunner::Transfer)
+          plan.target.should eq runners[to].id
+          runners[from].step_down(plan)
           # The old leader follows the new one, in the same process
           begin
             wait_for(20.seconds) do
               next true if serving.call(to) && following.call(from) && in_sync.call(from)
               # It serves again if the target hasn't answered it within an
               # election timeout when it hands over, as on a busy CI runner
-              if (again = controllers[from].request_transfer).is_a?(LavinMQ::Clustering::RaftController::Transfer)
-                controllers[from].step_down(again)
+              if (again = runners[from].request_transfer).is_a?(LavinMQ::Clustering::RaftRunner::Transfer)
+                runners[from].step_down(again)
               end
               false
             end
           rescue ex
-            fail "handover from node #{from} to #{to} didn't complete (#{ex.message}): #{launcher_state(configs, controllers)}"
+            fail "handover from node #{from} to #{to} didn't complete (#{ex.message}): #{launcher_state(configs, runners)}"
           end
           serving.call(from).should be_false
           # and still counts for its quorum, so the new leader keeps leading
           sleep 1.second # over three election timeouts
-          controllers[to].node.leader?.should be_true
+          runners[to].node.leader?.should be_true
           serving.call(to).should be_true
           # The lavinmqctl socket, kept through the role changes, has the
           # API where it's served and a follower's answer elsewhere
@@ -244,15 +244,15 @@ describe LavinMQ::Clustering::Controller do
         launchers = configs.map { |c| LavinMQ::Launcher.new(c) }
         exited = Channel(Nil).new(3)
         launchers.each { |l| run_launcher(l, exited) }
-        controllers = launchers.map { |l| l.@runner.as(LavinMQ::Clustering::RaftController) }
-        leader = controllers[0]
+        runners = launchers.map { |l| l.@runner.as(LavinMQ::Clustering::RaftRunner) }
+        leader = runners[0]
         begin
           wait_for(10.seconds) do
             metrics_of(configs[0]).includes?("lavinmq_uptime") &&
-              leader.node.committed_isr.try(&.includes?(controllers[1].id))
+              leader.node.committed_isr.try(&.includes?(runners[1].id))
           end
         rescue ex
-          fail "node 0 didn't lead with node 1 in sync (#{ex.message}): #{launcher_state(configs, controllers)}"
+          fail "node 0 didn't lead with node 1 in sync (#{ex.message}): #{launcher_state(configs, runners)}"
         end
 
         # The other voter goes away, the leader can't keep its quorum

@@ -185,7 +185,7 @@ module ClientReconnectSpec
     end
 
     # A leader that fails the handshake, here one that can't prove it knows
-    # the password, mustn't end replication for good: the controller still
+    # the password, mustn't end replication for good: the runner still
     # thinks this client follows it and won't replace it while that node
     # leads. Both sides log each attempt, so the client waits longer each time.
     it "keeps reconnecting, waiting longer each time, to a leader that fails the handshake" do

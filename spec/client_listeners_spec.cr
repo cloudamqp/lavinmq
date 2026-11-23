@@ -4,7 +4,7 @@ require "../src/lavinmq/client_listeners"
 private alias Leader = LavinMQ::Clustering::Client::Leader
 
 # A leader on this host, which can't use this node's ports, so it advertises
-# its own, as a leader does in its URI (see Clustering::Controller.advertised_uri)
+# its own, as a leader does in its URI (see Clustering::Runner.advertised_uri)
 private def leader_at(host : String, ports : Hash(String, Int32)) : Leader?
   Leader.new(host, 5679, ports).as(Leader?)
 end

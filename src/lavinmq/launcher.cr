@@ -12,7 +12,7 @@ require "./http/control_socket"
 require "./client_listeners"
 require "./data_dir_lock"
 require "./pidfile"
-require "./clustering/controller"
+require "./clustering/runner"
 require "./standalone_runner"
 require "./definitions"
 require "../stdlib/openssl_on_server_name"
@@ -61,7 +61,7 @@ module LavinMQ
       acquire_data_dir_lock if @config.data_dir_lock?
       print_data_dir_read_ahead
 
-      @runner = @config.clustering? ? Clustering::Controller.create(@config) : StandaloneRunner.new
+      @runner = @config.clustering? ? Clustering::Runner.create(@config) : StandaloneRunner.new
       @runner.on_demote { |hand_over| demote(hand_over) }
       @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
       @control_socket = HTTP::ControlSocket.new(@config.control_unix_path, -> { @runner.cluster_status })
@@ -81,7 +81,7 @@ module LavinMQ
 
     private def start : self
       # #stop may have run since the runner decided to serve, e.g. while the
-      # raft controller committed the ISR: nothing started from here on would
+      # raft runner committed the ISR: nothing started from here on would
       # be closed. A #stop from now on leaves the broker to this startup,
       # closing it under it would fail what's still to come, e.g. loading
       # definitions exits 1, and #run closes it once the runner returns.
@@ -145,7 +145,7 @@ module LavinMQ
       @run_done.close
     end
 
-    # Stops serving as the leader, without exiting: the raft controller keeps
+    # Stops serving as the leader, without exiting: the raft runner keeps
     # its raft node running and makes this node follow the new leader, and
     # the next time it's elected #start serves again. When leadership was
     # lost (no *hand_over*) the followers are disconnected first, so nothing
@@ -306,7 +306,7 @@ module LavinMQ
       Log.error { "Failed to load definitions: invalid JSON in '#{path}': #{ex.message}" }
       exit 1
     rescue ex : Clustering::Coordinator::StaleLeadership
-      raise ex # lost leadership, the controller stops serving
+      raise ex # lost leadership, the runner stops serving
     rescue ex
       Log.error(exception: ex) { "Failed to load definitions from '#{path}'" }
       exit 1

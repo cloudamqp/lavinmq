@@ -85,7 +85,7 @@ module LavinMQ::Clustering::Raft
     @closed = Atomic(Bool).new(false)
 
     # Its fibers, outbound and inbound connections alike, run in
-    # *execution_context*, see RaftController.
+    # *execution_context*, see RaftRunner.
     def initialize(@password : String, @id : Int32, @address : String, peers : Enumerable(String),
                    @handler : TransportEvent ->, @connect_timeout = 1.second, @write_timeout = 2.seconds,
                    @execution_context : Fiber::ExecutionContext = Fiber::ExecutionContext.current)

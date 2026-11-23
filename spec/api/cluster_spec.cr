@@ -1,5 +1,5 @@
 require "../spec_helper"
-require "../../src/lavinmq/clustering/controller"
+require "../../src/lavinmq/clustering/runner"
 require "../../src/lavinmq/clustering/raft/transport"
 
 # A single node raft cluster behind the HTTP API
@@ -19,9 +19,9 @@ private def with_cluster_api(&)
     config.clustering_port = free_port
     config.clustering_advertised_uri = "tcp://127.0.0.1:#{config.clustering_port}"
     config.metrics_http_port = -1
-    controller = LavinMQ::Clustering::RaftController.new(config)
+    runner = LavinMQ::Clustering::RaftRunner.new(config)
     serving = Channel(Nil).new
-    spawn(name: "cluster api spec") { controller.run { serving.send nil } }
+    spawn(name: "cluster api spec") { runner.run { serving.send nil } }
     select
     when serving.receive
     when timeout(5.seconds)
@@ -29,7 +29,7 @@ private def with_cluster_api(&)
     end
     begin
       with_amqp_server do |s|
-        h = LavinMQ::HTTP::Server.new(s, s.amqp_server, s.mqtt_server, controller)
+        h = LavinMQ::HTTP::Server.new(s, s.amqp_server, s.mqtt_server, runner)
         addr = h.bind_tcp("127.0.0.1", 0)
         spawn(name: "http listen") { h.listen }
         Fiber.yield
@@ -37,7 +37,7 @@ private def with_cluster_api(&)
         h.close
       end
     ensure
-      controller.stop
+      runner.stop
     end
   end
 end

@@ -5,15 +5,15 @@ require "./coordinator"
 require "../runner"
 
 # Elects the leader and makes the other nodes follow it. The leader election
-# and ISR storage are done by an etcd cluster (EtcdController) or by the nodes
-# themselves with Raft (RaftController), chosen by `[clustering] backend`.
-abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
-  Log = LavinMQ::Log.for "clustering.controller"
+# and ISR storage are done by an etcd cluster (EtcdRunner) or by the nodes
+# themselves with Raft (RaftRunner), chosen by `[clustering] backend`.
+abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
+  Log = LavinMQ::Log.for "clustering.runner"
 
-  def self.create(config : Config) : Controller
+  def self.create(config : Config) : Runner
     case config.clustering_backend
-    in .etcd? then EtcdController.new(config)
-    in .raft? then RaftController.new(config)
+    in .etcd? then EtcdRunner.new(config)
+    in .raft? then RaftRunner.new(config)
     end
   end
 
@@ -35,9 +35,9 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
 
   # *id*: this node's unique id, for tracking the ISR. The etcd backend keeps
   # it in .clustering_id, see .clustering_id, the raft backend in its raft
-  # state, see RaftController.
+  # state, see RaftRunner.
   def initialize(@config : Config, @id : Int32)
-    @advertised_uri = Controller.advertised_uri(@config)
+    @advertised_uri = Runner.advertised_uri(@config)
     Log.info { "ID: #{@id.to_s(36)}" }
   end
 
@@ -71,7 +71,7 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   end
 
   # This method is called by the Launcher#run.
-  # The block will be yielded when the controller's prerequisites for a leader
+  # The block will be yielded when the runner's prerequisites for a leader
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
   abstract def run(&)
@@ -209,5 +209,5 @@ abstract class LavinMQ::Clustering::Controller < LavinMQ::Runner
   class Error < Exception; end
 end
 
-require "./etcd_controller"
-require "./raft_controller"
+require "./etcd_runner"
+require "./raft_runner"

@@ -1,8 +1,8 @@
 require "log/spec"
 require "../spec_helper"
-require "../../src/lavinmq/clustering/controller"
+require "../../src/lavinmq/clustering/runner"
 
-private class SpecController < LavinMQ::Clustering::RaftController
+private class SpecRunner < LavinMQ::Clustering::RaftRunner
   property fake_leader_uri : String? = nil
   property? fake_leader = false
   getter fake_serving = BoolChannel.new(false)
@@ -28,11 +28,11 @@ private class SpecController < LavinMQ::Clustering::RaftController
   end
 end
 
-private alias ControllerExit = Tuple(LavinMQ::Clustering::RaftController, Int32)
+private alias RunnerExit = Tuple(LavinMQ::Clustering::RaftRunner, Int32)
 
 # Records the exits of the watchdogs, which run in fibers of their own.
-private class ExitRecordingController < LavinMQ::Clustering::RaftController
-  def initialize(config : LavinMQ::Config, @exits : Channel(ControllerExit))
+private class ExitRecordingRunner < LavinMQ::Clustering::RaftRunner
+  def initialize(config : LavinMQ::Config, @exits : Channel(RunnerExit))
     super(config)
   end
 
@@ -43,7 +43,7 @@ private class ExitRecordingController < LavinMQ::Clustering::RaftController
   end
 end
 
-private alias ControllerDemotion = Tuple(LavinMQ::Clustering::RaftController, Bool)
+private alias RunnerDemotion = Tuple(LavinMQ::Clustering::RaftRunner, Bool)
 
 private def receive_within(channel : Channel(T), span : Time::Span) : T? forall T
   select
@@ -60,19 +60,19 @@ private def should_not_have_exited(cluster) : Nil
   end
 end
 
-# Controllers of a cluster, each with its own data dir and raft port. The
+# Runners of a cluster, each with its own data dir and raft port. The
 # block given to run is recorded so specs can see who's serving.
-private class ControllerCluster
-  getter controllers = Array(LavinMQ::Clustering::RaftController).new
-  getter serving = Channel(LavinMQ::Clustering::RaftController).new(8)
-  getter exits = Channel(ControllerExit).new(8)
+private class RunnerCluster
+  getter runners = Array(LavinMQ::Clustering::RaftRunner).new
+  getter serving = Channel(LavinMQ::Clustering::RaftRunner).new(8)
+  getter exits = Channel(RunnerExit).new(8)
   # Each time a leader stops serving, and whether it lost leadership
-  getter demotions = Channel(ControllerDemotion).new(8)
+  getter demotions = Channel(RunnerDemotion).new(8)
   getter dirs = Array(String).new
   getter configs = Array(LavinMQ::Config).new
   # With *replication*, a leader also serves its data to followers, as the
   # Launcher does, so followers sync and the ISR follows.
-  getter servers = Hash(LavinMQ::Clustering::RaftController, LavinMQ::Clustering::Server).new
+  getter servers = Hash(LavinMQ::Clustering::RaftRunner, LavinMQ::Clustering::Server).new
   # Replication listeners of the nodes that haven't led yet, by config index
   @replication_listeners = Hash(Int32, TCPServer).new
   # Raft ports picked for nodes that haven't started, held bound until they
@@ -106,8 +106,8 @@ private class ControllerCluster
   end
 
   # A node that isn't started yet, with broker data if `data`
-  def add_node(port : Int32, seeds : String, data = false) : LavinMQ::Clustering::RaftController
-    dir = File.tempname("lavinmq", "controller-spec")
+  def add_node(port : Int32, seeds : String, data = false) : LavinMQ::Clustering::RaftRunner
+    dir = File.tempname("lavinmq", "runner-spec")
     Dir.mkdir_p dir
     File.write(File.join(dir, "spec-broker-data"), "") if data
     @ids[@dirs.size]?.try { |id| File.write(File.join(dir, ".clustering_id"), id.to_s(36)) }
@@ -135,71 +135,71 @@ private class ControllerCluster
     # Followers proxy client ports to the leader, let each pick its own
     config.amqp_port = config.http_port = config.mqtt_port = 0
     config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
-    ExitRecordingController.new(config, @exits).tap do |c|
+    ExitRecordingRunner.new(config, @exits).tap do |c|
       register(c)
-      @controllers << c
+      @runners << c
     end
   end
 
   # Stops serving replication when a leader steps down, as the Launcher does
-  private def register(controller : LavinMQ::Clustering::RaftController) : Nil
-    controller.on_demote do |hand_over|
+  private def register(runner : LavinMQ::Clustering::RaftRunner) : Nil
+    runner.on_demote do |hand_over|
       hand_over.try &.call
-      @servers.delete(controller).try &.close
-      @demotions.send({controller, hand_over.nil?})
+      @servers.delete(runner).try &.close
+      @demotions.send({runner, hand_over.nil?})
     end
   end
 
-  def address(controller : LavinMQ::Clustering::RaftController) : String
-    @configs[@controllers.index!(controller)].clustering_raft_advertised_address.should_not(be_nil)
+  def address(runner : LavinMQ::Clustering::RaftRunner) : String
+    @configs[@runners.index!(runner)].clustering_raft_advertised_address.should_not(be_nil)
   end
 
-  # Starts a new controller with the config of a stopped one, like a
+  # Starts a new runner with the config of a stopped one, like a
   # supervisor restarting the process.
-  def restart(controller : LavinMQ::Clustering::RaftController) : LavinMQ::Clustering::RaftController
-    index = @controllers.index!(controller)
-    @controllers[index] = fresh = ExitRecordingController.new(@configs[index], @exits)
+  def restart(runner : LavinMQ::Clustering::RaftRunner) : LavinMQ::Clustering::RaftRunner
+    index = @runners.index!(runner)
+    @runners[index] = fresh = ExitRecordingRunner.new(@configs[index], @exits)
     register(fresh)
     start(fresh)
     fresh
   end
 
   # *startup* runs as the leader's startup, after it's reported as serving.
-  def start(controller, startup : Proc(Nil) = -> { })
-    config = @configs[@controllers.index!(controller)]
+  def start(runner, startup : Proc(Nil) = -> { })
+    config = @configs[@runners.index!(runner)]
     @reserved_ports.delete(config.clustering_raft_port).try &.close
-    spawn(name: "controller spec #{controller.id}") do
-      controller.run do
-        serve_replication(controller) if @replication
-        @serving.send controller
+    spawn(name: "runner spec #{runner.id}") do
+      runner.run do
+        serve_replication(runner) if @replication
+        @serving.send runner
         startup.call
       end
     rescue ex : SpecExit
-      @exits.send({controller, ex.code})
+      @exits.send({runner, ex.code})
     rescue ex
       # Would otherwise only show as no leader being elected
-      STDERR.puts "controller spec #{controller.id} failed: #{ex.inspect_with_backtrace}"
+      STDERR.puts "runner spec #{runner.id} failed: #{ex.inspect_with_backtrace}"
       raise ex
     end
   end
 
-  private def serve_replication(controller)
-    config = @configs[@controllers.index!(controller)]
-    server = LavinMQ::Clustering::Server.new(config, controller.coordinator, controller.id)
-    @servers[controller] = server
+  private def serve_replication(runner)
+    config = @configs[@runners.index!(runner)]
+    server = LavinMQ::Clustering::Server.new(config, runner.coordinator, runner.id)
+    @servers[runner] = server
     tcp = @replication_listeners.delete(@configs.index!(config)) ||
           TCPServer.new(config.clustering_bind.should_not(be_nil), config.clustering_port) # a restarted leader
-    spawn(name: "replication spec #{controller.id}") { server.listen(tcp) }
+    spawn(name: "replication spec #{runner.id}") { server.listen(tcp) }
   end
 
   def start_all(startup : Proc(Nil) = -> { })
-    @controllers.each { |c| start(c, startup) }
+    @runners.each { |c| start(c, startup) }
   end
 
-  # The next controller that serves and still leads. A leader can serve
+  # The next runner that serves and still leads. A leader can serve
   # again in the same process after losing leadership, so a node that has
   # stopped leading since, e.g. one a spec stopped, is skipped.
-  def next_leader(timeout = 5.seconds) : LavinMQ::Clustering::RaftController
+  def next_leader(timeout = 5.seconds) : LavinMQ::Clustering::RaftRunner
     deadline = Time.instant + timeout
     loop do
       select
@@ -221,22 +221,22 @@ private class ControllerCluster
     @reserved_ports.each_value &.close
     @replication_listeners.each_value &.close
     @servers.each_value &.close
-    @controllers.each &.stop
+    @runners.each &.stop
     @dirs.each { |d| FileUtils.rm_rf d }
   end
 end
 
-private def with_controllers(size = 3, data = [0], replication = false, election_timeout = 300,
-                             etcd_endpoints = "localhost:1", ids = [] of Int32, &)
-  cluster = ControllerCluster.new(size, data, replication, election_timeout, etcd_endpoints, ids)
+private def with_runners(size = 3, data = [0], replication = false, election_timeout = 300,
+                         etcd_endpoints = "localhost:1", ids = [] of Int32, &)
+  cluster = RunnerCluster.new(size, data, replication, election_timeout, etcd_endpoints, ids)
   yield cluster
 ensure
   cluster.try &.close
 end
 
-# Serves *controller*'s metrics as the Launcher sets it up, yields a scrape
-private def with_metrics_of(controller : LavinMQ::Clustering::RaftController, &)
-  metrics = LavinMQ::HTTP::MetricsServer.new(metrics: ->controller.write_metrics(LavinMQ::HTTP::PrometheusWriter))
+# Serves *runner*'s metrics as the Launcher sets it up, yields a scrape
+private def with_metrics_of(runner : LavinMQ::Clustering::RaftRunner, &)
+  metrics = LavinMQ::HTTP::MetricsServer.new(metrics: ->runner.write_metrics(LavinMQ::HTTP::PrometheusWriter))
   addr = metrics.bind_tcp("127.0.0.1", 0)
   spawn metrics.listen
   yield -> { HTTP::Client.get("http://#{addr}/metrics").body rescue "" }
@@ -244,7 +244,7 @@ ensure
   metrics.try &.close
 end
 
-# A single node raft config, for a controller that isn't started
+# A single node raft config, for a runner that isn't started
 private def raft_config(data_dir : String) : LavinMQ::Config
   config = LavinMQ::Config.new
   config.data_dir = data_dir
@@ -252,23 +252,23 @@ private def raft_config(data_dir : String) : LavinMQ::Config
   config.clustering_bind = "127.0.0.1"
   config.clustering_raft_advertised_address = "127.0.0.1:5680"
   config.clustering_seeds = "127.0.0.1:5680"
-  config.clustering_secret = "raft-controller-spec"
+  config.clustering_secret = "raft-runner-spec"
   config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
   config
 end
 
-describe LavinMQ::Clustering::RaftController do
+describe LavinMQ::Clustering::RaftRunner do
   it "stops following once this node is the leader" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
       config.data_dir = data_dir
       config.clustering_secret = "secret"
       config.clustering_advertised_uri = "tcp://localhost:5685"
-      controller = SpecController.new(config)
-      controller.fake_leader_uri = config.clustering_advertised_uri
-      controller.fake_leader = true
-      controller.fake_serving.set(true)
-      controller.follow_leader_public # returns instead of blocking or exiting
+      runner = SpecRunner.new(config)
+      runner.fake_leader_uri = config.clustering_advertised_uri
+      runner.fake_leader = true
+      runner.fake_serving.set(true)
+      runner.follow_leader_public # returns instead of blocking or exiting
     end
   end
 
@@ -278,13 +278,13 @@ describe LavinMQ::Clustering::RaftController do
       config.data_dir = data_dir
       config.clustering_secret = "secret"
       config.clustering_advertised_uri = "tcp://localhost:5685"
-      controller = SpecController.new(config)
-      controller.fake_leader_uri = config.clustering_advertised_uri
-      controller.fake_leader = true
+      runner = SpecRunner.new(config)
+      runner.fake_leader_uri = config.clustering_advertised_uri
+      runner.fake_leader = true
       returned = Channel(Nil).new
-      Log.capture("lmq.clustering.controller", :warn) do |logs|
+      Log.capture("lmq.clustering.runner", :warn) do |logs|
         spawn do
-          controller.follow_leader_public
+          runner.follow_leader_public
           returned.close
         end
         select
@@ -292,12 +292,12 @@ describe LavinMQ::Clustering::RaftController do
           fail "stopped following while not serving"
         when timeout(100.milliseconds)
         end
-        controller.fake_leader = false
-        controller.fake_leader_uri = nil
-        controller.node.leader_changed.send nil
+        runner.fake_leader = false
+        runner.fake_leader_uri = nil
+        runner.node.leader_changed.send nil
         wait_for { logs.check(:warn, "No leader available") rescue nil }
       end
-      controller.stop
+      runner.stop
       returned.receive?
     end
   end
@@ -308,18 +308,18 @@ describe LavinMQ::Clustering::RaftController do
       config.data_dir = data_dir
       config.clustering_secret = "secret"
       config.clustering_advertised_uri = "tcp://localhost:5685"
-      controller = SpecController.new(config)
-      controller.fake_leader_uri = config.clustering_advertised_uri
-      ex = expect_raises(SpecExit) { controller.follow_leader_public }
+      runner = SpecRunner.new(config)
+      runner.fake_leader_uri = config.clustering_advertised_uri
+      ex = expect_raises(SpecExit) { runner.follow_leader_public }
       ex.code.should eq 36
     end
   end
 
   it "elects a single leader and fails over", tags: "slow" do
-    with_controllers do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+      first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
       first.stop
       second = cluster.next_leader
       second.should_not eq first
@@ -332,11 +332,11 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "keeps raft running while the default execution context is busy", tags: "slow" do
-    with_controllers do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       leader = cluster.next_leader
-      leader.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-      follower = cluster.controllers.find! { |c| c != leader }
+      leader.coordinator.update_isr(cluster.runners.map(&.id).to_set)
+      follower = cluster.runners.find! { |c| c != leader }
       term = leader.node.status.should_not(be_nil).term
       busy_until = Time.instant + 300.milliseconds * 5
       # Watches from a thread of its own how long the follower's raft node
@@ -364,16 +364,16 @@ describe LavinMQ::Clustering::RaftController do
       hogs.wait
       worst.receive.should be < 300.milliseconds
       leader.node.status.should_not(be_nil).role.leader?.should be_true
-      cluster.controllers.each(&.node.status.should_not(be_nil).term.should(eq(term)))
+      cluster.runners.each(&.node.status.should_not(be_nil).term.should(eq(term)))
     end
   end
 
   it "hands over leadership on shutdown faster than an election timeout", tags: "slow" do
     # Generous, the handover takes several fsyncs that can be slow on CI
-    with_controllers(election_timeout: 1000) do |cluster|
+    with_runners(election_timeout: 1000) do |cluster|
       cluster.start_all
       first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+      first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
       started = Time.instant
       spawn { first.stop }
       cluster.next_leader(timeout: 2.seconds)
@@ -382,11 +382,11 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "only fails over to nodes in the ISR", tags: "slow" do
-    with_controllers do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       first = cluster.next_leader
       # A new leader's ISR is just itself until followers have synced from it
-      others = cluster.controllers.reject(first)
+      others = cluster.runners.reject(first)
       in_sync = others.first
       first.coordinator.update_isr(Set{first.id, in_sync.id})
       first.stop
@@ -395,7 +395,7 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "doesn't fail over when no other node is in the ISR", tags: "slow" do
-    with_controllers do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       first = cluster.next_leader
       first.stop
@@ -408,11 +408,11 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "elects the only node with data first, and none while several have data", tags: "slow" do
-    with_controllers(data: [1]) do |cluster|
+    with_runners(data: [1]) do |cluster|
       cluster.start_all
-      cluster.next_leader.should eq cluster.controllers[1]
+      cluster.next_leader.should eq cluster.runners[1]
     end
-    with_controllers(data: [0, 1]) do |cluster|
+    with_runners(data: [0, 1]) do |cluster|
       cluster.start_all
       select
       when c = cluster.serving.receive
@@ -422,7 +422,7 @@ describe LavinMQ::Clustering::RaftController do
     end
   end
 
-  # What the controller tells the other seeds as has_data, which picks the
+  # What the runner tells the other seeds as has_data, which picks the
   # first leader: a lavinmqctl socket left in the data dir by a crashed
   # process, or schema backups, aren't broker data
   # A node that lost its raft state can't tell which terms it voted in, so
@@ -431,26 +431,26 @@ describe LavinMQ::Clustering::RaftController do
   it "keeps its clustering id in its raft state, and starts as a new node without it" do
     with_datadir do |data_dir|
       config = raft_config(data_dir)
-      id = LavinMQ::Clustering::RaftController.new(config).id
+      id = LavinMQ::Clustering::RaftRunner.new(config).id
       LavinMQ::Clustering::Raft::Storage.new(data_dir).load.should_not(be_nil).node_id.should eq id
       File.exists?(File.join(data_dir, ".clustering_id")).should be_false
-      LavinMQ::Clustering::RaftController.new(config).id.should eq id
+      LavinMQ::Clustering::RaftRunner.new(config).id.should eq id
       File.delete(File.join(data_dir, ".raft_state"))
       # Not even the etcd backend's id, kept from before a migration
       File.write(File.join(data_dir, ".clustering_id"), id.to_s(36))
-      LavinMQ::Clustering::RaftController.new(config).id.should_not eq id
+      LavinMQ::Clustering::RaftRunner.new(config).id.should_not eq id
     end
   end
 
   it "takes a node that lost its raft state for a new node, which isn't a voter", tags: "slow" do
-    with_controllers do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       leader = cluster.next_leader
       wait_for { leader.node.membership.try(&.voters.size) == 3 }
-      follower = cluster.controllers.find! { |c| c != leader }
+      follower = cluster.runners.find! { |c| c != leader }
       old_id = follower.id
       follower.stop
-      File.delete(File.join(cluster.dirs[cluster.controllers.index!(follower)], ".raft_state"))
+      File.delete(File.join(cluster.dirs[cluster.runners.index!(follower)], ".raft_state"))
       fresh = cluster.restart(follower)
       fresh.id.should_not eq old_id
       sleep 1.second # a few election timeouts, connected to the others
@@ -466,7 +466,7 @@ describe LavinMQ::Clustering::RaftController do
   # by a leader that hasn't finished its startup, which `transfer_leadership
   # --wait` mustn't take for the serving leader's own answer
   it "reports its own view, not serving, also as a leader", tags: "slow" do
-    with_controllers(size: 1) do |cluster|
+    with_runners(size: 1) do |cluster|
       cluster.start_all
       leader = cluster.next_leader
       status = JSON.parse(leader.cluster_status.should_not(be_nil))
@@ -478,12 +478,12 @@ describe LavinMQ::Clustering::RaftController do
 
   # Client connections then wait for this node to serve, see ClientListeners
   it "tells that there's no leader host before it serves", tags: "slow" do
-    with_controllers(size: 1) do |cluster|
-      controller = cluster.controllers.first
+    with_runners(size: 1) do |cluster|
+      runner = cluster.runners.first
       changed = Atomic(Bool).new(false)
-      controller.on_leader_change { changed.set(true) }
+      runner.on_leader_change { changed.set(true) }
       told = Channel(Bool).new(1)
-      cluster.start(controller, -> { told.send changed.get })
+      cluster.start(runner, -> { told.send changed.get })
       cluster.next_leader
       told.receive.should be_true
     end
@@ -506,9 +506,9 @@ describe LavinMQ::Clustering::RaftController do
     with_etcd do
       # Not the lowest id, which leads among equals
       LavinMQ::Etcd.new("127.0.0.1:12379").put("lavinmq/isr", 200.to_s(36))
-      with_controllers(data: [0, 1, 2], etcd_endpoints: "127.0.0.1:12379", ids: [100, 200, 300]) do |cluster|
+      with_runners(data: [0, 1, 2], etcd_endpoints: "127.0.0.1:12379", ids: [100, 200, 300]) do |cluster|
         cluster.start_all
-        cluster.next_leader.should eq cluster.controllers[1]
+        cluster.next_leader.should eq cluster.runners[1]
       end
     end
   end
@@ -518,9 +518,9 @@ describe LavinMQ::Clustering::RaftController do
     tags: %w[etcd slow] do
     with_etcd do
       LavinMQ::Etcd.new("127.0.0.1:12379").put("lavinmq/isr", 200.to_s(36))
-      with_controllers(data: [0, 1, 2], etcd_endpoints: "127.0.0.1:12379", ids: [100, 200, 300]) do |cluster|
-        cluster.controllers.dup.each { |c| cluster.restart(c) }
-        cluster.next_leader.should eq cluster.controllers[1]
+      with_runners(data: [0, 1, 2], etcd_endpoints: "127.0.0.1:12379", ids: [100, 200, 300]) do |cluster|
+        cluster.runners.dup.each { |c| cluster.restart(c) }
+        cluster.next_leader.should eq cluster.runners[1]
       end
     end
   end
@@ -528,10 +528,10 @@ describe LavinMQ::Clustering::RaftController do
   it "reports raft metrics without a leader and while following", tags: "slow" do
     # Several nodes with data and no raft state can't elect a first leader.
     # All nodes start at once, a node started later could find its port taken.
-    with_controllers(data: [0, 1]) do |cluster|
-      with_metrics_of(cluster.controllers[0]) do |scrape|
+    with_runners(data: [0, 1]) do |cluster|
+      with_metrics_of(cluster.runners[0]) do |scrape|
         cluster.start_all
-        peer = cluster.controllers[1].id.to_s(36)
+        peer = cluster.runners[1].id.to_s(36)
         wait_for { scrape.call.includes? %(lavinmq_raft_peer_connected{peer="#{peer}"} 1) }
         body = scrape.call
         body.should contain "lavinmq_raft_has_leader 0"
@@ -540,10 +540,10 @@ describe LavinMQ::Clustering::RaftController do
         body.should_not contain "lavinmq_cluster_received_bytes_total"
       end
     end
-    with_controllers(replication: true) do |cluster|
-      with_metrics_of(cluster.controllers[1]) do |scrape|
+    with_runners(replication: true) do |cluster|
+      with_metrics_of(cluster.runners[1]) do |scrape|
         cluster.start_all
-        cluster.next_leader.should eq cluster.controllers[0]
+        cluster.next_leader.should eq cluster.runners[0]
         # Along with the replication client's
         wait_for { scrape.call.includes? "lavinmq_cluster_received_bytes_total" }
         body = scrape.call
@@ -561,12 +561,12 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "doesn't step down when losing leadership while shutting down", tags: "slow" do
-    with_controllers do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+      first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
       first.stopping
-      cluster.controllers.reject(first).each(&.stop)
+      cluster.runners.reject(first).each(&.stop)
       if demotion = receive_within(cluster.demotions, 2.seconds)
         fail "stepped down to follow during a graceful shutdown (lost: #{demotion[1]})"
       end
@@ -581,15 +581,15 @@ describe LavinMQ::Clustering::RaftController do
     {"a fenced replicator", -> { LavinMQ::Clustering::Coordinator::StaleLeadership.new("Replication is fenced (spec)").as(Exception) }},
   }.each do |what, error|
     it "stops serving when a startup that writes the ISR fails on #{what}", tags: "slow" do
-      with_controllers do |cluster|
+      with_runners do |cluster|
         # A replicated write during startup fails once leadership is lost
         cluster.start_all(-> {
-          wait_for(5.seconds) { cluster.controllers.none?(&.node.serving.value) }
+          wait_for(5.seconds) { cluster.runners.none?(&.node.serving.value) }
           raise error.call
         })
         first = cluster.next_leader
-        first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-        cluster.controllers.reject(first).each(&.stop)
+        first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
+        cluster.runners.reject(first).each(&.stop)
         receive_within(cluster.demotions, 5.seconds).should eq({first, true})
         should_not_have_exited(cluster)
       end
@@ -597,14 +597,14 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "starts over when it loses leadership and wins it back while starting to serve", tags: "slow" do
-    with_controllers do |cluster|
+    with_runners do |cluster|
       first_startup = Atomic(Bool).new(true)
       cluster.start_all(-> {
         if first_startup.swap(false)
           # Cut off from its peers the leader steps down. Only it is in the
           # ISR, so once they're back it's elected again, in a later term.
-          leader = cluster.controllers.find!(&.node.leader?)
-          others = cluster.controllers.reject(leader)
+          leader = cluster.runners.find!(&.node.leader?)
+          others = cluster.runners.reject(leader)
           others.each(&.stop)
           wait_for(5.seconds) { !leader.node.serving.value }
           others.each { |c| cluster.restart(c) }
@@ -620,12 +620,12 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "exits when it loses leadership during a startup that hangs", tags: "slow" do
-    with_controllers do |cluster|
-      cluster.controllers.each &.demotion_timeout = 500.milliseconds
+    with_runners do |cluster|
+      cluster.runners.each &.demotion_timeout = 500.milliseconds
       cluster.start_all(-> { cluster.hang })
       first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-      cluster.controllers.reject(first).each(&.stop)
+      first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
+      cluster.runners.reject(first).each(&.stop)
       # Only the leader's exit counts, another node could have failed to bind
       # its reserved port
       deadline = Time.instant + 5.seconds
@@ -640,29 +640,29 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "stops serving and follows when it loses leadership", tags: "slow" do
-    with_controllers do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       first = cluster.next_leader
-      first.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
+      first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
       # Cut the leader off from its peers: it has to step down on its own
-      others = cluster.controllers.reject(first)
+      others = cluster.runners.reject(first)
       others.each(&.stop)
       receive_within(cluster.demotions, 5.seconds).should eq({first, true})
       should_not_have_exited(cluster)
       first.node.leader?.should be_false
       # When its peers are back it can be elected again, in the same process
       others.each { |c| cluster.restart(c) }
-      wait_for(10.seconds) { cluster.controllers.any?(&.node.serving.value) }
+      wait_for(10.seconds) { cluster.runners.any?(&.node.serving.value) }
       should_not_have_exited(cluster)
     end
   end
 
   it "relocates a replica: learner, promotion, handover and removal", tags: "slow" do
-    with_controllers(replication: true) do |cluster|
+    with_runners(replication: true) do |cluster|
       cluster.start_all
       a = cluster.next_leader
       a_addr = cluster.address(a)
-      wait_for(10.seconds) { a.node.committed_isr == cluster.controllers.map(&.id).to_set }
+      wait_for(10.seconds) { a.node.committed_isr == cluster.runners.map(&.id).to_set }
 
       # A new node starts with an existing member as its seed. It doesn't
       # campaign, and doesn't get anything until it's added.
@@ -689,7 +689,7 @@ describe LavinMQ::Clustering::RaftController do
       a.node.membership.should_not(be_nil).voters.should contain(d.id)
 
       a.request_transfer("localhost:1").should be_a String # not a member
-      plan = a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftController::Transfer)
+      plan = a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftRunner::Transfer)
       plan.target.should eq d.id
       plan.address.should eq d_addr
       # A second request before the step down can't override the accepted one
@@ -702,7 +702,7 @@ describe LavinMQ::Clustering::RaftController do
       # election timeout when it's handed over, as on a busy CI runner
       2.times do
         break if leader == d
-        a.step_down(a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftController::Transfer))
+        a.step_down(a.request_transfer(d_addr).as(LavinMQ::Clustering::RaftRunner::Transfer))
         leader = cluster.next_leader(10.seconds)
         cluster.demotions.receive.should eq({a, false})
       end
@@ -730,18 +730,18 @@ describe LavinMQ::Clustering::RaftController do
   it "ignores a transfer requested in an earlier term", tags: "slow" do
     # A longer election timeout, so a loaded runner doesn't lose the
     # leadership between the checks
-    with_controllers(election_timeout: 1000) do |cluster|
+    with_runners(election_timeout: 1000) do |cluster|
       cluster.start_all
       leader = cluster.next_leader
-      other = cluster.controllers.find! { |c| c != leader }
+      other = cluster.runners.find! { |c| c != leader }
       term = leader.node.status.should_not(be_nil).term
       # As when a request raced with losing leadership and this node leads again
-      leader.step_down(LavinMQ::Clustering::RaftController::Transfer.new(other.id, cluster.address(other), term - 1))
+      leader.step_down(LavinMQ::Clustering::RaftRunner::Transfer.new(other.id, cluster.address(other), term - 1))
       receive_within(cluster.demotions, 1.second).should be_nil
       leader.node.leader?.should be_true
       # and it doesn't get in the way of one requested now
-      leader.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-      plan = leader.request_transfer(cluster.address(other)).as(LavinMQ::Clustering::RaftController::Transfer)
+      leader.coordinator.update_isr(cluster.runners.map(&.id).to_set)
+      plan = leader.request_transfer(cluster.address(other)).as(LavinMQ::Clustering::RaftRunner::Transfer)
       leader.step_down(plan)
       receive_within(cluster.demotions, 5.seconds).should eq({leader, false})
       cluster.next_leader.should eq other
@@ -749,28 +749,28 @@ describe LavinMQ::Clustering::RaftController do
   end
 
   it "refuses to hand over leadership to a voter that stopped answering" do
-    with_controllers do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       leader = cluster.next_leader
-      leader.coordinator.update_isr(cluster.controllers.map(&.id).to_set)
-      gone, other = cluster.controllers.reject(leader)
+      leader.coordinator.update_isr(cluster.runners.map(&.id).to_set)
+      gone, other = cluster.runners.reject(leader)
       gone.stop
       sleep 500.milliseconds # longer than the election timeout
       leader.request_transfer(cluster.address(gone)).as(String).should contain "answered"
-      plan = leader.request_transfer.as(LavinMQ::Clustering::RaftController::Transfer)
+      plan = leader.request_transfer.as(LavinMQ::Clustering::RaftRunner::Transfer)
       plan.target.should eq other.id
     end
   end
 
   it "takes a follower back at a new raft address with its data dir", tags: "slow" do
-    with_controllers(replication: true) do |cluster|
+    with_runners(replication: true) do |cluster|
       cluster.start_all
       a = cluster.next_leader
-      wait_for(10.seconds) { a.node.committed_isr == cluster.controllers.map(&.id).to_set }
-      b = cluster.controllers.find! { |c| c != a }
+      wait_for(10.seconds) { a.node.committed_isr == cluster.runners.map(&.id).to_set }
+      b = cluster.runners.find! { |c| c != a }
       b.stop
       port = cluster.reserve_port
-      config = cluster.configs[cluster.controllers.index!(b)]
+      config = cluster.configs[cluster.runners.index!(b)]
       config.clustering_raft_port = port
       config.clustering_raft_advertised_address = "127.0.0.1:#{port}"
       cluster.restart(b)

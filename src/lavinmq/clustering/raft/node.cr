@@ -122,7 +122,7 @@ module LavinMQ::Clustering::Raft
   # @events, and the Core is ticked after each and at its next deadline, so
   # it needs no locking. State is persisted before any message produced
   # alongside it leaves the node (see Core#dirty?). The fiber runs in
-  # *execution_context*; RaftController gives it a context of its own, so that
+  # *execution_context*; RaftRunner gives it a context of its own, so that
   # a busy broker can't delay heartbeats and votes.
   class Node
     Log = LavinMQ::Log.for "clustering.raft"

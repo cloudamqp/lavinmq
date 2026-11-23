@@ -50,7 +50,7 @@ module LavinMQ::Clustering
     end
 
     # Yield the parsed ISR set on every change to the ISR key (nil when the key
-    # is deleted), until the block breaks. Used by the Controller to wait for
+    # is deleted), until the block breaks. Used by the Runner to wait for
     # this node to (re)appear in the ISR before serving as leader.
     def watch_isr(&)
       @etcd.watch(isr_key) do |value|

@@ -1,4 +1,4 @@
-require "./controller"
+require "./runner"
 require "./cluster_admin"
 require "./raft_coordinator"
 require "./raft/node"
@@ -7,7 +7,7 @@ require "../etcd"
 require "../../stdlib/channel"
 
 # Leader election and ISR storage by the nodes themselves, with Raft.
-class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
+class LavinMQ::Clustering::RaftRunner < LavinMQ::Clustering::Runner
   getter coordinator : RaftCoordinator
   getter node : Raft::Node
 
@@ -31,7 +31,7 @@ class LavinMQ::Clustering::RaftController < LavinMQ::Clustering::Controller
   # timeout: followers would start elections and the leader would step down on
   # losing its quorum, while it's only busy. The work in it is small, so one
   # thread is enough. One for the process, it can't be stopped: a node runs
-  # one controller, but specs run many.
+  # one runner, but specs run many.
   @@raft_context : Fiber::ExecutionContext::Concurrent? = nil
   @@raft_context_lock = Mutex.new
 

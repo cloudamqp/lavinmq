@@ -69,7 +69,7 @@ module LavinMQ
       # #close may run on more than one thread at once, only one closes
       @close_lock = Mutex.new
       @close_done = Channel(Nil).new
-      # Read by #follows? from the controller's fiber while #follow sets it
+      # Read by #follows? from the runner's fiber while #follow sets it
       @leader = Atomic(Leader?).new(nil)
       @socket : TCPSocket?
       getter streamed_bytes = 0_u64
@@ -142,7 +142,7 @@ module LavinMQ
       end
 
       # Tells whether this node is part of the cluster, to explain why the
-      # leader keeps refusing the connection. Set by controllers that have
+      # leader keeps refusing the connection. Set by runners that have
       # a membership.
       property member_check : Proc(Bool)? = nil
 
@@ -892,7 +892,7 @@ module LavinMQ
         raise IO::Error.new("Replication protocol version mismatch")
       end
 
-      # On promotion both the leader watcher and the controller close the
+      # On promotion both the leader watcher and the runner close the
       # client, and the leader starts as soon as its call returns, so a call
       # made while another is closing waits for it to finish with the data dir.
       def close
