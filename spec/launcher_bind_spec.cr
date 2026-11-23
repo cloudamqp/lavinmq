@@ -3,7 +3,7 @@ require "../src/lavinmq/launcher"
 
 class LavinMQ::Launcher
   def start_for_spec
-    start
+    start(nil)
   end
 
   def runner_for_spec=(@runner : LavinMQ::Runner)
@@ -17,8 +17,8 @@ private class EarlyReturnRunner < LavinMQ::Runner
   getter started = Channel(Nil).new
   @stopping = Channel(Nil).new
 
-  def run(&)
-    yield
+  def run(& : LavinMQ::Clustering::Replicator? -> _)
+    yield nil
     @started.close
     @stopping.receive?
   end

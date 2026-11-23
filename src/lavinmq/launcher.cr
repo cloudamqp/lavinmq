@@ -29,7 +29,6 @@ module LavinMQ
     @closed = Atomic(Bool).new(false)
     # Closed when #stop is done
     @stopped = Channel(Nil).new
-    @replicator : Clustering::Server?
     @runner : Runner
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
@@ -63,10 +62,9 @@ module LavinMQ
       GCPauseRecorder.install
     end
 
-    private def start : self
+    private def start(replicator : Clustering::Replicator?) : self
       started_at = Time.instant
-      @replicator = @runner.new_replicator
-      @server = server = LavinMQ::Server.new(@config, @replicator)
+      @server = server = LavinMQ::Server.new(@config, replicator)
       load_definitions(server)
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
@@ -85,13 +83,13 @@ module LavinMQ
 
     def run
       start_metrics_server
-      @runner.run do
-        start
+      @runner.run do |replicator|
+        start(replicator)
       end
       # The runner returns once a shutdown has started, e.g. when its lease
       # expires meanwhile, and the broker may still be closing
       @stopped.receive? if @closed.get
-      @replicator.try &.close # only a serving leader has one
+      @runner.broker_closed
       @data_dir_lock.try &.release
     ensure
       @run_done.close
@@ -240,21 +238,9 @@ module LavinMQ
           mqtt_server.listen
         end
       end
-      if clustering_bind = @config.clustering_bind
-        if replicator = @replicator
-          clustering_server = bind_clustering_listener(clustering_bind, @config.clustering_port)
-          spawn(name: "Clustering listener") { replicator.listen(clustering_server) }
-        end
-      end
       spawn(name: "HTTP listener") do
         http_server.listen
       end
-    end
-
-    private def bind_clustering_listener(bind, port)
-      TCPServer.new(bind, port)
-    rescue ex : Socket::BindError
-      abort "Error: #{ex.message}"
     end
 
     # Binds the plain TCP, TLS and unix listeners a server is configured for.
@@ -349,7 +335,7 @@ module LavinMQ
         stop
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
-        # A started node closes the replicator when #run returns, then the main
+        # A started node closes the broker's replication when #run returns, then the main
         # fiber exits. Exiting from here before that closes the log backend
         # while it may still be logging. A follower has nothing to close.
         return if @server && run_finished?

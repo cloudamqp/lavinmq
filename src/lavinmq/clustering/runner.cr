@@ -2,6 +2,7 @@ require "systemd"
 require "../filesystem"
 require "./client"
 require "./coordinator"
+require "./server"
 require "../runner"
 
 # Elects the leader and makes the other nodes follow it. Subclasses do the
@@ -29,8 +30,32 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
 
   abstract def coordinator : Coordinator
 
-  def new_replicator : Server?
-    Server.new(@config, coordinator, @id)
+  # The replication server of the term this node leads, from #run's fiber
+  # until #broker_closed
+  @replicator = Atomic(Server?).new(nil)
+
+  # The replication server for a term this node leads, which #run yields to
+  # the broker. See #listen and #broker_closed.
+  private def new_replicator : Server
+    Server.new(@config, coordinator, @id).tap { |r| @replicator.set(r) }
+  end
+
+  # Accepts followers once the broker has loaded, unless stopped meanwhile
+  private def listen(replicator : Server) : Nil
+    return if @stopping.get
+    bind = @config.clustering_bind || return
+    listener = begin
+      TCPServer.new(bind, @config.clustering_port)
+    rescue ex : Socket::BindError
+      abort "Error: #{ex.message}"
+    end
+    spawn(name: "Clustering listener") { replicator.listen(listener) }
+  end
+
+  # Disconnects the followers and stores the checksums, after the broker's
+  # last writes
+  def broker_closed : Nil
+    @replicator.swap(nil).try &.close
   end
 
   # The URI this node campaigns with, which followers read to find the leader:
@@ -61,7 +86,7 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
   # The block will be yielded when the runner's prerequisites for a leader
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
-  abstract def run(&)
+  abstract def run(& : Replicator? -> _)
 
   abstract def stop
 
