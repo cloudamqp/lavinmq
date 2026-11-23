@@ -155,14 +155,16 @@ describe LavinMQ::Etcd, tags: "etcd" do
       member = (victim + 1) % etcds.size
       # Only the local member, like a LavinMQ node
       etcd = LavinMQ::Etcd.new(cluster.endpoint(member))
+      ttl = 8
       granted = Time.instant
-      lease = etcd.elect("foo/#{rand}", "bar", ttl: 5)
-      # The first keepalive goes out TTL/3 (1.67 s) after the grant; stop the
-      # leader just before, so it lands in the ~1 s before the others notice
-      sleep(granted + 1.4.seconds - Time.instant)
+      lease = etcd.elect("foo/#{rand}", "bar", ttl: ttl)
+      # The first keepalive goes out TTL/3 after the grant; stop the leader just
+      # before, so it lands in the ~1 s before the others notice. Its retry, TTL/3
+      # later, must reach a new leader, so etcd gets ~TTL/3 to elect one.
+      sleep(granted + (ttl / 3).seconds - 0.3.seconds - Time.instant)
       etcds[victim].signal(Signal::STOP)
       begin
-        lease.wait(6.seconds) # longer than the 5 s TTL, so the lease must have been renewed
+        lease.wait((ttl + 1).seconds) # longer than the TTL, so the lease must have been renewed
       ensure
         etcds[victim].signal(Signal::CONT)
       end
