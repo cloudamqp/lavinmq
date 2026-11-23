@@ -1,11 +1,14 @@
+require "./clustering/replicator"
+
 module LavinMQ
   # Decides when this node serves clients: StandaloneRunner right away, a
   # clustering runner (Clustering::Runner) whenever it leads. The
   # Launcher only uses it through this, the defaults are for a node without
   # clustering.
   abstract class Runner
-    # Yields whenever this node is to start serving. Blocks until #stop.
-    abstract def run(&)
+    # Yields whenever this node is to start serving, with what the broker
+    # replicates through, nil without clustering. Blocks until #stop.
+    abstract def run(& : Clustering::Replicator? -> _)
 
     abstract def stop
 
@@ -18,8 +21,10 @@ module LavinMQ
     def on_demote(&_block : Proc(Nil)? ->) : Nil
     end
 
-    # The replication server for a term this node leads
-    def new_replicator : Clustering::Server?
+    # The broker it last yielded for is closed, so what the runner holds for
+    # it can go, e.g. replication: its checksums are stored after the
+    # broker's last writes
+    def broker_closed : Nil
     end
 
     # The cluster's membership and leadership, for the HTTP API, nil when

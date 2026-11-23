@@ -139,11 +139,12 @@ class LavinMQ::Clustering::RaftRunner < LavinMQ::Clustering::Runner
   # follows again, all in this process: the raft node keeps running, so a
   # node that hands over leadership still counts for the new leader's quorum.
   # Returns once the node is stopped.
-  def run(&)
+  def run(& : Replicator? -> _)
     start_node
     loop do
       break unless await_promotion
-      transfer = lead { yield }
+      replicator = new_replicator
+      transfer = lead(replicator) { yield replicator }
       break if @stopping.get
       step_down_as_leader(transfer)
     end
@@ -208,7 +209,7 @@ class LavinMQ::Clustering::RaftRunner < LavinMQ::Clustering::Runner
 
   # Serves as the leader until leadership is lost, a transfer is requested,
   # or the node stops. Returns the requested transfer, if that's why.
-  private def lead(&) : Transfer?
+  private def lead(replicator : Server, &) : Transfer?
     term = @node.term
     ensure_in_isr!
     stop_following
@@ -227,6 +228,7 @@ class LavinMQ::Clustering::RaftRunner < LavinMQ::Clustering::Runner
     ensure
       started.close
     end
+    listen(replicator)
     # Leadership lost and won again while starting isn't seen below, as the
     # node serves again, but the replicator of the lost term stays fenced
     if (now = @node.term) != term

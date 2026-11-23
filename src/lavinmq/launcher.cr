@@ -33,7 +33,6 @@ module LavinMQ
     @starting = false
     # Closed when #stop is done
     @stopped = Channel(Nil).new
-    @replicator : Clustering::Server?
     @runner : Runner
     # Serializes starting and stopping to serve as the leader with a shutdown
     @role_lock = Mutex.new
@@ -79,7 +78,7 @@ module LavinMQ
       GCPauseRecorder.install
     end
 
-    private def start : self
+    private def start(replicator : Clustering::Replicator?) : self
       # #stop may have run since the runner decided to serve, e.g. while the
       # raft runner committed the ISR: nothing started from here on would
       # be closed. A #stop from now on leaves the broker to this startup,
@@ -88,16 +87,13 @@ module LavinMQ
       return self unless @role_lock.synchronize { @starting = !@closed }
       started_at = Time.instant
       @control_socket.starting
-      # A fresh replicator for each term this node leads, see #demote
-      @replicator = @runner.new_replicator
-      @server = server = new_server
+      @server = server = new_server(replicator)
       load_definitions(server)
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, @runner.cluster_admin,
         @control_socket.path, runner_metrics)
-      start_clustering_listener
       @client_listeners.serve(ClientListeners::Brokers.new(amqp_server, mqtt_server, http_server))
       # If it couldn't be bound when the process started, e.g. while another
       # node on this machine had it
@@ -126,8 +122,8 @@ module LavinMQ
       # A standalone node accepts when it serves, until then connections
       # wait. A clustered one forwards them to the leader meanwhile.
       @client_listeners.listen if @config.clustering?
-      @runner.run do
-        start
+      @runner.run do |replicator|
+        start(replicator)
       end
       # The runner returns once a shutdown has started, e.g. when its lease
       # expires meanwhile, and the broker may still be closing
@@ -139,7 +135,7 @@ module LavinMQ
       end
       @client_listeners.close
       @control_socket.close
-      @replicator.try &.close # only a serving leader has one
+      @runner.broker_closed
       @data_dir_lock.try &.release
     ensure
       @run_done.close
@@ -148,8 +144,8 @@ module LavinMQ
     # Stops serving as the leader, without exiting: the raft runner keeps
     # its raft node running and makes this node follow the new leader, and
     # the next time it's elected #start serves again. When leadership was
-    # lost (no *hand_over*) the followers are disconnected first, so nothing
-    # more can be confirmed. When it's handed over the clients are
+    # lost (no *hand_over*) the runner has disconnected the followers, so
+    # nothing more can be confirmed. When it's handed over the clients are
     # disconnected first, and leadership is handed over once the followers
     # have acked everything and before they're disconnected, so the target
     # is still in the ISR.
@@ -158,8 +154,6 @@ module LavinMQ
         return if @closed
         # Scrapes would get the closed broker's metrics until it's done
         @metrics_server.try &.stop_reporting_broker
-        # Stored once the broker is closed, it writes files until then
-        @replicator.try &.fence unless hand_over
         close_listeners
         if server = @server
           # Keeps the replicator's checksums, which the replication client
@@ -167,7 +161,7 @@ module LavinMQ
           server.close rescue nil
         end
         hand_over.try &.call
-        close_replicator
+        @runner.broker_closed
         @http_server = nil
         @amqp_server = nil
         @mqtt_server = nil
@@ -181,11 +175,6 @@ module LavinMQ
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @mqtt_server.try &.close rescue nil
-    end
-
-    private def close_replicator : Nil
-      @replicator.try &.close rescue nil
-      @replicator = nil
     end
 
     def stop
@@ -285,8 +274,8 @@ module LavinMQ
 
     # Replicated writes in it fail once leadership is lost, but what it opened
     # before that wouldn't be closed when stopping to serve, so it exits
-    private def new_server : LavinMQ::Server
-      LavinMQ::Server.new(@config, @replicator)
+    private def new_server(replicator : Clustering::Replicator?) : LavinMQ::Server
+      LavinMQ::Server.new(@config, replicator)
     rescue ex : Clustering::Coordinator::StaleLeadership
       Log.fatal { "Lost leadership while loading the broker, exiting: #{ex.message}" }
       exit 3
@@ -339,19 +328,6 @@ module LavinMQ
         @control_socket.bind!
       end
     rescue ex
-      abort "Error: #{ex.message}"
-    end
-
-    private def start_clustering_listener : Nil
-      clustering_bind = @config.clustering_bind || return
-      replicator = @replicator || return
-      clustering_server = bind_clustering_listener(clustering_bind, @config.clustering_port)
-      spawn(name: "Clustering listener") { replicator.listen(clustering_server) }
-    end
-
-    private def bind_clustering_listener(bind, port)
-      TCPServer.new(bind, port)
-    rescue ex : Socket::BindError
       abort "Error: #{ex.message}"
     end
 

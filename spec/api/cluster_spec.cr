@@ -38,6 +38,7 @@ private def with_cluster_api(&)
       end
     ensure
       runner.stop
+      runner.broker_closed
     end
   end
 end

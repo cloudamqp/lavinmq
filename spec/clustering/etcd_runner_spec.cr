@@ -100,6 +100,17 @@ private class FailingRevokeEtcd < LavinMQ::Etcd
   end
 end
 
+# Rejects ISR writes once *stale* is set, as etcd does once this node's
+# election key is gone
+private class StaleOnDemandCoordinator < LavinMQ::Clustering::EtcdCoordinator
+  property? stale = false
+
+  def update_isr(synced_node_ids : Set(Int32)) : Nil
+    raise StaleLeadership.new("Not the leader (spec)") if stale?
+    super
+  end
+end
+
 # Test-only seam: drive the SIGTERM shutdown path without raising the signal.
 class LavinMQ::Launcher
   def shutdown_for_spec
@@ -136,6 +147,7 @@ describe LavinMQ::Clustering::EtcdRunner do
       runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
       runner.lease_for_spec = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
       runner.stop
+      runner.broker_closed
     end
   end
 end
@@ -185,16 +197,25 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     case leader
     when /1$/
       runner1.stop
+      runner1.broker_closed
       listen.receive.should match /2$/
       sleep 0.1.seconds
       runner2.stop
+      runner2.broker_closed
     when /2$/
       runner2.stop
+      runner2.broker_closed
       listen.receive.should match /1$/
       sleep 0.1.seconds
       runner1.stop
+      runner1.broker_closed
     else fail("no leader elected")
     end
+  ensure
+    runner1.try &.stop rescue nil
+    runner1.try &.broker_closed
+    runner2.try &.stop rescue nil
+    runner2.try &.broker_closed
   end
 
   it "steps down if it wins the election while not in the ISR" do
@@ -241,6 +262,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     # candidacy stays queued; the leader then dies.
     etcd.put("lavinmq/isr", runner1.id.to_s(36))
     runner1.stop
+    runner1.broker_closed
 
     # Winning the election out of the ISR means it lacks confirmed data:
     # it must step down instead of serving.
@@ -252,6 +274,8 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     end
     served2.should be_false
   ensure
+    runner2.try &.stop rescue nil # closes the replication client, its lease is gone
+    runner2.try &.broker_closed
     FileUtils.rm_rf "/tmp/isr-stepdown1"
     FileUtils.rm_rf "/tmp/isr-stepdown2"
   end
@@ -265,7 +289,13 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       config.clustering_etcd_lease_ttl = 3 # keepalive every second
       runner = LavinMQ::Clustering::EtcdRunner.new(config)
       demoted = Channel(Proc(Nil)?).new(1)
-      runner.on_demote { |hand_over| demoted.send hand_over }
+      fenced_at_demote = nil
+      runner.on_demote do |hand_over|
+        # Nothing more confirmed while the Launcher closes the broker
+        fenced_at_demote = runner.@replicator.get.try &.fenced?
+        runner.broker_closed # as the Launcher does once it closed the broker
+        demoted.send hand_over
+      end
       served = Channel(Nil).new(2)
       done = Channel(Int32?).new(1)
       spawn(name: "lease expiry runner") do
@@ -283,6 +313,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       select
       when hand_over = demoted.receive
         hand_over.should be_nil # lost, not handed over
+        fenced_at_demote.should be_true
       when code = done.receive
         fail "exited with #{code.inspect} instead of stopping to serve"
       when timeout(10.seconds)
@@ -296,12 +327,53 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         fail "wasn't elected again"
       end
       runner.stop
+      runner.broker_closed
       select
       when code = done.receive
         code.should be_nil
       when timeout(5.seconds)
         fail "run didn't return after stop"
       end
+    end
+  end
+
+  # Nothing can be confirmed while the coordinator rejects its ISR writes,
+  # e.g. after its election key was deleted, so it hands over
+  it "stops serving when its replication is fenced while its lease lives" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5698"
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      coordinator = StaleOnDemandCoordinator.new(config, etcd)
+      runner = UnmonitoredRunner.new(config, etcd, coordinator)
+      demoted = Channel(Nil).new(1)
+      runner.on_demote do
+        runner.broker_closed
+        demoted.send nil
+      end
+      served = Channel(LavinMQ::Clustering::Server).new(1)
+      spawn(name: "fenced runner") do
+        runner.run { |replicator| served.send replicator.as(LavinMQ::Clustering::Server) }
+      rescue SpecExit
+      end
+      replicator = select
+      when r = served.receive
+        r
+      when timeout(10.seconds)
+        fail "wasn't elected"
+      end
+      coordinator.stale = true
+      expect_raises(LavinMQ::Clustering::Coordinator::StaleLeadership) { replicator.flush_isr }
+      select
+      when demoted.receive
+      when timeout(10.seconds)
+        fail "kept serving with fenced replication"
+      end
+    ensure
+      runner.try &.stop
+      runner.try &.broker_closed
     end
   end
 
@@ -317,7 +389,10 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       etcd = HangingRevokeEtcd.new("localhost:12379")
       runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
       demoted = Channel(Nil).new(1)
-      runner.on_demote { demoted.send nil }
+      runner.on_demote do
+        runner.broker_closed
+        demoted.send nil
+      end
       served = Channel(Nil).new(2)
       spawn(name: "hanging revoke runner") do
         runner.run { served.send nil }
@@ -357,6 +432,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       end
       sleep 0.5.seconds # waiting to be in sync
       runner.stop
+      runner.broker_closed
       select
       when code = done.receive
         code.should be_nil
@@ -386,6 +462,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       end
       sleep 0.5.seconds # campaigning
       runner.stop
+      runner.broker_closed
       select
       when code = done.receive
         code.should be_nil
@@ -426,6 +503,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         when timeout(5.seconds)
         end
         runner.stop
+        runner.broker_closed
       end
     end
   end
@@ -458,6 +536,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         end
       ensure
         runner.stop
+        runner.broker_closed
       end
     end
   end
@@ -491,6 +570,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         end
       ensure
         runner.stop
+        runner.broker_closed
       end
     end
   end
@@ -606,6 +686,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       etcd.leaders.send "tcp://127.0.0.1:1"
       etcd.watching.receive
       runner.stop
+      runner.broker_closed
       etcd.secret.send "secret"
       select
       when ex = done.receive
@@ -703,6 +784,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         etcd.lease_ttl(lease_id).should be > 10
       ensure
         runner.stop
+        runner.broker_closed
       end
     end
   end

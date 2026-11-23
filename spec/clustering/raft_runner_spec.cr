@@ -70,10 +70,8 @@ private class RunnerCluster
   getter demotions = Channel(RunnerDemotion).new(8)
   getter dirs = Array(String).new
   getter configs = Array(LavinMQ::Config).new
-  # With *replication*, a leader also serves its data to followers, as the
-  # Launcher does, so followers sync and the ISR follows.
-  getter servers = Hash(LavinMQ::Clustering::RaftRunner, LavinMQ::Clustering::Server).new
-  # Replication listeners of the nodes that haven't led yet, by config index
+  # Replication listeners of the nodes that haven't led yet, by config index,
+  # released for the runner to bind once it leads
   @replication_listeners = Hash(Int32, TCPServer).new
   # Raft ports picked for nodes that haven't started, held bound until they
   # do so a listener bound meanwhile, e.g. a replication listener, can't get one
@@ -85,7 +83,7 @@ private class RunnerCluster
   # the etcd backend's ISR from, nothing listens there by default. `ids`:
   # the nodes' etcd backend clustering ids (.clustering_id), as before a
   # migration, none by default.
-  def initialize(size : Int32, data = [0], @replication = false, @election_timeout = 300,
+  def initialize(size : Int32, data = [0], @election_timeout = 300,
                  @etcd_endpoints = "localhost:1", @ids = [] of Int32)
     ports = Array.new(size) { reserve_port }
     # Another process can take a reserved port between its release and the
@@ -145,7 +143,7 @@ private class RunnerCluster
   private def register(runner : LavinMQ::Clustering::RaftRunner) : Nil
     runner.on_demote do |hand_over|
       hand_over.try &.call
-      @servers.delete(runner).try &.close
+      runner.broker_closed
       @demotions.send({runner, hand_over.nil?})
     end
   end
@@ -170,7 +168,7 @@ private class RunnerCluster
     @reserved_ports.delete(config.clustering_raft_port).try &.close
     spawn(name: "runner spec #{runner.id}") do
       runner.run do
-        serve_replication(runner) if @replication
+        release_replication_port(runner)
         @serving.send runner
         startup.call
       end
@@ -183,13 +181,10 @@ private class RunnerCluster
     end
   end
 
-  private def serve_replication(runner)
+  # The runner binds it once its startup is done, see Clustering::Runner#listen
+  private def release_replication_port(runner)
     config = @configs[@runners.index!(runner)]
-    server = LavinMQ::Clustering::Server.new(config, runner.coordinator, runner.id)
-    @servers[runner] = server
-    tcp = @replication_listeners.delete(@configs.index!(config)) ||
-          TCPServer.new(config.clustering_bind.should_not(be_nil), config.clustering_port) # a restarted leader
-    spawn(name: "replication spec #{runner.id}") { server.listen(tcp) }
+    @replication_listeners.delete(@configs.index!(config)).try &.close
   end
 
   def start_all(startup : Proc(Nil) = -> { })
@@ -220,15 +215,15 @@ private class RunnerCluster
     @closed.close
     @reserved_ports.each_value &.close
     @replication_listeners.each_value &.close
-    @servers.each_value &.close
     @runners.each &.stop
+    @runners.each &.broker_closed
     @dirs.each { |d| FileUtils.rm_rf d }
   end
 end
 
-private def with_runners(size = 3, data = [0], replication = false, election_timeout = 300,
+private def with_runners(size = 3, data = [0], election_timeout = 300,
                          etcd_endpoints = "localhost:1", ids = [] of Int32, &)
-  cluster = RunnerCluster.new(size, data, replication, election_timeout, etcd_endpoints, ids)
+  cluster = RunnerCluster.new(size, data, election_timeout, etcd_endpoints, ids)
   yield cluster
 ensure
   cluster.try &.close
@@ -540,7 +535,7 @@ describe LavinMQ::Clustering::RaftRunner do
         body.should_not contain "lavinmq_cluster_received_bytes_total"
       end
     end
-    with_runners(replication: true) do |cluster|
+    with_runners do |cluster|
       with_metrics_of(cluster.runners[1]) do |scrape|
         cluster.start_all
         cluster.next_leader.should eq cluster.runners[0]
@@ -658,7 +653,7 @@ describe LavinMQ::Clustering::RaftRunner do
   end
 
   it "relocates a replica: learner, promotion, handover and removal", tags: "slow" do
-    with_runners(replication: true) do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       a = cluster.next_leader
       a_addr = cluster.address(a)
@@ -711,7 +706,7 @@ describe LavinMQ::Clustering::RaftRunner do
       # The old leader continues as a follower, in the same process, and
       # replicates from the new one
       wait_for(10.seconds) { d.node.committed_isr.try(&.includes?(a.id)) }
-      cluster.servers[d].all_followers.map(&.id).should contain(a.id)
+      d.@replicator.get.should_not(be_nil).all_followers.map(&.id).should contain(a.id)
 
       d.node.remove_member(a.id).should be_nil
       d.node.remove_member(a.id).should eq LavinMQ::Clustering::Raft::MembershipError::UnknownMember
@@ -720,9 +715,9 @@ describe LavinMQ::Clustering::RaftRunner do
 
       # It's told, disconnected and refused when it comes back
       wait_for(10.seconds) { !a.node.self_member? }
-      wait_for(10.seconds) { cluster.servers[d].all_followers.none? { |f| f.id == a.id } }
+      wait_for(10.seconds) { d.@replicator.get.should_not(be_nil).all_followers.none? { |f| f.id == a.id } }
       sleep 2.5.seconds # a few reconnect attempts
-      cluster.servers[d].all_followers.none? { |f| f.id == a.id }.should be_true
+      d.@replicator.get.should_not(be_nil).all_followers.none? { |f| f.id == a.id }.should be_true
       d.node.committed_isr.should_not(be_nil).should_not contain(a.id)
     end
   end
@@ -763,7 +758,7 @@ describe LavinMQ::Clustering::RaftRunner do
   end
 
   it "takes a follower back at a new raft address with its data dir", tags: "slow" do
-    with_runners(replication: true) do |cluster|
+    with_runners do |cluster|
       cluster.start_all
       a = cluster.next_leader
       wait_for(10.seconds) { a.node.committed_isr == cluster.runners.map(&.id).to_set }

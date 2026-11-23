@@ -31,6 +31,8 @@ module LavinMQ
 
       @lock = Mutex.new(:unchecked)
       @fenced = Atomic(Bool).new(false)
+      # Closed once fenced, see #when_fenced
+      @fenced_signal = Channel(Nil).new
       @broker_closing = Atomic(Bool).new(false)
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
@@ -506,7 +508,7 @@ module LavinMQ
         begin
           @coordinator.update_isr(ids)
         rescue ex : Coordinator::StaleLeadership
-          @fenced.set(true)
+          mark_fenced
           raise ex
         end
         @dirty_isr = false
@@ -570,6 +572,17 @@ module LavinMQ
         @fenced.get
       end
 
+      # Closed once fenced, e.g. when the coordinator said this node isn't the
+      # leader anymore
+      def when_fenced : Channel(Nil)
+        @fenced_signal
+      end
+
+      private def mark_fenced : Nil
+        @fenced.set(true)
+        @fenced_signal.close
+      end
+
       def broker_closing : Nil
         @broker_closing.set(true)
       end
@@ -602,7 +615,7 @@ module LavinMQ
       # Disconnects the followers, so nothing more is confirmed, without
       # storing the checksums: later writes still change them, see #close
       def fence : Nil
-        @fenced.set(true)
+        mark_fenced
         # A node makes a new server for each term it leads, the coordinator
         # outlives them
         @coordinator.remove_member_removed_listener(@member_removed)
