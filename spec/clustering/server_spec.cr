@@ -401,3 +401,19 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
     end
   end
 end
+
+describe LavinMQ::Clustering::Server do
+  # The runner closes it once the broker is closed, which can be before the
+  # fiber listening on the clustering port runs
+  it "closes a listener it starts listening on once closed" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      server = LavinMQ::Clustering::Server.new(config, NullCoordinator.new, 0)
+      listener = TCPServer.new("127.0.0.1", 0)
+      server.close
+      server.listen(listener)
+      listener.closed?.should be_true
+    end
+  end
+end

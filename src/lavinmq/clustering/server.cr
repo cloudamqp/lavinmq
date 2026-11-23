@@ -326,14 +326,21 @@ module LavinMQ
         @coordinator.password
       end
 
+      # Guarded by @lock
       @listeners = Array(TCPServer).new(1)
+      @closed = false
 
+      # Closes *server* instead if this server was closed first
       def listen(server : TCPServer)
         server.listen
         # called before accepting followers, no lock needed
         @file_index.lock { |_files, checksums| checksums.restore }
+        listening = @lock.synchronize do
+          @listeners << server unless @closed
+          !@closed
+        end
+        return server.close unless listening
         Log.info { "Listening on #{server.local_address}" }
-        @listeners << server
 
         AcceptLoop.each(server, "Clustering listener") do |socket|
           spawn(name: "Clustering follower") { handle_socket(socket) }
@@ -516,8 +523,9 @@ module LavinMQ
       end
 
       def close
-        @listeners.each &.close
         @lock.synchronize do
+          @closed = true
+          @listeners.each &.close
           @followers.each &.close
           @followers.clear
         end
