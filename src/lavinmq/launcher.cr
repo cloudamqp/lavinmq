@@ -32,7 +32,6 @@ module LavinMQ
     @closed = Atomic(Bool).new(false)
     # Closed when #stop is done
     @stopped = Channel(Nil).new
-    @replicator : Clustering::Server?
     @runner : Runner
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
@@ -75,18 +74,16 @@ module LavinMQ
       GCPauseRecorder.install
     end
 
-    private def start : self
+    private def start(replicator : Clustering::Replicator?) : self
       started_at = Time.instant
       @control_socket.starting
-      @replicator = @runner.new_replicator
-      @server = server = LavinMQ::Server.new(@config, @replicator)
+      @server = server = LavinMQ::Server.new(@config, replicator)
       load_definitions(server)
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server,
         @control_socket.path, runner_metrics)
-      start_clustering_listener
       @client_listeners.serve(ClientListeners::Brokers.new(amqp_server, mqtt_server, http_server))
       # If it couldn't be bound when the process started, e.g. while another
       # node on this machine had it
@@ -113,15 +110,15 @@ module LavinMQ
       # A standalone node accepts when it serves, until then connections
       # wait. A clustered one forwards them to the leader meanwhile.
       @client_listeners.listen if @config.clustering?
-      @runner.run do
-        start
+      @runner.run do |replicator|
+        start(replicator)
       end
       # The runner returns once a shutdown has started, e.g. when its lease
       # expires meanwhile, and the broker may still be closing
       @stopped.receive? if @closed.get
       @client_listeners.close
       @control_socket.close
-      @replicator.try &.close # only a serving leader has one
+      @runner.broker_closed
       @data_dir_lock.try &.release
     ensure
       @run_done.close
@@ -266,19 +263,6 @@ module LavinMQ
         @control_socket.bind!
       end
     rescue ex
-      abort "Error: #{ex.message}"
-    end
-
-    private def start_clustering_listener : Nil
-      clustering_bind = @config.clustering_bind || return
-      replicator = @replicator || return
-      clustering_server = bind_clustering_listener(clustering_bind, @config.clustering_port)
-      spawn(name: "Clustering listener") { replicator.listen(clustering_server) }
-    end
-
-    private def bind_clustering_listener(bind, port)
-      TCPServer.new(bind, port)
-    rescue ex : Socket::BindError
       abort "Error: #{ex.message}"
     end
 

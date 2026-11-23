@@ -25,8 +25,8 @@ private class EarlyReturnRunner < LavinMQ::Runner
   getter started = Channel(Nil).new
   @stopping = Channel(Nil).new
 
-  def run(&)
-    yield
+  def run(& : LavinMQ::Clustering::Replicator? -> _)
+    yield nil
     @started.close
     @stopping.receive?
   end
