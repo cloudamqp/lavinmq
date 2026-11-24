@@ -426,50 +426,78 @@ module LavinMQ
     end
 
     def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new, fsync = true)
-      apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
+      declare_queue AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
         auto_delete, false, arguments), fsync: fsync
       @log.info { "Created queue: #{name} (durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
-    def delete_queue(name)
-      apply AMQP::Frame::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
+    def declare_queue(frame : AMQP::Frame::Queue::Declare, *, fsync = true) : Bool
+      definitions.declare_queue(frame, fsync: fsync)
+    end
+
+    def delete_queue(name : String)
+      delete_queue AMQP::Frame::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
       @log.debug { "Deleted queue: #{name}" }
+    end
+
+    def delete_queue(frame : AMQP::Frame::Queue::Delete) : Bool
+      definitions.delete_queue(frame)
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
                          arguments = AMQP::Table.new, fsync = true)
-      apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
+      declare_exchange AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
         auto_delete, internal, false, arguments), fsync: fsync
       @log.info { "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
     end
 
-    def delete_exchange(name)
-      apply AMQP::Frame::Exchange::Delete.new(0_u16, 0_u16, name, false, false)
+    def declare_exchange(frame : AMQP::Frame::Exchange::Declare, *, fsync = true) : Bool
+      definitions.declare_exchange(frame, fsync: fsync)
+    end
+
+    def delete_exchange(name : String)
+      delete_exchange AMQP::Frame::Exchange::Delete.new(0_u16, 0_u16, name, false, false)
       @log.info { "Deleted exchange: #{name}" }
     end
 
+    def delete_exchange(frame : AMQP::Frame::Exchange::Delete) : Bool
+      definitions.delete_exchange(frame)
+    end
+
     def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
-      apply AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
+      bind_queue AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, destination, source,
         routing_key, false, arguments), fsync: fsync
+    end
+
+    def bind_queue(frame : AMQP::Frame::Queue::Bind, *, fsync = true) : Bool
+      definitions.bind_queue(frame, fsync: fsync)
     end
 
     def bind_exchange(destination, source, routing_key, arguments = AMQP::Table.new, fsync = true)
-      apply AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
+      bind_exchange AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, destination, source,
         routing_key, false, arguments), fsync: fsync
     end
 
+    def bind_exchange(frame : AMQP::Frame::Exchange::Bind, *, fsync = true) : Bool
+      definitions.bind_exchange(frame, fsync: fsync)
+    end
+
     def unbind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
-      apply AMQP::Frame::Queue::Unbind.new(0_u16, 0_u16, destination, source,
+      unbind_queue AMQP::Frame::Queue::Unbind.new(0_u16, 0_u16, destination, source,
         routing_key, arguments)
     end
 
+    def unbind_queue(frame : AMQP::Frame::Queue::Unbind) : Bool
+      definitions.unbind_queue(frame)
+    end
+
     def unbind_exchange(destination, source, routing_key, arguments = AMQP::Table.new)
-      apply AMQP::Frame::Exchange::Unbind.new(0_u16, 0_u16, destination, source,
+      unbind_exchange AMQP::Frame::Exchange::Unbind.new(0_u16, 0_u16, destination, source,
         routing_key, false, arguments)
     end
 
-    def apply(f, loading = false, fsync = true) : Bool
-      definitions.apply(f, loading, fsync)
+    def unbind_exchange(frame : AMQP::Frame::Exchange::Unbind) : Bool
+      definitions.unbind_exchange(frame)
     end
 
     # Flush definitions written with fsync: false (e.g. during bulk import).

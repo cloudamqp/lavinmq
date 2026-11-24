@@ -199,6 +199,27 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "skips stored definitions that can't be restored and loads the rest" do
+    with_amqp_server do |s|
+      v = s.vhosts["/"]
+      v.declare_exchange("src", "direct", true, false)
+      v.declare_exchange("mqtt-x", "x-mqtt-topic", true, false)
+      v.declare_queue("q", true, false)
+      no_args = LavinMQ::AMQP::Table.new
+      delayed_mqtt = LavinMQ::AMQP::Table.new({"x-delayed-type" => "x-mqtt-topic"})
+      File.open(File.join(v.data_dir, "definitions.amqp"), "a") do |f|
+        f.write_bytes AMQ::Protocol::Frame::Exchange::Declare.new(0_u16, 0_u16, "delayed-mqtt-x",
+          "x-delayed-message", false, true, false, false, false, delayed_mqtt)
+        f.write_bytes AMQ::Protocol::Frame::Exchange::Bind.new(0_u16, 0_u16, "mqtt-x", "src", "rk", false, no_args)
+        f.write_bytes AMQ::Protocol::Frame::Queue::Bind.new(0_u16, 0_u16, "q", "src", "rk", false, no_args)
+      end
+      restart_server(s)
+      v = s.vhosts["/"]
+      v.exchange?("delayed-mqtt-x").should be_nil
+      v.exchange("src").bindings_details.map(&.destination.name).should eq ["q"]
+    end
+  end
+
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       with_amqp_server do |s|
