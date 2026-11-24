@@ -249,3 +249,53 @@ test.describe('vhosts', _ => {
     await expect(page.locator('#userMenuVhost option:checked')).toHaveText([vhosts[0]])
   })
 })
+
+test.describe('dialog command buttons', _ => {
+  const pages = [
+    ['/queues', 'add-queue-dialog'],
+    ['/exchanges', 'add-exchange-dialog'],
+    ['/users', 'add-user-dialog'],
+    ['/vhosts', 'add-vhost-dialog'],
+    ['/policies', 'add-policy-dialog'],
+    ['/operator-policies', 'add-policy-dialog'],
+    ['/shovels', 'add-shovel-dialog'],
+    ['/federation', 'add-upstream-dialog'],
+    ['/queue#vhost=%2F&name=invoker-commands-q&tab=bindings', 'add-binding-dialog'],
+    ['/stream#vhost=%2F&name=invoker-commands-s&tab=bindings', 'add-binding-dialog']
+  ]
+
+  // Mimics a browser without Invoker Commands (Chrome < 135, Firefox < 144, Safari < 26.2):
+  // feature detection fails and the native command action is cancelled.
+  const disableInvokerCommands = () => {
+    delete window.HTMLButtonElement.prototype.command
+    delete window.HTMLButtonElement.prototype.commandForElement
+    window.addEventListener('command', e => e.preventDefault(), true)
+  }
+
+  test.beforeAll(async ({ request }) => {
+    const headers = { Authorization: 'Basic ' + Buffer.from('guest:guest').toString('base64') }
+    await request.put('/api/queues/%2F/invoker-commands-q', { headers, data: { durable: false } })
+    await request.put('/api/queues/%2F/invoker-commands-s', { headers, data: { durable: true, arguments: { 'x-queue-type': 'stream' } } })
+  })
+
+  for (const [path, dialogId] of pages) {
+    test(`${path} opens and closes ${dialogId} without Invoker Commands`, async ({ page }) => {
+      await page.addInitScript(disableInvokerCommands)
+      await page.goto(path)
+      const dialog = page.locator(`#${dialogId}`)
+      await page.locator(`button[command="show-modal"][commandfor="${dialogId}"]`).click()
+      await expect(dialog).toBeVisible()
+      await dialog.locator(`button[command="close"][commandfor="${dialogId}"]`).click()
+      await expect(dialog).toBeHidden()
+    })
+  }
+
+  test('fallback stays inert when the browser supports Invoker Commands', async ({ page, browserName }) => {
+    await page.goto('/exchanges')
+    test.skip(!await page.evaluate(() => 'command' in window.HTMLButtonElement.prototype), `${browserName} lacks Invoker Commands`)
+    // Cancelling the native action must leave the dialog closed, i.e. nothing else opens it
+    await page.evaluate(() => window.addEventListener('command', e => e.preventDefault(), true))
+    await page.locator('button[command="show-modal"][commandfor="add-exchange-dialog"]').click()
+    await expect(page.locator('#add-exchange-dialog')).toBeHidden()
+  })
+})
