@@ -753,7 +753,7 @@ module LavinMQ
           return
         end
         begin
-          @vhost.apply(frame)
+          @vhost.declare_exchange(frame)
         rescue e : LavinMQ::Error::ExchangeTypeError
           send_precondition_failed(frame, e.message)
         end
@@ -785,7 +785,7 @@ module LavinMQ
         elsif frame.if_unused && @vhost.exchange(frame.exchange_name).in_use?
           send_precondition_failed(frame, "Exchange '#{frame.exchange_name}' in use")
         else
-          @vhost.apply(frame)
+          @vhost.delete_exchange(frame)
           send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
         end
       end
@@ -814,7 +814,7 @@ module LavinMQ
           send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to delete queue '#{q.name}'")
         else
           size = q.message_count
-          @vhost.apply(frame)
+          @vhost.delete_queue(frame)
           @exclusive_queues.delete(q) if q.exclusive?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
         end
@@ -886,7 +886,7 @@ module LavinMQ
           frame.queue_name = AMQP::Queue.generate_name
         end
         return unless queue_declare_allowed?(frame)
-        @vhost.apply(frame)
+        @vhost.declare_queue(frame)
         @last_queue_name = frame.queue_name
         if frame.exclusive
           q = @vhost.queue(frame.queue_name)
@@ -935,7 +935,7 @@ module LavinMQ
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
-          @vhost.apply(frame)
+          @vhost.bind_queue(frame)
           send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
         end
       end
@@ -976,7 +976,7 @@ module LavinMQ
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
-          @vhost.apply(frame)
+          @vhost.unbind_queue(frame)
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
         end
       end
@@ -1006,7 +1006,7 @@ module LavinMQ
         elsif frame.source.empty? || frame.destination.empty?
           send_access_refused(frame, "Not allowed to bind to the default exchange")
         else
-          @vhost.apply(frame)
+          @vhost.bind_exchange(frame)
           send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
         end
       end
@@ -1027,7 +1027,7 @@ module LavinMQ
         elsif frame.source.empty? || frame.destination.empty? || frame.source == DEFAULT_EX || frame.destination == DEFAULT_EX
           send_access_refused(frame, "Not allowed to unbind from the default exchange")
         else
-          @vhost.apply(frame)
+          @vhost.unbind_exchange(frame)
           send AMQP::Frame::Exchange::UnbindOk.new(frame.channel) unless frame.no_wait
         end
       end
