@@ -214,6 +214,12 @@ module LavinMQ::AMQP
 
     getter? internal = false
 
+    # Internal queues refuse client operations. A queue that returns true here
+    # still lets clients consume from it, see ManualExchangeQueue.
+    def consumable_internal? : Bool
+      false
+    end
+
     private def queue_expire_loop
       @vhost.closed.when_false.receive?
       loop do
@@ -1831,3 +1837,4 @@ end
 
 # Required after the class: DelayedQueue and its children subclass Queue, so a top require would fail on the not-yet-defined superclass.
 require "./delayed_queue"
+require "./manual_exchange_queue"

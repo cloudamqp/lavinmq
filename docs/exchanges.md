@@ -103,6 +103,10 @@ Any exchange can be made into a delayed exchange. See [Delayed Queues](delayed-q
 
 Declare the exchange with type `x-delayed-message` and the underlying type as the `x-delayed-type` argument. Messages with an `x-delay` header are held in an internal queue and delivered after the delay expires.
 
+## Manual Exchanges
+
+Any exchange can be made into a manual exchange with the argument `x-manual-exchange: true`. It holds each message in an internal pending queue until a client decides where the message goes. See [Manual Exchanges](manual-exchange.md) for details.
+
 ## Log Exchange
 
 When enabled, LavinMQ declares an internal topic exchange named `amq.lavinmq.log` and publishes server log records to it. The routing key is the log severity (e.g., `Info`, `Warn`, `Error`) and the body contains the log source and message.

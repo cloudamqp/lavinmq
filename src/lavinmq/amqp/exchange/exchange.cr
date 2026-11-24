@@ -19,9 +19,12 @@ module LavinMQ
       getter name, arguments, vhost, type, alternate_exchange
       getter? durable, internal, auto_delete
       getter? delayed = false
+      getter? manual = false
+      getter manual_queue : ManualExchangeQueue?
 
       @alternate_exchange : String?
       @delayed_queue : DelayedExchangeQueue?
+      @manual_max_length : Int64?
       @deleted = false
       @deduper : Deduplication::Deduper?
       # Replaced, never mutated, and published with release ordering
@@ -98,6 +101,16 @@ module LavinMQ
           init_delayed_queue
           effective_args << "x-delayed-exchange"
         end
+        if @arguments["x-manual-exchange"]?.try &.as?(Bool)
+          if max_length = parse_header("x-manual-max-length", Int)
+            raise LavinMQ::Error::PreconditionFailed.new("x-manual-max-length must be positive") unless max_length.positive?
+            @manual_max_length = max_length.to_i64
+            effective_args << "x-manual-max-length"
+          end
+          @manual = true
+          init_manual_queue
+          effective_args << "x-manual-exchange"
+        end
         if @arguments["x-message-deduplication"]?.try(&.as?(Bool))
           effective_args << "x-message-deduplication"
           ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
@@ -165,12 +178,22 @@ module LavinMQ
         @vhost.register_queue(queue)
       end
 
+      private def init_manual_queue
+        return if @manual_queue
+        return unless @manual
+
+        @manual_queue = queue = AMQP::ManualExchangeQueue.create(@vhost, @name, durable: durable?, max_length: @manual_max_length)
+
+        @vhost.register_queue(queue)
+      end
+
       REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
       protected def delete
         return if @deleted
         @deleted = true
         @delayed_queue.try &.delete
+        @manual_queue.try &.delete
         @vhost.delete_exchange(@name)
         @vhost.upstreams.try &.stop_link(self)
       end
@@ -221,6 +244,9 @@ module LavinMQ
       end
 
       protected def validate_delayed_binding!(destination : AMQP::Destination) : Bool
+        if manual? && destination == @manual_queue
+          raise LavinMQ::Error::PreconditionFailed.new("Cannot bind manual exchange '#{@name}' to its pending queue '#{destination.name}'")
+        end
         return true unless delayed?
         if destination == @delayed_queue
           raise LavinMQ::Error::PreconditionFailed.new("Cannot bind delayed exchange '#{@name}' to its internal delayed queue '#{destination.name}'")
@@ -305,7 +331,10 @@ module LavinMQ
           @unroutable_count.add(1, :relaxed)
           return PublishResult::None
         end
+        publish_to(msg, queues)
+      end
 
+      private def publish_to(msg : Message, queues : Set(AMQP::Queue)) : PublishResult
         count = 0u32
         rejected = false
         queues.each do |queue|
@@ -332,6 +361,18 @@ module LavinMQ
                       queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
                       exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Nil
         return unless exchanges.add? self
+        # A manual exchange parks each message in its pending queue, where it
+        # waits for a decision, see #route_decision
+        if q = @manual_queue
+          queues.add(q)
+          return
+        end
+        find_bound_queues(routing_key, headers, queues, exchanges)
+      end
+
+      # The queues that the bindings (and the alternate exchange) give
+      private def find_bound_queues(routing_key : String, headers : AMQP::Table?,
+                                    queues : Set(AMQP::Queue), exchanges : Set(AMQP::Exchange)) : Nil
         each_destination(routing_key, headers) do |d|
           case d
           in AMQP::Queue
@@ -388,6 +429,64 @@ module LavinMQ
 
       def close
         @delayed_queue.try &.close
+        @manual_queue.try &.close
+      end
+
+      # Routes *stored*, a message from the pending queue of this manual
+      # exchange, as a client decided. *route* is a queue name, "none" (no
+      # queue matches) or "auto" (this exchange's own bindings). A queue that
+      # no binding of this exchange leads to counts as "none". With no queue
+      # the message is unroutable: it goes to the alternate exchange, if there
+      # is one, else it is dropped.
+      #
+      # The routed copy gets the headers x-manual-route, x-manual-match (true
+      # if the decision gives the same queues as the bindings would) and
+      # x-manual-routed-by. Call it while the stored message is leased.
+      def route_decision(stored : BytesMessage, route : String, routed_by : String, sync : Bool) : PublishResult
+        headers = stored.properties.headers
+        expected = Set(AMQP::Queue).new
+        find_bound_queues(stored.routing_key, headers, expected, Set(AMQP::Exchange){self.as(AMQP::Exchange)})
+
+        chosen = Set(AMQP::Queue).new
+        case route
+        when "auto"
+          chosen.concat(expected)
+        when "none"
+        else
+          if q = bound_queue?(route)
+            chosen.add(q)
+          end
+        end
+        if chosen.empty? && (ae_name = alternate_exchange)
+          @vhost.exchange?(ae_name).try do |ae|
+            ae.find_queues(stored.routing_key, headers, chosen, Set(AMQP::Exchange){self.as(AMQP::Exchange)})
+          end
+        end
+
+        decided_headers = headers ? headers.clone : AMQP::Table.new
+        decided_headers["x-manual-route"] = route
+        decided_headers["x-manual-match"] = chosen == expected
+        decided_headers["x-manual-routed-by"] = routed_by
+        props = stored.properties
+        props.headers = decided_headers
+        msg = Message.moved_copy(stored, properties: props)
+        msg.needs_sync = true if sync
+
+        if chosen.empty?
+          @unroutable_count.add(1, :relaxed)
+          return PublishResult::None
+        end
+        publish_to(msg, chosen)
+      end
+
+      # A queue that a binding of this exchange leads to directly
+      private def bound_queue?(name : String) : AMQP::Queue?
+        bindings_details.each do |binding|
+          if (q = binding.destination.as?(AMQP::Queue)) && q.name == name
+            return q
+          end
+        end
+        nil
       end
 
       def to_json(json : JSON::Builder)

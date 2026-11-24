@@ -57,6 +57,9 @@ module LavinMQ
       @confirm_ack_mailbox : ::Channel(UInt64)?
       @next_publish_mandatory = false
       @next_publish_immediate = false
+      # Set when the publisher has no write permission on a manual exchange:
+      # only a decision may follow, see #manual_decision
+      @next_publish_decision_only = false
       @next_publish_exchange_name : String?
       @next_publish_routing_key : String?
       @next_msg_size = 0_u64
@@ -143,7 +146,7 @@ module LavinMQ
         end
       end
 
-      def start_publish(frame)
+      def start_publish(frame, decision_only = false)
         unless server_flow?
           @client.send_precondition_failed(frame, "Server low on disk space")
           return
@@ -155,6 +158,7 @@ module LavinMQ
             @next_publish_routing_key = frame.routing_key
             @next_publish_mandatory = frame.mandatory
             @next_publish_immediate = frame.immediate
+            @next_publish_decision_only = decision_only
           else
             @client.send_access_refused(frame, "Exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}' is internal")
           end
@@ -266,12 +270,92 @@ module LavinMQ
           props,
           @next_msg_size,
           body_io)
-        direct_reply?(msg) || publish_and_return(msg)
+        if (headers = props.headers) && (ex = manual_exchange_for_decision(msg, headers))
+          manual_decision(ex, msg, headers)
+        elsif @next_publish_decision_only
+          msg.body_io.skip(msg.bodysize)
+          close_on_publish(ChannelReplyCode::ACCESS_REFUSED,
+            "User '#{@client.user.name}' not allowed to publish to exchange '#{msg.exchange_name}'")
+        else
+          direct_reply?(msg) || publish_and_return(msg)
+        end
       ensure
         @next_msg_size = 0_u64
         @next_msg_props = nil
         @next_publish_exchange_name = @next_publish_routing_key = nil
         @next_publish_mandatory = @next_publish_immediate = false
+        @next_publish_decision_only = false
+      end
+
+      DECISION_TAG_HEADER   = "x-manual-delivery-tag"
+      DECISION_ROUTE_HEADER = "x-manual-route"
+
+      # A publish is a decision when it carries x-manual-delivery-tag and goes
+      # to a manual exchange. Only then is the exchange looked up.
+      private def manual_exchange_for_decision(msg : Message, headers : AMQP::Table) : AMQP::Exchange?
+        return unless headers.has_key?(DECISION_TAG_HEADER)
+        ex = @client.vhost.exchange?(msg.exchange_name).as?(AMQP::Exchange)
+        ex if ex && ex.manual?
+      end
+
+      # A decision for a message from the manual exchange's pending queue
+      # that this channel holds unacked. LavinMQ routes the stored message as
+      # the decision says and acks it in the pending queue, in one step, so
+      # the decision's own body is not used. The holder of the delivery tag
+      # may decide, like it may ack, so a decision needs no write permission.
+      #
+      # A tag that this channel doesn't hold, or that isn't from the
+      # exchange's pending queue, closes the channel like basic.ack with an
+      # unknown tag does. If the target queue refuses the message (e.g.
+      # reject-publish overflow) the decision is nacked and the message stays
+      # unacked.
+      private def manual_decision(ex : AMQP::Exchange, msg : Message, headers : AMQP::Table) : Nil
+        msg.body_io.skip(msg.bodysize)
+        tag = decision_tag(headers[DECISION_TAG_HEADER]?)
+        route = headers[DECISION_ROUTE_HEADER]?.try &.as?(String)
+        if tag.nil? || route.nil? || route.empty?
+          return close_on_publish(ChannelReplyCode::PRECONDITION_FAILED,
+            "A decision needs #{DECISION_TAG_HEADER} (a positive integer) and #{DECISION_ROUTE_HEADER} (a queue name, none or auto)")
+        end
+        if @tx
+          return close_on_publish(ChannelReplyCode::PRECONDITION_FAILED, "A decision can't be made in a transaction")
+        end
+        unack = pending_unack(ex, tag) || return close_on_publish(ChannelReplyCode::PRECONDITION_FAILED, unknown_tag(tag))
+        routed_by = @client.client_properties["connection_name"]?.try(&.as?(String)) || @client.user.name
+        confirm do
+          result = Exchange::PublishResult::Rejected
+          unack.queue.read(unack.sp) do |env|
+            result = ex.route_decision(env.message, route, routed_by, @confirm)
+          end
+          # Routed, or unroutable and dropped: the decision is done
+          if result.routed? || !result.rejected?
+            if u = delete_unacked(tag)
+              do_ack(u)
+            end
+          end
+          result
+        end
+      end
+
+      # The unacked delivery *tag*, if it's from the pending queue of *ex*
+      private def pending_unack(ex : AMQP::Exchange, tag : UInt64) : Unack?
+        pending = ex.manual_queue || return
+        unack = @unack_lock.synchronize do
+          @unacked.bsearch { |u| u.tag >= tag }
+        end
+        unack if unack && unack.tag == tag && unack.queue == pending
+      end
+
+      private def decision_tag(value) : UInt64?
+        case value
+        when Int
+          value.to_u64 if value.positive?
+        end
+      end
+
+      private def close_on_publish(code : ChannelReplyCode, text : String) : Nil
+        @log.warn { "Publish refused: #{text}" }
+        send AMQP::Frame::Channel::Close.new(@id, code.value, ReplyText.build(code, text), 60_u16, 40_u16)
       end
 
       @visited = Set(Exchange).new
@@ -444,7 +528,7 @@ module LavinMQ
             @client.send_resource_locked(frame, "Exclusive queue")
             return
           end
-          if q.internal?
+          if internal_refused?(q)
             @client.send_internal_queue_refused(frame, frame.queue)
             return
           end
@@ -465,6 +549,12 @@ module LavinMQ
 
       # The exclusivity check is made atomically with the add, so that
       # concurrent consumes on other connections can't both pass it
+      # Clients can't consume from internal queues, except a manual exchange's
+      # pending queue
+      private def internal_refused?(q : Queue) : Bool
+        q.internal? && !q.consumable_internal?
+      end
+
       private def add_consumer(q, c, frame) : Bool
         @consumers.push(c)
         if q.add_consumer(c)
@@ -484,7 +574,7 @@ module LavinMQ
         if q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
-          elsif q.internal?
+          elsif internal_refused?(q)
             @client.send_internal_queue_refused(frame, frame.queue)
           elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")

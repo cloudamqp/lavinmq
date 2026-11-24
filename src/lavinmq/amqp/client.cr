@@ -1061,6 +1061,10 @@ module LavinMQ
       private def start_publish(frame)
         if @user.can_write?(@vhost.name, frame.exchange, @acl_write_cache)
           with_channel frame, &.start_publish(frame)
+        elsif @vhost.exchange?(frame.exchange).as?(AMQP::Exchange).try &.manual?
+          # A decision on a manual exchange is allowed like an ack: by the
+          # delivery it names. Anything else is refused once the headers are in.
+          with_channel frame, &.start_publish(frame, decision_only: true)
         else
           send_access_refused(frame, "User '#{@user.name}' not allowed to publish to exchange '#{frame.exchange}'")
         end

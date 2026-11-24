@@ -177,6 +177,7 @@ module LavinMQ
         when AMQP::Frame::Exchange::Declare
           return false if @exchanges.has_key? f.exchange_name
           refuse_delayed_mqtt_topic!(f.exchange_type, f.arguments)
+          refuse_invalid_manual!(f.exchange_type, f.arguments)
           e = @exchanges[f.exchange_name] =
             make_exchange(@vhost, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           @vhost.apply_policies([e] of Exchange) unless loading
@@ -507,6 +508,19 @@ module LavinMQ
     private def refuse_delayed_mqtt_topic!(type : String, arguments : AMQP::Table) : Nil
       return unless DefinitionsStore.delayed_mqtt_topic?(type, arguments)
       raise Error::ExchangeTypeError.new("An x-mqtt-topic exchange can't be delayed: it only routes MQTT publishes")
+    end
+
+    # A manual exchange parks every message for a decision. A delayed one
+    # parks them for a time, and an x-mqtt-topic or federation upstream
+    # exchange doesn't route AMQP publishes, so none of them can be manual.
+    private def refuse_invalid_manual!(type : String, arguments : AMQP::Table) : Nil
+      return if arguments["x-manual-exchange"]?.in?(nil, false)
+      if type.in?("x-delayed-message", "x-delayed-exchange") || !arguments["x-delayed-exchange"]?.in?(nil, false)
+        raise Error::ExchangeTypeError.new("An exchange can't be both manual and delayed")
+      end
+      if type.in?("x-mqtt-topic", "x-federation-upstream")
+        raise Error::ExchangeTypeError.new("An #{type} exchange can't be manual")
+      end
     end
 
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
