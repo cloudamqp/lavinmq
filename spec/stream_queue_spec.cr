@@ -1770,6 +1770,46 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    # A crash right after a rollover leaves the write segment with only its
+    # schema header. A message larger than a segment rolls over past it, and a
+    # consumer reading into it decoded past its end and failed the stream (#2839).
+    it "reads past an empty segment that isn't the write segment" do
+      with_amqp_server do |s|
+        q_name = "stream-empty-middle-segment"
+        args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, args: args)
+          3.times { |i| q.publish_confirm "m#{i}" }
+        end
+        stream = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::Stream)
+        data_dir = stream.@data_dir
+        s.stop
+        File.open(File.join(data_dir, "msgs.0000000002"), "w", &.write_bytes(LavinMQ::Schema::VERSION))
+        restart_server(s)
+        with_channel(s) do |ch|
+          ch.prefetch 10
+          q = ch.queue(q_name, args: args)
+          q.publish_confirm "x" * (LavinMQ::Config.instance.segment_size + 1024) # rolls over past the empty segment
+          stream = s.vhosts["/"].queue(q_name).as(LavinMQ::AMQP::Stream)
+          stream.stream_msg_store.@segments.keys.should eq [1u32, 2u32, 3u32]
+          offsets = Channel(Int64).new(10)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset" => "first"})) do |msg|
+            offsets.send StreamSpecHelpers.offset_from_headers(msg.properties.headers)
+            msg.ack
+          end
+          4.times do |i|
+            select
+            when offset = offsets.receive then offset.should eq i + 1
+            when timeout(5.seconds) then fail "got #{i} of 4 messages"
+            end
+          end
+          stream.state.running?.should be_true
+          q.publish_confirm("new").should be_true # the consumer waits at the tail for writes
+          offsets.receive.should eq 5
+        end
+      end
+    end
+
     # state of the meta file of zero-filled segment 2 => first offset of segment 3 after the load
     {kept: 3i64, deleted: 2i64, zero_filled: 2i64}.each do |meta, offset|
       it "numbers the offsets after a zero-filled segment whose meta file is #{meta}, also after a second restart" do
@@ -2492,6 +2532,50 @@ describe LavinMQ::AMQP::StreamCursor do
       first_retained = store.@segment_first_offset[store.@segments.first_key]
       first_retained.should be > 2
       offsets.call(store, cursor).should eq (first_retained..6).to_a
+      store.close
+    end
+  end
+
+  # A segment cut to its schema header by a crash is kept at load, and its
+  # offsets end where its meta file, or the segment before it, says
+  [true, false].each do |keep_meta|
+    it "reads past a middle segment cut to its schema header, #{keep_meta ? "with" : "without"} its meta file" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        StreamSpecHelpers.push(store, 3, big) # one per segment
+        store.@segments.size.should eq 3
+        store.close
+        File.open(File.join(data_dir, "msgs.0000000002"), "r+", &.truncate(4))
+        File.delete(File.join(data_dir, "meta.0000000002")) unless keep_meta
+
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        store.failed?.should be_false
+        store.@segments.has_key?(2u32).should be_true
+        last = store.@segment_first_offset[3u32]
+        cursor = store.cursor(first)
+        offsets.call(store, cursor).should eq [1, last]
+        store.failed?.should be_false
+        cursor.caught_up?.should be_true
+        StreamSpecHelpers.push(store, 1)
+        offsets.call(store, cursor).should eq [last + 1]
+        store.close
+      end
+    end
+  end
+
+  it "waits at an empty write segment" do
+    with_datadir do |data_dir|
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      StreamSpecHelpers.push(store, 1)
+      store.close
+      File.open(File.join(data_dir, "msgs.0000000002"), "w", &.write_bytes(LavinMQ::Schema::VERSION))
+      store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+      cursor = store.cursor(first)
+      offsets.call(store, cursor).should eq [1]
+      cursor.caught_up?.should be_true
+      store.shift?(cursor).should be_nil
+      StreamSpecHelpers.push(store, 1)
+      offsets.call(store, cursor).should eq [2]
       store.close
     end
   end

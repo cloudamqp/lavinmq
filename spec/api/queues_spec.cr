@@ -1154,6 +1154,30 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "reads past an empty segment that isn't the write segment" do
+      with_http_server do |http, s|
+        args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: args)
+          3.times { |i| q.publish_confirm "m#{i}" }
+        end
+        data_dir = s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream).@data_dir
+        s.stop
+        # A crash right after a rollover leaves a segment with only its schema header
+        File.open(File.join(data_dir, "msgs.0000000002"), "w", &.write_bytes(LavinMQ::Schema::VERSION))
+        restart_server(s)
+        with_channel(s) do |ch|
+          q = ch.queue("read-stream", args: args)
+          q.publish_confirm "x" * (LavinMQ::Config.instance.segment_size + 1024) # rolls over past the empty segment
+        end
+        response = http.post("/api/queues/%2f/read-stream/stream", body: %({"count": 10, "offset": "first", "truncate": 2}))
+        response.status_code.should eq 200
+        msgs = JSON.parse(response.body).as_a
+        msgs.map(&.["properties"]["headers"]["x-stream-offset"].as_i).should eq [1, 2, 3, 4]
+        s.vhosts["/"].queue("read-stream").as(LavinMQ::AMQP::Stream).state.running?.should be_true
+      end
+    end
+
     it "ends the response with invalid JSON when the stream fails after the first flush" do
       with_http_server do |http, s|
         with_channel(s) do |ch|

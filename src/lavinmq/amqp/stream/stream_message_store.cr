@@ -244,7 +244,8 @@ module LavinMQ::AMQP
       return if cursor.offset > @last_offset
       pin(cursor)
       rfile = @segments[cursor.segment]? || next_segment(cursor) || return
-      if cursor.pos == rfile.size # EOF
+      # EOF, also of an empty segment, e.g. one a crash cut to its header
+      while cursor.pos == rfile.size
         return if rfile == @wfile
         rfile = next_segment(cursor) || return
       end
