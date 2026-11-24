@@ -395,12 +395,14 @@ module LavinMQ
     # and swap it in only if parsing and validation fully succeed. A setting
     # removed from the config file therefore goes back to its default, and
     # environment variables and command line arguments still take precedence
-    # over the file. Values set in code after #parse are not kept. On failure
+    # over the file. Startup-only settings keep their running value, see
+    # `StartupOnly`. Values set in code after #parse are not kept. On failure
     # the running config is untouched and it raises, so the SIGHUP handler can
     # log and keep serving.
     def reload
       new_config = Config.new(@io)
       new_config.parse_for_reload(@config_file, @argv)
+      new_config.keep_startup_only_settings(self)
       sync_was = sync?
       # The fresh config has no log backend; keep the running one so
       # setup_logger can close it
@@ -436,6 +438,18 @@ module LavinMQ
       parse_cli(argv)
       validate!
       try_to_open_log_file
+    end
+
+    # Copies the startup-only settings from the running config, warning about
+    # each one the config file changed, as it only takes effect on a restart
+    protected def keep_startup_only_settings(running : self) : Nil
+      {% for ivar in @type.instance_vars.select(&.annotation(StartupOnly)) %}
+        {% ini = ivar.annotation(IniOpt) || raise "StartupOnly #{ivar.name} has no IniOpt" %}
+        unless @{{ ivar.id }} == running.@{{ ivar.id }}
+          Log.warn { "'{{ (ini[:ini_name] || ivar.name).id }}' in section [{{ ini[:section].id }}] changed in the config file; restart to apply" }
+          @{{ ivar.id }} = running.@{{ ivar.id }}
+        end
+      {% end %}
     end
 
     # Try to open and immediately close the configured log file so an unopenable

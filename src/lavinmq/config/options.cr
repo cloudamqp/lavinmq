@@ -107,6 +107,13 @@ module LavinMQ
     # property data_dir : String = "/var/lib/lavinmq"
     # ```
     annotation EnvOpt; end
+
+    # Marks a config property that is only read at startup, or when a follower
+    # is promoted to leader, such as listeners, the data directory and the
+    # clustering settings. A reload keeps the running value and warns when the
+    # config file has a different one, as applying it would leave the broker
+    # inconsistent with what it set up at startup (e.g. the etcd keys it holds).
+    annotation StartupOnly; end
     INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth"}
 
     # Separate module for config option definitions. This keeps the option declarations
@@ -119,6 +126,7 @@ module LavinMQ
       @[CliOpt("-c CONFIG", "--config=CONFIG", "Path to config file", section: "options")]
       property config_file = ""
 
+      @[StartupOnly]
       @[CliOpt("-D DIRECTORY", "--data-dir=DIRECTORY", "Data directory", section: "options")]
       @[IniOpt(section: "main")]
       @[EnvOpt("STATE_DIRECTORY")]
@@ -132,6 +140,7 @@ module LavinMQ
       @[CliOpt("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String), section: "bindings")]
       property bind = "127.0.0.1"
 
+      @[StartupOnly]
       @[CliOpt("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)", section: "bindings")]
       @[IniOpt(ini_name: port, section: "amqp")]
       @[EnvOpt("LAVINMQ_AMQP_PORT")]
@@ -140,36 +149,44 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property log_file : String? = nil
 
+      @[StartupOnly]
       @[CliOpt("", "--pidfile=FILE", "Write the process ID to FILE on startup. The file is removed upon graceful shutdown.", section: "options")]
       @[IniOpt(section: "main")]
       property pidfile : String = ""
 
+      @[StartupOnly]
       @[CliOpt("", "--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)", section: "bindings")]
       @[IniOpt(ini_name: bind, section: "amqp")]
       @[EnvOpt("LAVINMQ_AMQP_BIND")]
       property amqp_bind = "127.0.0.1"
 
+      @[StartupOnly]
       @[CliOpt("", "--amqp-unix-path=PATH", "AMQP UNIX path to listen to", section: "bindings")]
       @[IniOpt(ini_name: unix_path, section: "amqp")]
       property unix_path : String = ""
 
+      @[StartupOnly]
       @[CliOpt("", "--amqps-port=PORT", "AMQPS port to listen on (default: -1)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "amqp")]
       @[EnvOpt("LAVINMQ_AMQPS_PORT")]
       property amqps_port = 5671
 
+      @[StartupOnly]
       @[CliOpt("", "--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: 127.0.0.1)", section: "bindings")]
       @[IniOpt(ini_name: bind, section: "mqtt")]
       property mqtt_bind = "127.0.0.1"
 
+      @[StartupOnly]
       @[CliOpt("", "--mqtt-port=PORT", "MQTT port to listen on (default: 1883)", section: "bindings")]
       @[IniOpt(ini_name: port, section: "mqtt")]
       property mqtt_port = 1883
 
+      @[StartupOnly]
       @[CliOpt("", "--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "mqtt")]
       property mqtts_port = 8883
 
+      @[StartupOnly]
       @[CliOpt("", "--mqtt-unix-path=PATH", "MQTT UNIX path to listen to", section: "bindings")]
       @[IniOpt(ini_name: unix_path, section: "mqtt")]
       property mqtt_unix_path = ""
@@ -180,25 +197,30 @@ module LavinMQ
       @[IniOpt(section: "amqp", transform: ->IPMatcher.parse_list(String))]
       property proxy_protocol_trusted_sources = Array(IPMatcher).new
 
+      @[StartupOnly]
       @[CliOpt("", "--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)", section: "bindings")]
       @[IniOpt(ini_name: bind, section: "mgmt")]
       @[EnvOpt("LAVINMQ_HTTP_BIND")]
       property http_bind = "127.0.0.1"
 
+      @[StartupOnly]
       @[CliOpt("", "--http-port=PORT", "HTTP port to listen on (default: 15672)", section: "bindings")]
       @[IniOpt(ini_name: port, section: "mgmt")]
       @[EnvOpt("LAVINMQ_HTTP_PORT")]
       property http_port = 15672
 
+      @[StartupOnly]
       @[CliOpt("", "--http-unix-path=PATH", "HTTP UNIX path to listen to", section: "bindings")]
       @[IniOpt(ini_name: unix_path, section: "mgmt")]
       property http_unix_path = ""
 
+      @[StartupOnly]
       @[CliOpt("", "--control-unix-path=PATH", "UNIX socket lavinmqctl connects to (default: /tmp/lavinmqctl.sock)", section: "bindings")]
       @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_CONTROL_UNIX_PATH")]
       property control_unix_path : String = HTTP::DEFAULT_CONTROL_UNIX_PATH
 
+      @[StartupOnly]
       @[CliOpt("", "--https-port=PORT", "HTTPS port to listen on (default: -1)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "mgmt")]
       @[EnvOpt("LAVINMQ_HTTPS_PORT")]
@@ -241,10 +263,12 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property? tls_ktls = false
 
+      @[StartupOnly]
       @[IniOpt(section: "main")]
       @[CliOpt("", "--metrics-http-bind=BIND", "IP address that the Prometheus server will bind to (default: 127.0.0.1)")]
       property metrics_http_bind = "127.0.0.1"
 
+      @[StartupOnly]
       @[IniOpt(section: "main")]
       @[CliOpt("", "--metrics-http-port=PORT", "HTTP port that prometheus will listen to (default: 15692)")]
       property metrics_http_port = 15692
@@ -266,9 +290,11 @@ module LavinMQ
       @[IniOpt(ini_name: max_packet_size, section: "mqtt")]
       property mqtt_max_packet_size = 268_435_455_u32 # bytes
 
+      @[StartupOnly]
       @[IniOpt(section: "mgmt")]
       property http_systemd_socket_name = "lavinmq-http.socket"
 
+      @[StartupOnly]
       @[IniOpt(section: "amqp")]
       property amqp_systemd_socket_name = "lavinmq-amqp.socket"
 
@@ -340,6 +366,7 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property free_disk_warn : Int64 = 0_i64 # bytes
 
+      @[StartupOnly]
       @[IniOpt(section: "main")]
       property load_definitions = "" # path to a JSON definitions file to import on startup
 
@@ -402,6 +429,7 @@ module LavinMQ
         @default_user_only_loopback = value
       end
 
+      @[StartupOnly]
       @[CliOpt("", "--no-data-dir-lock", "Don't put a file lock in the data directory (default true)", ->(_v : String) { false }, section: "options")]
       @[IniOpt(section: "main")]
       property? data_dir_lock : Bool = true
@@ -409,31 +437,37 @@ module LavinMQ
       @[CliOpt("", "--raise-gc-warn", "Raise on GC warnings", ->(_v : String) { true }, section: "options")]
       property? raise_gc_warn : Bool = false
 
+      @[StartupOnly]
       @[CliOpt("", "--clustering", "Enable clustering", ->(_v : String) { true }, section: "clustering")]
       @[IniOpt(ini_name: enabled, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING")]
       property? clustering = false
 
+      @[StartupOnly]
       @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", section: "clustering")]
       @[IniOpt(ini_name: advertised_uri, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
       property clustering_advertised_uri : String? = nil
 
+      @[StartupOnly]
       @[CliOpt("", "--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)", section: "clustering")]
       @[IniOpt(ini_name: bind, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_BIND")]
       property clustering_bind = "127.0.0.1"
 
+      @[StartupOnly]
       @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separated host/port pairs (default: 127.0.0.1:2379)", section: "clustering")]
       @[IniOpt(ini_name: etcd_endpoints, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
       property clustering_etcd_endpoints = "localhost:2379"
 
+      @[StartupOnly]
       @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq)", section: "clustering")]
       @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
       property clustering_etcd_prefix = "lavinmq"
 
+      @[StartupOnly]
       @[CliOpt("", "--clustering-etcd-lease-ttl=SECONDS", "TTL of the etcd lease, leadership is lost if not renewed within it (default: 10)", section: "clustering")]
       @[IniOpt(ini_name: etcd_lease_ttl, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_LEASE_TTL")]
@@ -449,6 +483,7 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")]
       @clustering_max_unsynced_actions = 8192 # deprecated, no longer used
 
+      @[StartupOnly]
       @[CliOpt("", "--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)", section: "clustering")]
       @[IniOpt(ini_name: port, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]

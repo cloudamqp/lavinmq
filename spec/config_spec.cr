@@ -904,6 +904,75 @@ describe LavinMQ::Config do
       end
     end
 
+    it "keeps startup-only settings removed from the config file, and warns" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, <<-INI)
+          [main]
+          stats_interval = 1000
+          [amqp]
+          port = 5673
+          [clustering]
+          etcd_prefix = spec-prefix
+          INI
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+
+        File.write(config_file.path, "[main]\n")
+        Log.capture("lmq", :warn) do |logs|
+          config.reload
+          logs.check(:warn, /'port' in section \[amqp\] changed in the config file; restart to apply/)
+          logs.check(:warn, /'etcd_prefix' in section \[clustering\] changed in the config file; restart to apply/)
+        end
+        config.amqp_port.should eq 5673
+        config.clustering_etcd_prefix.should eq "spec-prefix"
+        config.stats_interval.should eq LavinMQ::Config.new.stats_interval # reloadable, reset
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "keeps startup-only settings changed in the config file, and applies reloadable ones" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[main]\nstats_interval = 1000\n[mgmt]\nport = 15673\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+
+        File.write(config_file.path, "[main]\nstats_interval = 2000\n[mgmt]\nport = 15674\n")
+        Log.capture("lmq", :warn) do |logs|
+          config.reload
+          logs.check(:warn, /'port' in section \[mgmt\] changed in the config file/)
+          logs.empty # nothing else changed that needs a restart
+        end
+        config.http_port.should eq 15673
+        config.stats_interval.should eq 2000
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
+    it "doesn't warn when no startup-only setting changed" do
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      begin
+        File.write(config_file.path, "[amqp]\nport = 5673\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path, "--amqp-bind=127.0.0.3"])
+
+        File.write(config_file.path, "[amqp]\nport = 5673\nbind = 127.0.0.4\n") # bind overridden by CLI
+        Log.capture("lmq", :warn) do |logs|
+          config.reload
+          logs.empty
+        end
+        config.amqp_bind.should eq "127.0.0.3"
+      ensure
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+
     it "keeps command line values over the config file" do
       config_file = File.tempfile("lavinmq-config", ".ini")
       begin

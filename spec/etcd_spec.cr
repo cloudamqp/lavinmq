@@ -251,6 +251,35 @@ describe LavinMQ::Etcd, tags: "etcd" do
     end
   end
 
+  it "keeps updating the ISR after a reload that removes etcd_prefix" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do
+      prefix = "lavinmq/#{rand}"
+      config_file = File.tempfile("lavinmq-config", ".ini")
+      etcd = LavinMQ::Etcd.new(cluster.endpoints)
+      begin
+        File.write(config_file.path, "[clustering]\netcd_prefix = #{prefix}\n")
+        config = LavinMQ::Config.new
+        config.parse(["-c", config_file.path])
+        lease = l = etcd.lease_grant(10)
+        coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
+        coordinator.campaign("node-a", l.id)
+        coordinator.update_isr(Set{1, 2})
+
+        File.write(config_file.path, "[main]\n")
+        config.reload
+
+        # Still the election and ISR keys under the prefix it campaigned with
+        coordinator.update_isr(Set{1})
+        etcd.get("#{prefix}/isr").should eq "1"
+      ensure
+        lease.try { |ls| ls.release rescue nil }
+        File.delete?(config_file.path)
+        Log.setup(:fatal)
+      end
+    end
+  end
+
   pending "learns new cluster endpoints" do
     cluster = EtcdCluster.new
     cluster.run do
