@@ -60,6 +60,9 @@ module LavinMQ
       # True while the deliveries are paused: by an operator, see #pause!, or by
       # a store error, see #pause_on_store_error. Set under @state_lock.
       @paused = BoolChannel.new(false)
+      # True once the session failed, see #pause_on_store_error. Set under
+      # @state_lock.
+      @failed = false
       # Guards @paused and the paused file. Taken last: a store error pauses
       # the session under @msg_store_lock. Not @msg_store_lock itself, which
       # every publish to the session takes, as the paused file is written
@@ -97,6 +100,7 @@ module LavinMQ
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         if @msg_store.failed?
           @log.error { "Failed, message data can't be loaded. #{unreadable_advice}" }
+          @failed = true
           @paused.set(true)
         end
         @metadata_file = File.join(data_dir, ".metadata")
@@ -224,17 +228,25 @@ module LavinMQ
       # still stored, unless the store has data it can't read, see #publish.
       # #resume! tries again, unless the store has data it can't read: then the
       # session has to be deleted. Like a queue's, this pause isn't kept over a
-      # restart of the broker.
+      # restart of the broker. Logged as an error only when it changes the
+      # state, as each ack or publish to a paused session can fail the same way.
       private def pause_on_store_error(ex : MessageStore::Error) : Nil
         @store_errors.add(1, :release)
-        paused = @state_lock.synchronize do
+        failed = @msg_store.failed?
+        changed = @state_lock.synchronize do
           next false if closed?
+          if failed
+            next false if @failed
+            @failed = true
+          else
+            next false if @paused.value
+          end
           @paused.set(true)
           true
         end
-        if paused
+        if changed
           @log.error(exception: ex) do
-            if @msg_store.failed?
+            if failed
               "Failed, message data can't be read. #{unreadable_advice}"
             else
               "Paused due to a temporary message store error, resume the session to try again"
@@ -538,7 +550,7 @@ module LavinMQ
           rescue ex : MessageStore::Error
             # The client isn't disconnected for it. The message stays in its
             # segment, so it can come back after a restart of the broker.
-            @log.error(exception: ex) { "Failed to delete #{sp}" }
+            @log.debug { "Failed to delete #{sp}" }
             pause_on_store_error(ex)
           rescue ex
             raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)

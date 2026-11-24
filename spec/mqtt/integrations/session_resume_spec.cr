@@ -1,4 +1,5 @@
 require "../spec_helper.cr"
+require "log/spec"
 
 # A connection replaced mid-delivery: its send swaps the session over to the
 # replacement, as a takeover does, then fails like the replaced socket.
@@ -429,6 +430,29 @@ module MqttSpecs
           session.resume!
           publish_from(server, "a/b", ["2"])
           read_publish(io).payload.should eq "2".to_slice
+          disconnect(io)
+        end
+      end
+    end
+
+    it "logs one error when acks fail while paused by a store error" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "resumer")
+          subscribe(io, topic_filters: mk_topic_filters({"a/b", 1u8}))
+          session = server.vhosts["/"].session("mqtt.resumer")
+          publish_from(server, "a/b", %w[1 2 3 4 5])
+          delivered = read_publishes(io, 5)
+          acks = File.join(session.@msg_store.@msg_dir, "acks.0000000001")
+          Dir.mkdir(acks)
+          Log.capture("lmq.*", :error) do |logs|
+            delivered.each { |pub| puback(io, pub.packet_id) }
+            pingpong(io) # every puback is handled
+            session.state.paused?.should be_true
+            logs.next(:error, /Paused due to a temporary message store error/).empty
+          end
+          session.client.should_not be_nil
+          Dir.delete(acks)
           disconnect(io)
         end
       end
