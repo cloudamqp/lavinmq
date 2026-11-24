@@ -857,6 +857,8 @@ module LavinMQ
           when timeout(5.seconds)
             Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
           end
+          # The loop may have bound the control socket after the close above
+          @internal_http_server.try { |s| s.close unless s.closed? }
         end
         # The ack loop keeps draining acks buffered in @acks even after the
         # channel is closed, syncing to disk before each send. Wait for it to
