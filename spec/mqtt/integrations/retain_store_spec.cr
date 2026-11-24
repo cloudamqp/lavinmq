@@ -82,6 +82,25 @@ module MqttSpecs
       ensure
         store.try &.close
       end
+
+      it "removes the compacted index it couldn't write, as on a full disk" do
+        pending! "needs /dev/full" unless File.exists?("/dev/full")
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, IndexTree.new)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
+        store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true))
+        store.retain(publish_packet(topic: "a", payload: Bytes.empty, retain: true))
+        # Writing the compacted index fails with ENOSPC when it's flushed
+        File.symlink("/dev/full", "tmp/retain_store/index.tmp")
+        store.close
+        File.symlink?("tmp/retain_store/index.tmp").should be_false
+
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        index["a"]?.should be_nil
+        index["b"]?.should be_a String
+      ensure
+        store.try &.close
+      end
     end
 
     describe "each" do

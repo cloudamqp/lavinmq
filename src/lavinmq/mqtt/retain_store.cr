@@ -129,9 +129,10 @@ module LavinMQ
         end
       end
 
-      # Closes current index file, writes the inmemory index to a tmp file
-      # renames the file back to the correct name and replaces it on followers,
-      # sets @index_file to the new compacted index file
+      # Writes the in-memory index to a tmp file, renames it to the index file,
+      # replaces it on followers and sets @index_file to it. The current index
+      # file is only closed once the new one is in place, so a failure (e.g. a
+      # full disk) leaves the store with the index it had.
       private def write_index
         tmp_file_name = "#{@index_file_name}.tmp"
         f = File.new(tmp_file_name, "w")
@@ -141,9 +142,15 @@ module LavinMQ
           end
           FileSystem.durable_rename(f, @index_file_name)
         rescue ex
-          f.close
-          File.delete?(tmp_file_name)
-          raise ex
+          # Once renamed the new file is the index, even if fsyncing the
+          # directory failed: the old one is no longer in it
+          unless f.path == @index_file_name
+            # A failed flush is retried, and fails again, on close
+            f.close rescue nil
+            File.delete?(tmp_file_name)
+            raise ex
+          end
+          Log.warn { "Compacted the index, but could not sync its directory: #{ex.message}" }
         end
         @index_file.close
         @replicator.try &.replace_file(@index_file_name)
