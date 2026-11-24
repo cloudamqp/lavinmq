@@ -119,9 +119,7 @@ module LavinMQ
             # The body is parsed in memory, so it's refused before that when the payload, even
             # base64 encoded, can't be within max_message_size
             max_size = Config.instance.max_message_size
-            if (length = context.request.content_length) && length > max_size // 3 * 4 + 64 * 1024
-              payload_too_large(context, max_size)
-            end
+            limit_body_size(context, max_size)
             body = parse_body(context)
             properties = body["properties"]?
             routing_key = body["routing_key"]?.try(&.as_s)
@@ -165,6 +163,21 @@ module LavinMQ
             # other bound queues accepted.
             {routed: result.routed? && !result.rejected?}.to_json(context.response.output)
           end
+        end
+      end
+
+      private def limit_body_size(context, max_size) : Nil
+        max_body_size = max_size.to_i64 // 3 * 4 + 64 * 1024
+        request = context.request
+        if length = request.content_length
+          payload_too_large(context, max_size) if length > max_body_size
+        elsif body = request.body
+          # A chunked body has no Content-Length, so it's read up to the limit
+          buffer = IO::Memory.new
+          copied = IO.copy(body, buffer, max_body_size + 1)
+          payload_too_large(context, max_size) if copied > max_body_size
+          buffer.rewind
+          request.body = buffer
         end
       end
 

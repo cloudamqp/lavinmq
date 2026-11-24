@@ -315,7 +315,12 @@ describe LavinMQ::HTTP::ExchangesController do
         publish.call(Base64.strict_encode("a" * 1025), "base64").status_code.should eq 413
         # Refused before it's parsed
         publish.call("a" * 100 * 1024, "string").status_code.should eq 413
-        s.vhosts["/"].queue("q_big").message_count.should eq 1
+        # A chunked body, without a Content-Length, is refused before it's parsed too: it isn't JSON
+        http.post("/api/exchanges/%2f/amq.default/publish", body: IO::Sized.new(IO::Memory.new("a" * 100 * 1024), 100 * 1024)).status_code.should eq 413
+        small = {properties: {} of String => String, routing_key: "q_big", payload: "a",
+                 payload_encoding: "string"}.to_json
+        http.post("/api/exchanges/%2f/amq.default/publish", body: IO::Sized.new(IO::Memory.new(small), small.bytesize)).status_code.should eq 200
+        s.vhosts["/"].queue("q_big").message_count.should eq 2
       end
     ensure
       LavinMQ::Config.instance.max_message_size = max_message_size if max_message_size
