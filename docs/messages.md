@@ -16,6 +16,8 @@ Messages are published via `basic.publish`, specifying:
 |-----------|---------|---------|-------------|
 | `max_message_size` | `[amqp]` | `134217728` | Maximum message body size in bytes (128 MB) |
 
+The limit also applies to `POST /api/exchanges/:vhost/:name/publish`, which refuses a larger payload with `413 Payload Too Large`. The whole JSON request body is read into memory, so a request whose `Content-Length` couldn't hold a payload within the limit, even base64 encoded, is refused before it's parsed; a string payload with a lot of JSON escaping can therefore be refused somewhat below the limit.
+
 ## Message Properties
 
 | Property | Type | Description |

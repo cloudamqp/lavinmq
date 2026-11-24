@@ -242,7 +242,7 @@
   post:
     tags:
     - exchanges
-    description: Publish a message to the specific exchange. Check the response body to understand if the message was successfully routed or not.
+    description: Publish a message to the specific exchange. Check the response body to understand if the message was successfully routed or not. A payload larger than `max_message_size` is refused with 413.
     summary: Publish message
     operationId: PostExchangePublish
     requestBody:
