@@ -40,10 +40,6 @@
     responses:
       '200':
         description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/definitions"
       4XX:
         description: Client Error
         content:
@@ -126,16 +122,12 @@
     requestBody:
       required: true
       content:
-        multipart/form-data:
+        application/json:
           schema:
             "$ref": "../openapi.yaml#/components/schemas/definitions-PostDefinitionsVhostRequestBody"
     responses:
       '200':
         description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/definitions"
       4XX:
         description: Client Error
         content:
