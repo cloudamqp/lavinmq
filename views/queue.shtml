@@ -29,6 +29,14 @@
               <div class="details-label">State</div>
               <div class="details-value" id="q-state"></div>
             </div>
+            <div class="details-cell hide" id="q-state-reason-row">
+              <div class="details-label">Reason</div>
+              <div class="details-value" id="q-state-reason"></div>
+            </div>
+            <div class="details-cell hide" id="q-primary-queue-row">
+              <div class="details-label">Retry queue of</div>
+              <div class="details-value" id="q-primary-queue"></div>
+            </div>
             <div class="details-cell">
               <div class="details-label">Consumers</div>
               <div class="details-value" id="q-consumers"></div>
@@ -46,11 +54,6 @@
               <div class="details-value" id="q-effective-policy-definition"></div>
             </div>
           </div>
-          <form method="put" id="restartQueue" class="form form-card-inner hide">
-            <label>
-              <button type="submit" class="btn btn-green">Restart queue</button>
-            </label>
-          </form>
         </section>
         <section class="card tb-card cols-5">
           <h3 class="form-card-title">Messages</h3>
@@ -87,6 +90,41 @@
             <pre class="arguments" id="q-arguments"></pre>
           </div>
         </section>
+        <section class="card tb-card cols-12 hide" id="q-delayed-retry">
+          <h3 class="form-card-title">Automatic retries</h3>
+          <div class="details-grid">
+            <div class="details-cell">
+              <div class="details-label">Initial delay</div>
+              <div class="details-value" id="q-retry-min"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">Backoff</div>
+              <div class="details-value" id="q-retry-backoff"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">Max delay</div>
+              <div class="details-value" id="q-retry-max"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">Delivery limit</div>
+              <div class="details-value" id="q-retry-delivery-limit"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">Messages delayed</div>
+              <div class="details-value" id="q-retry-messages-delayed"></div>
+            </div>
+            <div class="details-cell">
+              <div class="details-label">Retry queue</div>
+              <div class="details-value" id="q-retry-queue"></div>
+            </div>
+          </div>
+        </section>
+        <section class="card tb-card cols-12 align-start">
+          <h3 class="form-card-title">Queued messages</h3>
+          <div class="form-card-inner">
+            <div class="chart-container chart-legend-right" id="msgChart"></div>
+          </div>
+        </section>
         <section class="card tb-card cols-12 align-start">
           <h3 class="form-card-title">Rates</h3>
           <div class="form-card-inner">
@@ -96,7 +134,7 @@
         <section class="card tb-card cols-12 actionbar">
           <h3 class="form-card-title">Queue actions</h3>
           <div class="actionbar-grid">
-            <div class="actionbar-box">
+            <div class="actionbar-box" id="pause-queue-card">
               <form method="put" id="pauseQueue">
                 <button type="submit" class="btn btn-outlined">
                   <img src="img/icons/icon-pause-lg.svg" width="20" height="20" alt="">
@@ -111,7 +149,7 @@
               </form>
               <p class="card-desc">Pausing a queue will stop deliveries to all consumers.</p>
             </div>
-            <div class="actionbar-box">
+            <div class="actionbar-box" id="purge-queue-box">
               <form method="delete" id="purgeQueue">
                 <div class="actionbar-purge">
                   <label>

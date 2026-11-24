@@ -19,6 +19,7 @@ module LavinMQ
         @upstream_channel : ::AMQP::Client::Channel?
         @metadata : ::Log::Metadata
         @state_changed = Channel(State?).new
+        @run_loop_done : Channel(Nil)?
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
@@ -52,8 +53,13 @@ module LavinMQ
 
         def run
           @log.info { "Starting" }
+          @run_loop_done = Channel(Nil).new
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
           Fiber.yield
+        end
+
+        def wait_stopped : Nil
+          @run_loop_done.try &.receive?
         end
 
         private def state(state)
@@ -103,6 +109,7 @@ module LavinMQ
         ensure
           state(State::Terminated)
           @state_changed.close
+          @run_loop_done.try &.close
           @log.info { "Terminated" }
         end
 
@@ -315,6 +322,7 @@ module LavinMQ
               @log.debug { "Waiting for consumers" }
               select
               when @consumer_available.receive?
+                return if stop_link?
                 consume_upstream_and_federate(q, no_ack)
               when @state_changed.receive?
                 return if @state_changed.closed?

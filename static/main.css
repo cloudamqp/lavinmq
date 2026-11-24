@@ -1774,10 +1774,12 @@ th.group.last {
   border: 1px solid currentColor;
   color: var(--color-success);
   background-color: color-mix(in srgb, currentColor 15%, transparent);
+  text-transform: capitalize;
 
   &.state-badge-paused,
   &.state-badge-closed,
-  &.state-badge-crashed {
+  &.state-badge-failed,
+  &.state-badge-deleted {
     color: #ff6b6b;
   }
 
@@ -2217,6 +2219,20 @@ fieldset.inline {
 
 .chart-container .uplot {
   width: 100%;
+}
+
+.chart-collecting {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  pointer-events: none;
+}
+
+.chart-collecting[hidden] {
+  display: none;
 }
 
 /* Legend beside the plot on wide screens, opt in with .chart-legend-right.

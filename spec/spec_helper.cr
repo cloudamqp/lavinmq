@@ -178,6 +178,17 @@ def restart_server(server : LavinMQ::Server)
   Fiber.yield
 end
 
+def with_stats_interval(ms : Int32, &)
+  cfg = LavinMQ::Config.instance
+  orig = cfg.stats_interval
+  begin
+    cfg.stats_interval = ms
+    yield
+  ensure
+    cfg.stats_interval = orig
+  end
+end
+
 def with_datadir(&)
   data_dir = File.tempname("lavinmq", "spec")
   Dir.mkdir_p data_dir
@@ -460,6 +471,15 @@ def serve_metrics(amqp_server, &)
     yield HTTPSpecHelper.new(addr)
   ensure
     h.close
+  end
+end
+
+# Overwrites a value in a file, also seen by a store that has it mapped. Used
+# to make message data unreadable, and readable again.
+def write_at(path : String, pos : Int, value) : Nil
+  File.open(path, "r+") do |f|
+    f.seek(pos)
+    f.write_bytes(value)
   end
 end
 

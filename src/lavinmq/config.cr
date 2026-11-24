@@ -22,19 +22,23 @@ module LavinMQ
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
     @io : IO = STDERR
+    # The command line arguments given to #parse, replayed by #reload
+    @argv = Array(String).new
     @log_backend : LogBackend?
 
     def self.instance : LavinMQ::Config
       @@instance
     end
 
-    private def initialize(@io : IO = STDERR)
+    # Protected rather than private so #reload can build a fresh config
+    protected def initialize(@io : IO = STDERR)
     end
 
     # Parse configuration from environment, command line arguments and configuration file.
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      @argv = argv.dup
       parse_info_option(argv)
       config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
@@ -86,9 +90,14 @@ module LavinMQ
       "OAuth management UI SSO not enabled: oauth.mgmt_base_url must use https:// or http://{localhost,127.0.0.1,[::1]}"
     end
 
+    AUTH_BACKENDS = {"local", "oauth"}
+
     protected def validate!
       unless @stats_interval.positive?
         raise Error.new("stats_interval must be positive (got #{@stats_interval})")
+      end
+      unless @stats_log_size.positive?
+        raise Error.new("stats_log_size must be positive (got #{@stats_log_size})")
       end
       # 0 is not "unlimited": the capacity gate would never open, so every MQTT
       # session would accept publishes and deliver none of them.
@@ -99,6 +108,11 @@ module LavinMQ
       # closing the connection, forever
       unless @tcp_send_timeout.positive?
         raise Error.new("tcp_send_timeout must be positive (got #{@tcp_send_timeout})")
+      end
+      # Checked here, not only when the auth chain is built, so a reload with an
+      # unsupported backend keeps the running config
+      if unsupported = @auth_backends.find { |b| !AUTH_BACKENDS.includes?(b) }
+        raise Error.new("Unsupported auth_backends value '#{unsupported}', expected one of #{AUTH_BACKENDS.join(", ")}")
       end
       unless @clustering_etcd_lease_ttl.positive?
         raise Error.new("clustering etcd_lease_ttl must be positive (got #{@clustering_etcd_lease_ttl})")
@@ -141,17 +155,17 @@ module LavinMQ
     # value is forwarded only if the (getter-less) deprecated property defines a
     # setter. An option with no replacement defines no setter, so its value is
     # dropped after the warning. Shared by `parse_cli` and `parse_section`.
-    private macro assign_option(var_name, value, transform, deprecation_message)
+    private macro assign_option(var_name, value, transform, deprecation_message, label)
       {% if deprecation_message %}
         @io.puts "WARNING: {{ deprecation_message.id }}"
         # Since deprecation_message is set, the variable is deprecated. It may
         # be forwarded to another variable using a setter, but it may also be
         # completley removed, therefore we need to check for a setter.
         {% if @type.has_method?("#{var_name.id}=") %}
-          self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }})
+          self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }}, {{ label }})
         {% end %}
       {% else %}
-        self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }})
+        self.{{ var_name.id }} = parse_value({{ value }}, {{ transform }}, {{ label }})
       {% end %}
     end
 
@@ -160,7 +174,7 @@ module LavinMQ
         {% for ann in ivar.annotations(EnvOpt) %}
           {% env_name, transform = ann.args %}
           if v = ENV.fetch({{ env_name }}, nil)
-            @{{ ivar }} = parse_value(v, {{ transform || ivar.type }})
+            @{{ ivar }} = parse_value(v, {{ transform || ivar.type }}, "'{{ env_name.id }}'")
           end
         {% end %}
       {% end %}
@@ -193,7 +207,7 @@ module LavinMQ
           # Create Option object with CLI args and a block that parses and stores the value
           # when the option is encountered during command line parsing
           sections[:{{ section_id }}][:options] << Option.new({{ parser_arg.splat }}) do |value|
-            assign_option({{ ivar.name }}, value, {{ value_parser }}, {{ cli_opt[:deprecated] }})
+            assign_option({{ ivar.name }}, value, {{ value_parser }}, {{ cli_opt[:deprecated] }}, "'{{ parser_arg[1].split("=")[0].id }}'")
           end
         {% end %}
         sections.each do |_section_id, section|
@@ -248,25 +262,25 @@ module LavinMQ
         # Default TLS settings
         when "tls_cert"        then host.tls_cert = v
         when "tls_key"         then host.tls_key = v
-        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
+        when "tls_verify_peer" then host.tls_verify_peer = parse_sni_bool(v, hostname, config)
         when "tls_ca_cert"     then host.tls_ca_cert = v
         when "tls_keylog_file" then host.tls_keylog_file = v
           # AMQP-specific overrides
         when "amqp_tls_cert"        then host.amqp_tls_cert = v
         when "amqp_tls_key"         then host.amqp_tls_key = v
-        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = parse_sni_bool(v, hostname, config)
         when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
         when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
           # MQTT-specific overrides
         when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
         when "mqtt_tls_key"         then host.mqtt_tls_key = v
-        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = parse_sni_bool(v, hostname, config)
         when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
         when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
           # HTTP-specific overrides
         when "http_tls_cert"        then host.http_tls_cert = v
         when "http_tls_key"         then host.http_tls_key = v
-        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
+        when "http_tls_verify_peer" then host.http_tls_verify_peer = parse_sni_bool(v, hostname, config)
         when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
         when "http_tls_keylog_file" then host.http_tls_keylog_file = v
         when .ends_with?("tls_min_version"), .ends_with?("tls_ciphers"),
@@ -313,11 +327,13 @@ module LavinMQ
       case name
         {% for var in ivars_in_section %}
           when "{{ var[:ini_name] }}"
-            assign_option({{ var[:var_name] }}, v, {{ var[:transform] }}, {{ var[:deprecated] }})
+            assign_option({{ var[:var_name] }}, v, {{ var[:transform] }}, {{ var[:deprecated] }}, "'{{ var[:ini_name] }}' in section [{{ section.id }}]")
         {% end %}
      else
        @io.puts "WARNING: Unknown setting '#{name}' in section [{{ section.id }}]"
       end
+    rescue ex : Error
+      raise ex
     rescue ex
       raise Error.new("Failed to handle value for '#{name}' in [{{ section.id }}]: #{ex.message}")
     end
@@ -340,8 +356,13 @@ module LavinMQ
       value
     end
 
-    private def parse_value(value, type : Bool.class)
-      true?(value)
+    # *label* identifies the setting in errors, e.g. "'sync' in section [main]"
+    private def parse_value(value, type, label : String)
+      parse_value(value, type)
+    end
+
+    private def parse_value(value, type : Bool.class, label : String)
+      parse_bool(value, label)
     end
 
     private def parse_value(value, type : Proc)
@@ -370,17 +391,22 @@ module LavinMQ
       @mqtt_bind = value
     end
 
-    # Re-read the config file into a fresh copy and swap it in only if parsing
-    # and validation fully succeed. On failure the running config is untouched
-    # and it raises, so the SIGHUP handler can log and keep serving.
+    # Rebuild the config the way #parse built it, starting from the defaults,
+    # and swap it in only if parsing and validation fully succeed. A setting
+    # removed from the config file therefore goes back to its default, and
+    # environment variables and command line arguments still take precedence
+    # over the file. Values set in code after #parse are not kept. On failure
+    # the running config is untouched and it raises, so the SIGHUP handler can
+    # log and keep serving.
     def reload
-      new_config = dup
-      new_config.fresh_sni_manager # don't mutate the live SNIManager while parsing
-      new_config.parse_ini(@config_file)
-      new_config.validate!
-      new_config.try_to_open_log_file
+      new_config = Config.new(@io)
+      new_config.parse_for_reload(@config_file, @argv)
       sync_was = sync?
+      # The fresh config has no log backend; keep the running one so
+      # setup_logger can close it
+      log_backend = @log_backend
       apply(new_config)
+      @log_backend = log_backend
       setup_logger
       sync_data_dir_after_enabled if sync? && !sync_was
     end
@@ -400,6 +426,18 @@ module LavinMQ
       File.open(@data_dir) { |dir| FileSystem.syncfs(dir.fd) }
     end
 
+    # The config file path is passed in, as #parse may have found it in the
+    # configuration directory rather than in the command line arguments
+    protected def parse_for_reload(config_file : String, argv : Array(String)) : Nil
+      @config_file = config_file
+      @argv = argv
+      parse_ini(config_file)
+      parse_env
+      parse_cli(argv)
+      validate!
+      try_to_open_log_file
+    end
+
     # Try to open and immediately close the configured log file so an unopenable
     # path raises a Config::Error before the config is applied
     protected def try_to_open_log_file
@@ -408,10 +446,6 @@ module LavinMQ
       end
     rescue ex : File::Error
       raise Error.new("Cannot open log_file '#{@log_file}': #{ex.message}")
-    end
-
-    protected def fresh_sni_manager
-      @sni_manager = SNIManager.new
     end
 
     # Copy every instance variable from the parsed config in one non-yielding
@@ -505,14 +539,28 @@ module LavinMQ
       end
     end
 
+    private TRUE_VALUES  = {"1", "true", "yes", "on", "y"}
+    private FALSE_VALUES = {"0", "false", "no", "off", "n"}
+
     # Folded here, not at the call sites: the [sni:] branch passes raw ini
     # values, so a capitalised TRUE read as false there but true in [main].
     private def false?(str : String?)
-      {"0", "false", "no", "off", "n"}.includes? str.try &.downcase
+      FALSE_VALUES.includes? str.try &.downcase
     end
 
     private def true?(str : String?)
-      {"1", "true", "yes", "on", "y"}.includes? str.try &.downcase
+      TRUE_VALUES.includes? str.try &.downcase
+    end
+
+    private def parse_bool(value : String, label : String) : Bool
+      return true if true?(value)
+      return false if false?(value)
+      raise Error.new("Invalid boolean value '#{value}' for #{label}. " \
+                      "Accepted values are #{TRUE_VALUES.join('/')} and #{FALSE_VALUES.join('/')}")
+    end
+
+    private def parse_sni_bool(value : String, hostname : String, setting : String) : Bool
+      parse_bool(value, "'#{setting}' in section [sni:#{hostname}]")
     end
 
     # There is no guarantee that `@type.instance_vars` are sorted in the same way they are added in the code.

@@ -26,6 +26,8 @@ Waiting for disk synchronization makes QoS 1 throughput depend on disk latency a
 
 A PUBACK acknowledges the broker's handling of a publish, not delivery to a subscriber. Session lifetime and subscriptions still determine whether messages are retained for later delivery; a publish denied by topic permissions is acknowledged and dropped as described below.
 
+A PUBLISH with QoS 1 or 2, a SUBSCRIBE or an UNSUBSCRIBE must carry a non-zero packet ID. One with packet ID 0 closes the connection, and the Will is published.
+
 ## Sessions
 
 Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 messages and tracks subscriptions as bindings. This is an implementation detail of how LavinMQ stores session state — MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
@@ -114,7 +116,7 @@ Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-
 
 - The exchange is always internal, so AMQP clients cannot publish into it
 - It only routes MQTT publishes. A message dead-lettered into it, as into `mqtt.default`, is dropped, and the queue logs a warning
-- It can't be delayed: MQTT publishes carry no `x-delay`, so `x-delayed-exchange` with any value but `false` is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API, a definitions import containing it is refused as a whole, and a `delayed-message` policy has no effect
+- It can't be delayed: MQTT publishes carry no `x-delay`, so `x-delayed-exchange` with any value but `false` is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API, and a definitions import containing it is refused as a whole
 - Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
 - An `x-mqtt-topic` exchange carries all MQTT traffic in the vhost, so declaring one also needs read permission on `mqtt.default`. Binding to it needs read permission on the exchange and write permission on the queue. [Topic permissions](#topic-permissions) are not applied to AMQP destinations: read on an `x-mqtt-topic` exchange gives all MQTT topics in the vhost, so grant it with care
 - [Retained messages](#retained-messages) are not replayed when a binding is created

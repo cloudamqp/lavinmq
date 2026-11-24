@@ -7,8 +7,15 @@ module LavinMQ
       def initialize(@vhost : VHost)
       end
 
+      # A session stays in the vhost until its delete finishes, which can wait
+      # for the definitions lock, so a reconnecting client waits it out rather
+      # than getting the dying session
       def []?(client_id : String) : Session?
-        @vhost.session?("#{SESSION_PREFIX}#{client_id}")
+        name = "#{SESSION_PREFIX}#{client_id}"
+        session = @vhost.session?(name) || return
+        return session unless session.deleting?
+        session.wait_for_deletion
+        @vhost.session?(name).try { |s| s unless s.deleting? }
       end
 
       def [](client_id : String) : Session

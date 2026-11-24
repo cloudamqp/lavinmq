@@ -10,7 +10,7 @@ module LavinMQ
     Log = LavinMQ::Log.for "etcd"
 
     record Endpoint, host : String, port : Int32, auth : String?, tls : Bool
-    record Connection, socket : IO, address : String, auth : String?
+    record Connection, socket : IO, tcp : TCPSocket, address : String, auth : String?
     record ElectionLeader, election : String, key : String, lease : Int64
 
     @endpoints : Array(Endpoint)
@@ -96,35 +96,35 @@ module LavinMQ
     # Returns {ID, TTL}
     def lease_grant(ttl = 10, id = 0) : Lease
       begin
-        json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
+        json, sent = post_timed("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
       rescue LeaseAlreadyExists
         # Add two seconds to the TTL to make sure it has expired before we try again.
         expires_in = lease_ttl(id) + 2
         Log.warn { "Cluster ID #{id.to_s(36)} already leased, waits #{expires_in}s for it to expire" }
         sleep expires_in.seconds
-        json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
+        json, sent = post_timed("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
       end
       ttl = json.dig("TTL").as_s.to_i
       id = json.dig("ID").as_s.to_i64
-      Lease.new(self, id, ttl)
+      Lease.new(self, id, ttl, sent)
     end
 
-    def lease_keepalive(id) : Int32
-      json = post("/v3/lease/keepalive", body: %({"ID":"#{id}"}))
+    # Returns the TTL and when the request etcd answered was sent.
+    # An etcd member holds a keepalive for an unresponsive etcd leader ~7 s,
+    # a retry after *timeout* reaches the new leader instead
+    def lease_keepalive(id, timeout : Time::Span? = nil) : {Int32, Time::Instant}
+      json, sent = post_timed("/v3/lease/keepalive", body: %({"ID":"#{id}"}), read_timeout: timeout)
       if ttl = json.dig?("result", "TTL")
-        ttl.as_s.to_i
+        {ttl.as_s.to_i, sent}
       else
         raise LeaseExpired.new(id)
       end
     end
 
+    # etcd leaves out a TTL of 0, which a lease has in its last second
     def lease_ttl(id) : Int32
       json = post("/v3/lease/timetolive", body: %({"ID":"#{id}"}))
-      if ttl = json["TTL"]?
-        ttl.as_s.to_i
-      else
-        raise Error.new("Lease #{id} expired")
-      end
+      json["TTL"]?.try(&.as_s.to_i) || 0
     end
 
     def lease_revoke(id) : Nil
@@ -163,8 +163,21 @@ module LavinMQ
     end
 
     private def post(path, body) : JSON::Any
+      post_timed(path, body)[0]
+    end
+
+    # Also returns when the attempt that got the answer was sent, as `with_tcp`
+    # retries: a lease's TTL counts from no earlier than that.
+    # A timed out read raises `Error`, so `with_tcp` closes the socket and retries
+    private def post_timed(path, body, read_timeout : Time::Span? = nil) : {JSON::Any, Time::Instant}
       with_tcp do |conn|
-        return post_request(conn.socket, conn.address, conn.auth, path, body)
+        conn.tcp.read_timeout = read_timeout # TLS reads go through it too
+        begin
+          sent = Time.instant
+          return {post_request(conn.socket, conn.address, conn.auth, path, body), sent}
+        ensure
+          conn.tcp.read_timeout = nil
+        end
       end
     end
 
@@ -313,7 +326,7 @@ module LavinMQ
         socket = e.tls ? wrap_with_tls(tcp_socket, e.host) : tcp_socket
 
         Log.debug { "Connected to #{address}" }
-        return Connection.new socket, address, e.auth
+        return Connection.new socket, tcp_socket, address, e.auth
       rescue ex : IO::Error
         Log.debug { "Could not connect to #{address}: #{ex}" }
         next

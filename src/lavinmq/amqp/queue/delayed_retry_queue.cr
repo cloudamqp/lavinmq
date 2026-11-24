@@ -7,8 +7,12 @@ module LavinMQ::AMQP
   class DelayedRetryQueue < DelayedQueue
     @primary_queue : Queue
 
+    def self.queue_name(primary_queue_name : String) : String
+      "amq.retry-#{primary_queue_name}"
+    end
+
     def self.create(vhost : VHost, primary_queue : Queue)
-      q_name = "amq.retry-#{primary_queue.name}"
+      q_name = queue_name(primary_queue.name)
       raise LavinMQ::Error::PreconditionFailed.new("Retry queue name too long") if q_name.bytesize > MAX_NAME_LENGTH
       if primary_queue.durable?
         DurableDelayedRetryQueue.new(vhost, q_name, primary_queue)
@@ -21,37 +25,46 @@ module LavinMQ::AMQP
       super(@vhost, @name, false, false, AMQP::Table.new)
     end
 
-    # Only the primary queue's restart replaces a retry queue
-    def restart! : Bool
-      false
+    def primary_queue_name : String?
+      @primary_queue.name
     end
 
-    # A retry queue never closes on its own, only with its primary queue, so
-    # a reject never closes or deletes it, which would take the definitions
-    # lock while the rejecting channel holds its own lock.
-    # The loop is restarted by the next delay.
-    private def expire_loop_failed(ex : MessageStore::Error) : Nil
-      @log.error(ex) { "Release of delayed messages stopped due to error, restarted by the next delay" }
-    end
-
-    private def purge_failed(ex : MessageStore::Error) : Nil
-      @log.error(ex) { "Purge failed due to error" }
-    end
-
+    # Never closes or deletes the queue, which would take the definitions lock
+    # while the rejecting channel holds its own lock
     def delay(msg : Message) : Bool
-      return false if @closed
+      return false if closed?
       @msg_store_lock.synchronize do
+        # The store has data it can't read, the message is requeued instantly
+        return false if @msg_store.failed?
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
       @message_ttl_change.try_send? nil
-      ensure_expire_fiber # restart the expire fiber if it stopped on a store error
+      ensure_expire_fiber
       true
     rescue MessageStore::ClosedError
       false
     rescue ex : MessageStore::Error | IO::Error
       @log.error(ex) { "Failed to delay message, requeuing instantly" }
       false
+    end
+
+    # A failed primary queue refuses every message released to it, and is only
+    # ever deleted, which deletes this queue too. Nothing is released until
+    # then, instead of delaying each message again every backoff.
+    private def next_expired_message : Envelope?
+      if @primary_queue.state.failed?
+        @log.info { "Primary queue #{@primary_queue.name} failed, nothing is released until it's deleted" }
+        wait_for_close
+      end
+      super
+    end
+
+    # Raises ::Channel::ClosedError once the queue is closed. It goes up
+    # through #expire_messages to DelayedQueue#message_expire_loop, whose
+    # rescue of it ends the release loop.
+    private def wait_for_close : NoReturn
+      loop { @message_ttl_change.receive }
     end
 
     # Publishes an expired message back to the primary queue. The message kept
