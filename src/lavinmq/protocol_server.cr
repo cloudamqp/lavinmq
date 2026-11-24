@@ -210,8 +210,7 @@ module LavinMQ
         remote_addr = client.remote_address
         set_socket_options(client)
         set_tls_tcp_read_buffer(client)
-        # The PROXY header, from a follower or a load balancer, comes before the TLS handshake
-        conn_info = extract_conn_info(client)
+        conn_info = tls_conn_info(client, remote_addr) || next
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
         Log.info { "#{conn_info.remote_address} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
         handle_tls_connection(ssl_client, conn_info)
@@ -222,6 +221,18 @@ module LavinMQ
         Log.error(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
         client.close rescue nil
       end
+    end
+
+    # The PROXY header, from a follower or a load balancer, comes before the TLS
+    # handshake. An invalid one, or a peer that sends nothing (e.g. a health
+    # check), is the client's error, so it's logged as a warning like on the
+    # TCP listeners, not as unexpected with a backtrace.
+    private def tls_conn_info(client, remote_addr) : ConnectionInfo?
+      extract_conn_info(client)
+    rescue ex : ProxyProtocol::Error | IO::Error | ArgumentError
+      Log.warn { "Error accepting TLS connection from #{remote_addr}: #{ex.message}" }
+      client.close rescue nil
+      nil
     end
 
     private def handle_tls_connection(ssl_client, conn_info)
