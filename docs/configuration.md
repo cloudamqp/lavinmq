@@ -25,9 +25,11 @@ Settings of type Bool accept `1`, `true`, `yes`, `on` or `y` for true and `0`, `
 
 Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had. The configuration is rebuilt the same way as at startup: a setting removed from the file goes back to its default, and command line arguments and environment variables take precedence over the file.
 
-Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
+Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings read per connection or per use, such as limits and timeouts, apply from then on.
 
-A reload reads the file on top of the running configuration, so a setting removed from the file keeps its current value instead of going back to its default. To change a setting with a reload, set the new value explicitly. `[sni:...]` sections are the exception: a removed SNI host is removed on reload.
+Startup-only settings require a full restart: `data_dir`, `data_dir_lock`, `pidfile`, `load_definitions`, `control_unix_path`, the `bind`, `port`, `tls_port` and `unix_path` settings in `[amqp]`, `[mqtt]` and `[mgmt]`, the systemd socket names, `metrics_http_bind`, `metrics_http_port`, and `enabled`, `bind`, `port`, `advertised_uri`, `etcd_endpoints`, `etcd_prefix` and `etcd_lease_ttl` in `[clustering]`. A reload keeps the value they were started with, also when a follower is promoted to leader, and logs a warning for each one whose value in the file differs, e.g. `'etcd_prefix' in section [clustering] changed in the config file; restart to apply`.
+
+A setting removed from the file goes back to its default on reload, unless it is startup-only, then it keeps its running value until a restart. `[sni:...]` sections are reloaded too: a removed SNI host is removed on reload.
 
 ## [main] Section
 
