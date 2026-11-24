@@ -850,8 +850,10 @@ module LavinMQ::AMQP
     def pause! : Nil
       @state_lock.synchronize do
         return unless state.running? || state.paused? || state.failed?
-        # Not empty: a follower applies a replaced file of zero bytes as a delete
-        File.write(paused_file, @name)
+        # Not empty: a follower applies a replaced file of zero bytes as a
+        # delete, and a stream takes an empty one as left by LavinMQ < 2.12.
+        # Replaced atomically so a crash can't leave it empty.
+        FileSystem.replace(paused_file, &.print(@name))
         @vhost.replicator.try &.replace_file(paused_file) if durable?
         set_paused
       end

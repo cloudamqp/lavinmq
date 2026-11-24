@@ -1248,6 +1248,24 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    # LavinMQ < 2.12 wrote an empty paused file for a stream but ran the
+    # stream again after a restart, so the file can be months old
+    {"paused", ".paused"}.each do |name|
+      it "runs a stream with an empty #{name} file written by LavinMQ < 2.12" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.queue("stale-paused-stream", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
+          end
+          data_dir = s.vhosts["/"].queue("stale-paused-stream").as(LavinMQ::AMQP::Stream).@data_dir
+          File.touch(File.join(data_dir, name))
+          restart_server(s)
+          s.vhosts["/"].queue("stale-paused-stream").state.running?.should be_true
+          File.exists?(File.join(data_dir, "paused")).should be_false
+          File.exists?(File.join(data_dir, ".paused")).should be_false
+        end
+      end
+    end
+
     it "starts with a stream whose segment is corrupt failed, refusing publishes and purges until it's deleted" do
       with_amqp_server do |s|
         args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})

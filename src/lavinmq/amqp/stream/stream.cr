@@ -132,6 +132,20 @@ module LavinMQ::AMQP
       handle_arguments
     end
 
+    # LavinMQ < 2.12 wrote an empty paused file when a stream was paused, but
+    # ran the stream again after a restart and left the file, so it can be
+    # months old. Since 2.12 the file holds the stream's name.
+    private def restore_paused : Nil
+      {".paused", "paused"}.each do |name|
+        path = File.join(@data_dir, name)
+        next unless File.info?(path).try &.size.zero?
+        File.delete(path)
+        @vhost.replicator.try &.delete_file(path)
+        @log.warn { "Removed #{path}, written by LavinMQ < 2.12 that didn't keep a stream paused over a restart, the stream runs" }
+      end
+      super
+    end
+
     private def unreadable_advice : String
       MessageStore::UnreadableError.advice("stream")
     end
