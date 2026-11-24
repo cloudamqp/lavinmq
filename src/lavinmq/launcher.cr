@@ -15,6 +15,7 @@ require "./clustering/controller"
 require "./clustering/etcd_coordinator"
 require "./standalone_runner"
 require "./definitions"
+require "./memory_pressure_reclaimer"
 require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
@@ -66,6 +67,7 @@ module LavinMQ
       end
       setup_sni_callbacks
       setup_signal_traps
+      monitor_memory_pressure
       GCPauseRecorder.install
     end
 
@@ -364,6 +366,11 @@ module LavinMQ
         Log.warn { "Shutdown didn't finish in #{SHUTDOWN_TIMEOUT.total_seconds}s, exiting" }
         false
       end
+    end
+
+    private def monitor_memory_pressure
+      reclaimer = MemoryPressureReclaimer.new
+      SystemD::MemoryPressure.monitor { reclaimer.on_pressure }
     end
 
     private def setup_signal_traps
