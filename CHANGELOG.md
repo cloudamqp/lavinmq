@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.12.0-rc.1] - 2026-11-24
 
-This release candidate pauses a queue, stream or MQTT session whose message store fails instead of closing it, and adds pause and resume for MQTT sessions. In a cluster, followers forward connections to the ports the leader advertises and pass on a load balancer's PROXY header, and several ways a cluster could end up without a leader are fixed. Automatic retries can be tuned by policy, HTTP stream reads accept a timestamp offset, and the queue and stream pages chart queued messages. Idle queues, channels and exchanges use far less memory, garbage collection pauses are shorter with many queues and connections, and MQTT deliveries are batched. Queue restart, the `delayed-message` policy key and the migration of pre-1.0 data directories are removed, and an invalid boolean config value now stops the broker from starting.
+This release candidate is about memory. A broker with many idle queues and connections uses far less of it, and stops for shorter garbage collections.
+
+Stats history is kept only for objects whose values change. At 100k idle queues that saves about 1.4 GB. Idle queues also release the segment they write to, which could add up to gigabytes more. Garbage collection pauses drop from ~240 ms to ~55 ms with 20k queues and 2,000 connections.
+
+Clusters fail over more reliably. Two ways a cluster could be left without a leader are fixed. Followers forward connections to the ports the leader advertises, and pass on a load balancer's PROXY header.
+
+A queue, stream or MQTT session is paused when its message store fails, instead of closed. Resume it to try again. Queue restart is removed, since nothing is closed any more.
+
+MQTT sessions can be paused and resumed like queues. Deliveries are batched into one socket write per burst, which cuts the server CPU per QoS 0 delivery to a sixth. A session that ran out of packet IDs no longer hangs the server.
+
+Automatic retries can be tuned by policy, HTTP stream reads accept a timestamp as offset, and the queue and stream pages chart queued messages.
+
+Two things to check before you upgrade. An invalid boolean config value now stops the broker from starting; it was read as `false` before. A data directory from LavinMQ before 1.0 is refused; upgrade it with 2.11 first.
 
 ### Added
 
