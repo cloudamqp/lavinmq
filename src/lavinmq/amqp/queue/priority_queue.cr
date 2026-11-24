@@ -188,6 +188,7 @@ module LavinMQ::AMQP
             return envelope unless envelope.nil?
           end
         end
+        set_empty_if_recounted
       end
 
       def shift?(consumer = nil) : Envelope?
@@ -201,6 +202,14 @@ module LavinMQ::AMQP
             end
           end
         end
+        set_empty_if_recounted
+      end
+
+      # A sub store that found none of the msgs it counted left to read has
+      # recounted them to zero, see MessageStore#recount_from_segments: like
+      # it, this store is then empty, or a consumer waiting for it spins
+      private def set_empty_if_recounted : Nil
+        @empty.set true if size.zero?
       end
 
       def [](sp : SegmentPosition) : BytesMessage

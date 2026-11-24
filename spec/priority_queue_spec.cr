@@ -457,6 +457,30 @@ describe LavinMQ::AMQP::PriorityQueue do
         end
       end
 
+      it "should be true once a recount finds no messages left to read" do
+        data_dir = File.tempname
+        Dir.mkdir data_dir
+        size = LavinMQ::Config.instance.segment_size // 10 + 1
+        body = "a" * size
+        store = PrioSpec::PrioMessageStore.new(0u8, data_dir, nil, durable: true)
+        12.times { store.push LavinMQ::Message.new("ex", "rk", body) }
+        store.close
+        # Counts 5 msgs that segment 1 doesn't have
+        meta = File.join(data_dir, "prio.000", "meta.0000000001")
+        count = File.open(meta, &.read_bytes(UInt32))
+        File.open(meta, "r+", &.write_bytes(count + 5))
+
+        store = PrioSpec::PrioMessageStore.new(0u8, data_dir, nil, durable: true)
+        store.size.should eq 17
+        12.times { store.shift?.should_not be_nil }
+        store.shift?.should be_nil
+        store.size.should eq 0
+        store.empty.value.should be_true
+      ensure
+        store.try &.delete
+        FileUtils.rm_rf data_dir if data_dir
+      end
+
       it "should be true after last message has been purged" do
         with_prio_store(5) do |store|
           3u8.times do |prio|
