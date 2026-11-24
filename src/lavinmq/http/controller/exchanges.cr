@@ -87,6 +87,9 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
+            if e.name.empty?
+              access_refused(context, "Not allowed to delete the default exchange")
+            end
             user = user(context)
             unless user.can_config?(e.vhost.name, e.name)
               access_refused(context, "User doesn't have permissions to delete exchange '#{e.name}'")
