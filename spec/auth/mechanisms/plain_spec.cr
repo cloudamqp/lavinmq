@@ -7,7 +7,6 @@ describe LavinMQ::Auth::Mechanisms::Plain do
   mechanism = LavinMQ::Auth::Mechanisms::Plain.new
 
   it "extracts username and password from the SASL response" do
-    # authzid NUL authcid NUL passwd
     mechanism.credentials("#{nul}user#{nul}pass", ci).should eq({"user", "pass"})
   end
 

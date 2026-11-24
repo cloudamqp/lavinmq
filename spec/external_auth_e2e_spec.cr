@@ -1,8 +1,5 @@
 require "./spec_helper"
 
-# End-to-end test of the SASL EXTERNAL mechanism over mTLS. The AMQP handshake
-# is driven by hand, as the amqp-client version LavinMQ depends on only speaks
-# PLAIN.
 describe "EXTERNAL authentication over mTLS" do
   it "authenticates an AMQP connection using the client certificate CN" do
     with_external_auth_amqp_server do |port, s|
@@ -15,8 +12,6 @@ describe "EXTERNAL authentication over mTLS" do
 
   it "authenticates using a subject alternative name selected by type and index" do
     with_external_auth_amqp_server do |port, s|
-      # The client certificate carries DNS SANs "anders", "anders", "localhost";
-      # DNS index 2 resolves to "localhost".
       LavinMQ::Config.instance.external_auth_login_from = "subject_alternative_name"
       LavinMQ::Config.instance.external_auth_san_type = "DNS"
       LavinMQ::Config.instance.external_auth_san_index = 2
@@ -91,7 +86,6 @@ describe "EXTERNAL authentication over mTLS" do
       with_external_auth_amqp_server(require_client_cert: false) do |port, s|
         LavinMQ::Config.instance.external_auth_login_from = "common_name"
         s.@users.create("anders", "irrelevant-password")
-        # SSL TLV: client used TLS and sent a certificate, verify: 0 (ok), CN: anders
         ssl_tlv = Bytes[0x03, 0, 0, 0, 0, 0x22, 0x00, 0x06] + "anders".to_slice
         header = LavinMQ::ProxyProtocol::V2.new(
           Socket::IPAddress.new("203.0.113.7", 40000), Socket::IPAddress.new("127.0.0.1", port),
@@ -104,9 +98,6 @@ describe "EXTERNAL authentication over mTLS" do
   end
 end
 
-# Starts an mTLS-enabled AMQP server and yields the bound port and the server.
-# The client certificate is verified against the test CA, and by default
-# required. PROXY protocol headers from localhost are accepted.
 def with_external_auth_amqp_server(require_client_cert = true, &)
   config = LavinMQ::Config.new
   config.tcp_proxy_protocol = true
@@ -159,15 +150,10 @@ def with_external_auth_client_stream(port, client_cert = true, proxy_header = ni
   end
 end
 
-# The mechanisms the server offers in Connection.Start (amq-protocol has no
-# getter for it).
 def advertised_mechanisms(port, client_cert = true) : String
   with_external_auth_client_stream(port, client_cert) { |_stream, start| start.@mechanisms }
 end
 
-# Drives an AMQP 0-9-1 handshake using SASL EXTERNAL over mTLS. Returns the
-# server's reply to Connection.Open (OpenOk), or the Connection.Close the server
-# sent to refuse the connection.
 def external_amqp_handshake(port, client_cert = true, proxy_header = nil) : AMQ::Protocol::Frame
   with_external_auth_client_stream(port, client_cert, proxy_header) do |stream, _start|
     props = AMQ::Protocol::Table.new({

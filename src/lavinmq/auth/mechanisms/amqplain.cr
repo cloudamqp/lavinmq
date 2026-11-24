@@ -4,8 +4,6 @@ require "./mechanism"
 module LavinMQ
   module Auth
     module Mechanisms
-      # SASL AMQPLAIN: the response is an AMQP field table carrying LOGIN and
-      # PASSWORD entries.
       class AMQPlain < Mechanism
         def credentials(response : String, connection_info : ConnectionInfo) : Tuple(String, String)
           io = ::IO::Memory.new(response)

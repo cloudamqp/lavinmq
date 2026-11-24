@@ -16,7 +16,6 @@ describe LavinMQ::Auth::Mechanisms::AMQPlain do
   end
 end
 
-# The AMQPLAIN response is a bare AMQP field table body (no length prefix).
 def amqplain_response(hash) : String
   String.new(AMQ::Protocol::Table.new(hash).to_slice)
 end

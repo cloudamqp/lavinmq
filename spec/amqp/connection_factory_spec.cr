@@ -2,8 +2,6 @@ require "../spec_helper"
 require "../../src/lavinmq/connection_info"
 require "../../src/lavinmq/amqp/connection_factory"
 
-# ConnectionFactory#credentials dispatches to the SASL mechanism handlers; the
-# per-mechanism parsing is covered in spec/auth/mechanisms/*.
 describe LavinMQ::AMQP::ConnectionFactory do
   describe "#credentials" do
     it "dispatches PLAIN to the mechanism and returns its username and password" do
@@ -43,7 +41,6 @@ describe LavinMQ::AMQP::ConnectionFactory do
   end
 end
 
-# Builds a Connection::StartOk frame with the given mechanism and response.
 def start_ok_frame(mechanism : String, response : String)
   AMQ::Protocol::Frame::Connection::StartOk.new(
     client_properties: AMQ::Protocol::Table.new,

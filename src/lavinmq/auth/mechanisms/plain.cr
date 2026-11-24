@@ -3,7 +3,6 @@ require "./mechanism"
 module LavinMQ
   module Auth
     module Mechanisms
-      # SASL PLAIN response format: authzid NUL authcid NUL passwd
       class Plain < Mechanism
         NUL = '\u{0}'
 

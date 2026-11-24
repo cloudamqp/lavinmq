@@ -4,8 +4,6 @@ require "../../../src/lavinmq/auth/mechanisms/external"
 describe LavinMQ::Auth::Mechanisms::External do
   mechanism = LavinMQ::Auth::Mechanisms::External.new
 
-  # Reset the shared config so each test starts unconfigured, and later specs
-  # don't see EXTERNAL enabled.
   before_each { reset_external_auth_config }
   after_each { reset_external_auth_config }
 
@@ -175,7 +173,6 @@ describe LavinMQ::Auth::Mechanisms::External do
   end
 end
 
-# A connection whose client certificate LavinMQ verified in the TLS handshake.
 def verified_connection_info : LavinMQ::ConnectionInfo
   ci = LavinMQ::ConnectionInfo.local
   ci.ssl = true

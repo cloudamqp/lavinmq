@@ -12,7 +12,6 @@ module LavinMQ
       DEFAULT_MECHANISMS       = "AMQPLAIN PLAIN"
       MECHANISMS_WITH_EXTERNAL = "AMQPLAIN PLAIN EXTERNAL"
 
-      # Returns the mechanism handler for a SASL mechanism name.
       def self.[](name : String) : Mechanism
         case name
         when "PLAIN"    then PLAIN
@@ -22,8 +21,6 @@ module LavinMQ
         end
       end
 
-      # The space separated mechanisms offered to a client in Connection.Start.
-      # EXTERNAL is only offered when it can succeed on this connection.
       def self.advertised(connection_info : ConnectionInfo) : String
         External.available?(connection_info) ? MECHANISMS_WITH_EXTERNAL : DEFAULT_MECHANISMS
       end

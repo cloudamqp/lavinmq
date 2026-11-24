@@ -54,10 +54,6 @@ describe LavinMQ::ConnectionInfo do
   end
 end
 
-# SSL certificate extraction used by the SASL EXTERNAL auth mechanism.
-# The extraction methods take a peer certificate directly, so they can be tested
-# against a loaded certificate without a live TLS handshake. The socket wiring in
-# #with_ssl is exercised end-to-end in mtls_spec and external_auth_e2e_spec.
 describe LavinMQ::ConnectionInfo do
   ci = LavinMQ::ConnectionInfo.local
   client_cert = load_certificate("spec/resources/client_certificate.pem")
@@ -83,7 +79,6 @@ describe LavinMQ::ConnectionInfo do
     end
 
     it "extracts the type of each entry" do
-      # The test client certificate only carries DNS SANs.
       entries = ci.extract_subject_alternative_name_entries(client_cert).should_not be_nil
       entries.should_not be_empty
       entries.map(&.type).uniq!.should eq ["DNS"]
@@ -96,7 +91,6 @@ describe LavinMQ::ConnectionInfo do
   end
 end
 
-# Loads an X509 certificate from a PEM file without needing a TLS handshake.
 def load_certificate(path : String) : OpenSSL::X509::Certificate
   pem = File.read(path)
   body = pem.each_line.reject(&.starts_with?("-----")).join
