@@ -40,6 +40,8 @@ Automatic offset tracking persists the consumer's offset position on the server.
 
 On reconnect, the consumer resumes from where it left off without needing to specify the offset manually.
 
+The stored offset is that of the consumer's first delivered message that is not yet settled, that is acked, or rejected or nacked without requeue. A requeued message stays unsettled until it is settled after its redelivery. When all delivered messages are settled, the stored offset is where the consumer has read to, past messages its filter skipped. A consumer that resumes gets every message from the stored offset on, so no unacknowledged message is skipped, whatever the prefetch, the order of the acks, or how the previous consumer stopped (cancel, closed channel or connection, broker restart). Messages that were acked after an unacknowledged one are delivered again.
+
 ## Stream Filtering
 
 Consumers can filter messages based on headers, avoiding unnecessary delivery of unwanted messages.

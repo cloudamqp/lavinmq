@@ -4,6 +4,7 @@ require "../../rough_time"
 require "./filters/consumer_filter"
 require "./stream_cursor"
 require "./stream_offset"
+require "./stream_ack_tracker"
 
 module LavinMQ
   module AMQP
@@ -11,6 +12,7 @@ module LavinMQ
       include SortableJSON
       getter cursor : StreamCursor
       @track_offset = false
+      @acks : StreamAckTracker? = nil
 
       def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -21,6 +23,7 @@ module LavinMQ
         # The stored offset wins when tracking offsets or when no offset is given
         stored_offset_tag = @tag if @track_offset || start.nil?
         @cursor = new_cursor(start || StreamOffset::Absolute.new(0), filter, stored_offset_tag)
+        @acks = StreamAckTracker.new(@cursor.offset) if @track_offset
         super
         @new_message_available = BoolChannel.new(false)
       end
@@ -78,10 +81,14 @@ module LavinMQ
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}
-          stream_queue.consume_get(cursor) do |env|
+          acks = @acks
+          delivered = stream_queue.consume_get(cursor) do |env|
+            # The cursor has stepped past a first delivery, but not a redelivery
+            acks.delivered(env.segment_position, cursor.offset - 1) if acks && !env.redelivered
             deliver(env.message, env.segment_position, env.redelivered)
             delivered_bytes &+= env.segment_position.bytesize
           end
+          acks.read_to(cursor.offset) if acks && !delivered
           iterations &+= 1
           if delivered_bytes >= yield_each_delivered_bytes || iterations >= 32_768
             delivered_bytes = 0
@@ -123,23 +130,29 @@ module LavinMQ
       end
 
       def ack(sp)
-        begin
-          stream_queue.store_consumer_offset(@tag, @cursor.offset) if @track_offset
-        rescue MessageStore::ClosedError
-          # The queue was closed/deleted while this ack was in flight. Storing the
-          # offset is now a no-op; don't let it tear down the connection read_loop.
-        end
+        settle(sp)
         super
       end
 
       def reject(sp, requeue : Bool)
         super
+        settle(sp) unless requeue
         if requeue
           # Set after the push, so a deliver loop that found the cursor's
           # requeued messages empty is woken up by the notification instead
           was_empty = stream_queue.requeue(@cursor, sp)
           @new_message_available.set(true) if was_empty
         end
+      end
+
+      # Stores the offset to resume at, the first unsettled delivery, if it moved
+      private def settle(sp) : Nil
+        if acks = @acks
+          acks.settle(sp) { |offset| stream_queue.store_consumer_offset(@tag, offset) }
+        end
+      rescue MessageStore::ClosedError
+        # The queue was closed/deleted while this ack was in flight. Storing the
+        # offset is now a no-op; don't let it tear down the connection read_loop.
       end
 
       def close

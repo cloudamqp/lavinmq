@@ -24,6 +24,35 @@ module StreamSpecHelpers
     end
   end
 
+  # Consumes with `prefetch` until `count` messages are delivered, yields
+  # them and the delivery channel to the block, which settles them, then
+  # cancels the consumer (or closes the connection without a cancel)
+  def self.consume_then_stop(s, queue_name, c_tag, prefetch, count,
+                             c_args = AMQP::Client::Arguments.new, cancel = true, &)
+    with_channel(s) do |ch|
+      ch.prefetch prefetch
+      q = ch.queue(queue_name, args: AMQP::Client::Arguments.new({"x-queue-type": "stream"}))
+      msgs = Channel(AMQP::Client::DeliverMessage).new(prefetch)
+      q.subscribe(no_ack: false, tag: c_tag, args: c_args) { |msg| msgs.send msg }
+      received = Array(AMQP::Client::DeliverMessage).new(count) { msgs.receive }
+      yield received, msgs
+      if cancel
+        q.unsubscribe(c_tag, no_wait: false) # after the acks, frames are handled in order
+      else
+        ch.prefetch(prefetch) # a round trip, so the acks are handled before the close
+      end
+    end
+  end
+
+  def self.offset_of(msg) : Int64
+    offset_from_headers(msg.properties.headers)
+  end
+
+  # Resume offset: the first message a new consumer with `c_tag` gets
+  def self.resume_offset(s, queue_name, c_tag, c_args = AMQP::Client::Arguments.new) : Int64
+    offset_of(consume_one(s, queue_name, c_tag, c_args))
+  end
+
   # Resident kB of the mapping of `path` in this process, from /proc/self/smaps
   def self.mapped_rss_kb(path : String) : Int32
     in_mapping = false
@@ -1516,6 +1545,147 @@ describe LavinMQ::AMQP::Stream do
         # tracked offset (7) wins over the -5 that would otherwise re-anchor to 11
         msg2 = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg2.properties.headers).should eq 7
+      end
+    end
+
+    describe "with prefetch above 1" do
+      it "resumes at the first unacked message, not where the cursor read ahead to" do
+        queue_name, tag = Random::Secure.hex, Random::Secure.hex
+        with_amqp_server do |s|
+          StreamSpecHelpers.publish(s, queue_name, 30)
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10) do |msgs|
+            msgs[0, 3].each &.ack
+          end
+          StreamSpecHelpers.resume_offset(s, queue_name, tag).should eq 4
+        end
+      end
+
+      it "resumes at the first unacked message when acks arrive out of order" do
+        queue_name, tag = Random::Secure.hex, Random::Secure.hex
+        with_amqp_server do |s|
+          StreamSpecHelpers.publish(s, queue_name, 30)
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10) do |msgs|
+            {1, 2, 4, 8}.each { |i| msgs[i].ack }
+          end
+          StreamSpecHelpers.resume_offset(s, queue_name, tag).should eq 1
+          # 1 is acked by resume_offset, 2..11 are delivered
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10) do |msgs|
+            {3, 1, 5, 2, 0}.each { |i| msgs[i].ack }
+          end
+          StreamSpecHelpers.resume_offset(s, queue_name, tag).should eq 6
+        end
+      end
+
+      it "resumes after the last message acked with multiple" do
+        queue_name, tag = Random::Secure.hex, Random::Secure.hex
+        with_amqp_server do |s|
+          StreamSpecHelpers.publish(s, queue_name, 30)
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10) do |msgs|
+            msgs[4].ack(multiple: true)
+          end
+          StreamSpecHelpers.resume_offset(s, queue_name, tag).should eq 6
+        end
+      end
+
+      it "resumes at a requeued message until it's acked" do
+        queue_name, tag = Random::Secure.hex, Random::Secure.hex
+        with_amqp_server do |s|
+          StreamSpecHelpers.publish(s, queue_name, 30)
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10) do |msgs, more|
+            msgs[0].ack
+            msgs[1].nack(requeue: true)
+            msgs[2].ack
+            redelivered = loop { m = more.receive; break m if m.redelivered }
+            StreamSpecHelpers.offset_of(redelivered).should eq 2
+          end
+          StreamSpecHelpers.resume_offset(s, queue_name, tag).should eq 2
+          # 2 is acked by resume_offset, 3..12 are delivered
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10) do |msgs, more|
+            msgs[0].nack(requeue: true)
+            msgs[1].ack
+            msgs[2].ack
+            redelivered = loop { m = more.receive; break m if m.redelivered }
+            StreamSpecHelpers.offset_of(redelivered).should eq 3
+            redelivered.ack
+          end
+          StreamSpecHelpers.resume_offset(s, queue_name, tag).should eq 6
+        end
+      end
+
+      it "counts a message rejected without requeue as handled" do
+        queue_name, tag = Random::Secure.hex, Random::Secure.hex
+        with_amqp_server do |s|
+          StreamSpecHelpers.publish(s, queue_name, 30)
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10) do |msgs|
+            msgs[0].reject
+            msgs[1].nack
+            msgs[2].ack
+          end
+          StreamSpecHelpers.resume_offset(s, queue_name, tag).should eq 4
+        end
+      end
+
+      it "resumes at the first unacked message that matched the filter" do
+        queue_name, tag = Random::Secure.hex, Random::Secure.hex
+        c_args = AMQP::Client::Arguments.new({"x-stream-filter": "a"})
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue(queue_name, args: stream_queue_args)
+            30.times do |i|
+              headers = AMQP::Client::Arguments.new({"x-stream-filter-value": i.even? ? "a" : "b"})
+              q.publish_confirm "m#{i}", props: AMQP::Client::Properties.new(headers: headers)
+            end
+          end
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10, c_args) do |msgs|
+            msgs.map { |m| StreamSpecHelpers.offset_of(m) }.should eq (1..19).step(2).to_a
+            msgs[0, 2].each &.ack
+          end
+          StreamSpecHelpers.resume_offset(s, queue_name, tag, c_args).should eq 5
+        end
+      end
+
+      it "stores the offset past filtered out messages once all matching ones are acked" do
+        queue_name, tag = Random::Secure.hex, Random::Secure.hex
+        c_args = AMQP::Client::Arguments.new({"x-stream-filter": "a"})
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            q = ch.queue(queue_name, args: stream_queue_args)
+            3.times { |i| q.publish_confirm "a#{i}", props: AMQP::Client::Properties.new(headers: AMQP::Client::Arguments.new({"x-stream-filter-value": "a"})) }
+            5.times { |i| q.publish_confirm "b#{i}", props: AMQP::Client::Properties.new(headers: AMQP::Client::Arguments.new({"x-stream-filter-value": "b"})) }
+          end
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 3, c_args) do |msgs|
+            stream = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+            consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
+            wait_for { consumer.cursor.caught_up? }
+            msgs.each &.ack
+          end
+          s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream)
+            .stream_msg_store.last_offset_by_consumer_tag(tag).should eq 9
+        end
+      end
+
+      it "resumes at the first unacked message after the connection closed without a cancel" do
+        queue_name, tag = Random::Secure.hex, Random::Secure.hex
+        with_amqp_server do |s|
+          StreamSpecHelpers.publish(s, queue_name, 30)
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10, cancel: false) do |msgs|
+            msgs[0, 3].each &.ack
+          end
+          StreamSpecHelpers.resume_offset(s, queue_name, tag).should eq 4
+        end
+      end
+
+      it "resumes at the first unacked message with explicit tracking after a restart" do
+        queue_name, tag = Random::Secure.hex, Random::Secure.hex
+        c_args = AMQP::Client::Arguments.new({"x-stream-offset": "first", "x-stream-automatic-offset-tracking": true})
+        with_amqp_server do |s|
+          StreamSpecHelpers.publish(s, queue_name, 30)
+          StreamSpecHelpers.consume_then_stop(s, queue_name, tag, 10, 10, c_args) do |msgs|
+            msgs[0, 3].each &.ack
+          end
+          restart_server(s)
+          StreamSpecHelpers.resume_offset(s, queue_name, tag, c_args).should eq 4
+        end
       end
     end
 
