@@ -57,6 +57,73 @@ module MqttSpecs
       end
     end
 
+    describe "index compaction" do
+      it "starts and stops with the index as it is when it can't be written, as on a full disk" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, IndexTree.new)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
+        store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true))
+        # Clearing a topic leaves its line in the index, so closing and starting compact it
+        store.retain(publish_packet(topic: "b", payload: Bytes.empty, retain: true))
+        # The compacted index can't be created
+        Dir.mkdir("tmp/retain_store/index.tmp")
+        store.close
+
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        index["a"]?.should be_a String
+        index["b"]?.should be_nil
+        store.retain(publish_packet(topic: "c", payload: "body".to_slice, retain: true))
+        store.close
+
+        Dir.delete("tmp/retain_store/index.tmp")
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        index.size.should eq 2
+      ensure
+        store.try &.close
+      end
+
+      it "ends a torn last line when the index can't be compacted" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, IndexTree.new)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
+        store.close
+        # A crash left the last line without its newline
+        File.write("tmp/retain_store/index", "a")
+        Dir.mkdir("tmp/retain_store/index.tmp")
+
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, IndexTree.new)
+        store.retain(publish_packet(topic: "c", payload: "body".to_slice, retain: true))
+        store.close
+
+        Dir.delete("tmp/retain_store/index.tmp")
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        index["a"]?.should be_a String
+        index["c"]?.should be_a String
+      ensure
+        store.try &.close
+      end
+
+      it "removes the compacted index it couldn't write, as on a full disk" do
+        pending! "needs /dev/full" unless File.exists?("/dev/full")
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, IndexTree.new)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
+        store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true))
+        store.retain(publish_packet(topic: "a", payload: Bytes.empty, retain: true))
+        # Writing the compacted index fails with ENOSPC when it's flushed
+        File.symlink("/dev/full", "tmp/retain_store/index.tmp")
+        store.close
+        File.symlink?("tmp/retain_store/index.tmp").should be_false
+
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        index["a"]?.should be_nil
+        index["b"]?.should be_a String
+      ensure
+        store.try &.close
+      end
+    end
+
     describe "each" do
       it "can be called multiple times" do
         index = IndexTree.new

@@ -24,17 +24,42 @@ module LavinMQ
         # Set when the index file has lines the index doesn't, by
         # #restore_index or a delete, so it is compacted (see #write_index)
         @dirty = false
+        # Set when the index file's last line has no newline, see #restore_index
+        @torn = false
         if @index.empty?
           restore_index
-          write_index if @dirty
+          compact_index if @dirty
         end
       end
 
       def close
         @lock.synchronize do
-          write_index if @dirty
+          compact_index if @dirty
           @index_file.close
         end
+      end
+
+      # The index works without being compacted, so a full disk mustn't keep the server from
+      # starting or stopping
+      private def compact_index
+        write_index
+      rescue ex : IO::Error
+        Log.warn { "Could not compact the index, keeping it as it is: #{ex.message}" }
+        end_torn_line if @torn
+      end
+
+      # A last line without its newline would be joined by the next appended
+      # topic, which would then be dropped on restore, so it's ended. The empty
+      # line this leaves is dropped on restore.
+      private def end_torn_line : Nil
+        line = "\n".to_slice
+        offset = @index_file.size.to_i64
+        @index_file.write line
+        @index_file.flush
+        @replicator.try &.append_bytes(@index_file_name, line, offset)
+        @torn = false
+      rescue ex : IO::Error
+        Log.warn { "Could not end the index's last line: #{ex.message}" }
       end
 
       # Marks the index file dirty when it needs compacting: lines it has that
@@ -78,6 +103,7 @@ module LavinMQ
           end
         end
         Log.debug { "restoring index done, msg_count = #{msg_count}" }
+        @torn = torn
         @dirty = torn || lines != @index.size
       end
 
@@ -121,19 +147,34 @@ module LavinMQ
         end
       end
 
-      # Closes current index file, writes the inmemory index to a tmp file
-      # renames the file back to the correct name and replaces it on followers,
-      # sets @index_file to the new compacted index file
+      # Writes the in-memory index to a tmp file, renames it to the index file,
+      # replaces it on followers and sets @index_file to it. The current index
+      # file is only closed once the new one is in place, so a failure (e.g. a
+      # full disk) leaves the store with the index it had.
       private def write_index
-        @index_file.close
-        f = File.new("#{@index_file_name}.tmp", "w")
-        @index.each do |topic|
-          f.puts topic
+        tmp_file_name = "#{@index_file_name}.tmp"
+        f = File.new(tmp_file_name, "w")
+        begin
+          @index.each do |topic|
+            f.puts topic
+          end
+          FileSystem.durable_rename(f, @index_file_name)
+        rescue ex
+          # Once renamed the new file is the index, even if fsyncing the
+          # directory failed: the old one is no longer in it
+          unless f.path == @index_file_name
+            # A failed flush is retried, and fails again, on close
+            f.close rescue nil
+            File.delete?(tmp_file_name)
+            raise ex
+          end
+          Log.warn { "Compacted the index, but could not sync its directory: #{ex.message}" }
         end
-        FileSystem.durable_rename(f, @index_file_name)
+        @index_file.close
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
         @dirty = false
+        @torn = false
       end
 
       private def add_to_index(topic : String, file_name : String) : Nil
