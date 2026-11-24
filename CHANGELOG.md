@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- AMQP clients can authenticate with their TLS client certificate using the SASL `EXTERNAL` mechanism. The username is taken from the certificate's Common Name or a Subject Alternative Name, set with `login_from` in the new `[external_auth]` section, and requires mTLS [#1897](https://github.com/cloudamqp/lavinmq/pull/1897)
-
 ### Changed
 
 - A `SIGHUP` config reload now applies changes to `auth_backends`, enabling or disabling OAuth (and local) authentication, and to the `[oauth]` `issuer` and `jwks_cache_ttl`, fetching keys from the new issuer, including for token refreshes on existing connections. An unsupported `auth_backends` value is now rejected when the config is parsed [#2451](https://github.com/cloudamqp/lavinmq/pull/2451)
