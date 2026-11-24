@@ -60,7 +60,7 @@
   post:
     tags:
     - definitions
-    description: Upload file with server definitions. Merged with existing definitions on the server.
+    description: Upload file with server definitions. Merged with existing definitions on the server. The definitions can also be sent as a JSON body, in the same format as the request body of the `POST /definitions` endpoint.
     summary: Upload definitions
     operationId: UploadDefinitions
     requestBody:
@@ -69,6 +69,9 @@
         multipart/form-data:
           schema:
             "$ref": "../openapi.yaml#/components/schemas/definitions-UploadDefinitionsRequestBody"
+        application/json:
+          schema:
+            "$ref": "../openapi.yaml#/components/schemas/definitions-PostDefinitionsRequestBody"
     responses:
       '200':
         description: OK

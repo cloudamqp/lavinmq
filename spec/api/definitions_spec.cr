@@ -1511,6 +1511,100 @@ describe LavinMQ::HTTP::Server do
         s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
       end
     end
+
+    it "imports definitions from json body with a charset" do
+      with_http_server do |http, s|
+        body = {vhosts: [{name: "uploaded_vhost"}]}.to_json
+        headers = {"Content-Type" => "application/json; charset=utf-8"}
+        response = http.post("/api/definitions/upload", headers: headers, body: body)
+        response.status_code.should eq 200
+        s.vhosts["uploaded_vhost"]?.should_not be_nil
+      end
+    end
+
+    it "imports definitions from json body without Content-Type" do
+      with_http_server do |http, s|
+        body = {vhosts: [{name: "uploaded_vhost"}]}.to_json
+        headers = http.test_headers.tap(&.delete("Content-Type"))
+        response = http.exec(HTTP::Request.new("POST", "/api/definitions/upload", headers, body))
+        response.status_code.should eq 200
+        s.vhosts["uploaded_vhost"]?.should_not be_nil
+      end
+    end
+
+    it "refuses other media types" do
+      with_http_server do |http, _|
+        headers = {"Content-Type" => "text/plain"}
+        response = http.post("/api/definitions/upload", headers: headers, body: "{}")
+        response.status_code.should eq 415
+      end
+    end
+
+    it "refuses multipart without a boundary" do
+      with_http_server do |http, _|
+        headers = {"Content-Type" => "multipart/form-data"}
+        response = http.post("/api/definitions/upload", headers: headers, body: "{}")
+        response.status_code.should eq 400
+      end
+    end
+
+    it "requires a file part" do
+      with_http_server do |http, _|
+        io = IO::Memory.new
+        builder = HTTP::FormData::Builder.new(io)
+        builder.field("vhost", "_all")
+        builder.finish
+        headers = {"Content-Type" => builder.content_type}
+        response = http.post("/api/definitions/upload", headers: headers, body: io.to_s)
+        response.status_code.should eq 400
+        JSON.parse(response.body)["reason"].should eq "Field 'file' is required"
+      end
+    end
+
+    it "sends one error for a cut-short multipart body" do
+      with_http_server do |http, _|
+        headers = {"Content-Type" => "multipart/form-data; boundary=b"}
+        body = "--b\r\nContent-Disposition: form-data; name=\"file\"\r\n\r\nnotjson"
+        response = http.post("/api/definitions/upload", headers: headers, body: body)
+        response.status_code.should eq 400
+        JSON.parse(response.body)["error"].should eq "bad_request"
+      end
+    end
+
+    it "refuses a file that is not a JSON object" do
+      with_http_server do |http, _|
+        io = IO::Memory.new
+        builder = HTTP::FormData::Builder.new(io)
+        builder.file("file", IO::Memory.new("[]"))
+        builder.finish
+        headers = {"Content-Type" => builder.content_type}
+        response = http.post("/api/definitions/upload", headers: headers, body: io.to_s)
+        response.status_code.should eq 400
+      end
+    end
+  end
+
+  describe "POST /api/definitions/vhost/upload" do
+    it "imports definitions from uploaded file" do
+      with_http_server do |http, s|
+        file_content = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
+        io = IO::Memory.new
+        builder = HTTP::FormData::Builder.new(io)
+        builder.file("file", IO::Memory.new(file_content))
+        builder.finish
+        headers = {"Content-Type" => builder.content_type}
+        response = http.post("/api/definitions/%2f/upload", headers: headers, body: io.to_s)
+        response.status_code.should eq 200
+        s.vhosts["/"].queue_exists?("import_q1").should be_true
+      end
+    end
+
+    it "refuses a JSON body" do
+      with_http_server do |http, _|
+        response = http.post("/api/definitions/%2f/upload", body: %({}))
+        response.status_code.should eq 415
+      end
+    end
   end
 
   it "should update existing user on import" do

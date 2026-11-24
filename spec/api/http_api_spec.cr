@@ -24,6 +24,34 @@ describe LavinMQ::HTTP::Server do
     end
   end
 
+  describe "request body Content-Type" do
+    it "accepts application/json with parameters" do
+      with_http_server do |http, _|
+        headers = {"Content-Type" => "application/json; charset=utf-8"}
+        response = http.put("/api/vhosts/ct", headers: headers, body: %({"description": "d"}))
+        response.status_code.should eq 201
+      end
+    end
+
+    it "matches the media type case-insensitively" do
+      with_http_server do |http, _|
+        headers = {"Content-Type" => "Application/JSON"}
+        response = http.put("/api/vhosts/ct", headers: headers, body: %({"description": "d"}))
+        response.status_code.should eq 201
+      end
+    end
+
+    it "refuses other media types" do
+      with_http_server do |http, _|
+        {"text/plain", "application/json-seq"}.each do |content_type|
+          headers = {"Content-Type" => content_type}
+          response = http.put("/api/vhosts/ct", headers: headers, body: %({"description": "d"}))
+          response.status_code.should eq 415
+        end
+      end
+    end
+  end
+
   describe "GET /api/livelog" do
     it "sends the response headers before the event stream" do
       with_http_server do |http, _|

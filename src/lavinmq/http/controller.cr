@@ -183,20 +183,30 @@ module LavinMQ
           return JSON::Any.new(Hash(String, JSON::Any).new)
         end
         if body = request.body
-          ct = request.headers["Content-Type"]?
-          if ct.nil? || ct.empty? || ct == "application/json"
-            json = JSON.parse(body)
-            if json.as_h?
-              json
-            else
-              bad_request(context, "Request body has to be a JSON object")
-            end
+          if json_body?(request)
+            parse_json_object(context, body)
           else
-            unsupported_content_type(context, ct)
+            unsupported_content_type(context, request.headers["Content-Type"]?)
           end
         else
           bad_request(context, "Request body required")
         end
+      end
+
+      # A body without a Content-Type is taken as JSON
+      private def json_body?(request) : Bool
+        ct = request.headers["Content-Type"]?
+        ct.nil? || ct.empty? || media_type(request) == "application/json"
+      end
+
+      # The lowercase type/subtype of the Content-Type, without parameters
+      private def media_type(request) : String?
+        request.headers["Content-Type"]?.try { |ct| MIME::MediaType.parse?(ct).try(&.media_type) }
+      end
+
+      private def parse_json_object(context, io : IO) : JSON::Any
+        json = JSON.parse(io)
+        json.as_h? ? json : bad_request(context, "Request body has to be a JSON object")
       rescue JSON::ParseException
         bad_request(context, "Malformed JSON")
       end
