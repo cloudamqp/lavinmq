@@ -24,6 +24,8 @@ module LavinMQ
         # Set when the index file has lines the index doesn't, by
         # #restore_index or a delete, so it is compacted (see #write_index)
         @dirty = false
+        # Set when the index file's last line has no newline, see #restore_index
+        @torn = false
         if @index.empty?
           restore_index
           compact_index if @dirty
@@ -43,6 +45,21 @@ module LavinMQ
         write_index
       rescue ex : IO::Error
         Log.warn { "Could not compact the index, keeping it as it is: #{ex.message}" }
+        end_torn_line if @torn
+      end
+
+      # A last line without its newline would be joined by the next appended
+      # topic, which would then be dropped on restore, so it's ended. The empty
+      # line this leaves is dropped on restore.
+      private def end_torn_line : Nil
+        line = "\n".to_slice
+        offset = @index_file.size.to_i64
+        @index_file.write line
+        @index_file.flush
+        @replicator.try &.append_bytes(@index_file_name, line, offset)
+        @torn = false
+      rescue ex : IO::Error
+        Log.warn { "Could not end the index's last line: #{ex.message}" }
       end
 
       # Marks the index file dirty when it needs compacting: lines it has that
@@ -86,6 +103,7 @@ module LavinMQ
           end
         end
         Log.debug { "restoring index done, msg_count = #{msg_count}" }
+        @torn = torn
         @dirty = torn || lines != @index.size
       end
 
@@ -156,6 +174,7 @@ module LavinMQ
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
         @dirty = false
+        @torn = false
       end
 
       private def add_to_index(topic : String, file_name : String) : Nil

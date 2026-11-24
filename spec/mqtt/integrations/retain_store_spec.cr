@@ -83,6 +83,27 @@ module MqttSpecs
         store.try &.close
       end
 
+      it "ends a torn last line when the index can't be compacted" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, IndexTree.new)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true))
+        store.close
+        # A crash left the last line without its newline
+        File.write("tmp/retain_store/index", "a")
+        Dir.mkdir("tmp/retain_store/index.tmp")
+
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, IndexTree.new)
+        store.retain(publish_packet(topic: "c", payload: "body".to_slice, retain: true))
+        store.close
+
+        Dir.delete("tmp/retain_store/index.tmp")
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
+        index["a"]?.should be_a String
+        index["c"]?.should be_a String
+      ensure
+        store.try &.close
+      end
+
       it "removes the compacted index it couldn't write, as on a full disk" do
         pending! "needs /dev/full" unless File.exists?("/dev/full")
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, IndexTree.new)
