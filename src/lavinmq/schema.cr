@@ -1,18 +1,28 @@
+require "json"
+require "digest/sha1"
 require "./filesystem"
 
 module LavinMQ
   module Schema
     VERSION = 4
 
-    # Data directories written before LavinMQ 1.0 had no schema_version file
-    # and have to be migrated by LavinMQ 2.11 or earlier first.
+    Log = LavinMQ::Log.for "schema"
+
+    # LavinMQ < 2.12 wrote schema_version once, without fsync, so a crash
+    # early in a data directory's life or a manual delete can lose it from
+    # a 1.0+ data directory. A missing or unreadable schema_version is
+    # therefore recreated unless the layout shows the data directory was
+    # created by LavinMQ < 1.0, which has to be migrated by LavinMQ 2.11.
     def self.verify(data_dir, replicator) : Nil
       path = File.join(data_dir, "schema_version")
-      case v = version(path)
+      raw = read(path)
+      case v = raw.try &.to_i32?
       when VERSION
       when nil
-        if File.exists?(File.join(data_dir, "vhosts.json"))
-          raise UnsupportedSchemaVersion.new(path)
+        layout = Layout.new(data_dir)
+        raise UnsupportedSchemaVersion.new(path, layout) unless layout.v4?
+        if raw || File.exists?(File.join(data_dir, "vhosts.json"))
+          Log.warn { "#{raw ? "Invalid" : "Missing"} #{path}, the data directory has a version #{VERSION} layout, recreating it" }
         end
         # Written durably: a confirm doesn't sync the whole data dir, so
         # nothing else makes this file durable, and a power loss could
@@ -24,10 +34,72 @@ module LavinMQ
       replicator.try &.replace_file(path)
     end
 
-    private def self.version(path) : Int32?
-      File.read(path).to_i32
+    private def self.read(path) : String?
+      File.read(path)
     rescue File::NotFoundError
       nil
+    end
+
+    # Tells a data directory created by LavinMQ < 1.0 from a version 4 one.
+    # Before 1.0 messages were stored in segments per vhost
+    # (<vhost>/msgs.N) and queues indexed them in <vhost>/<queue>/enq and
+    # ack files. Since 1.0 each queue has its own segments
+    # (<vhost>/<queue>/msgs.N), each starting with the schema version.
+    # A data directory without either has no message data, so there is
+    # nothing a migration could convert and it's started as version 4.
+    struct Layout
+      SEGMENT = /\Amsgs\.\d{10}\z/
+
+      getter pre_v1_file : String? = nil
+      getter v4_file : String? = nil
+
+      def initialize(data_dir : String)
+        vhost_dirs(data_dir).each { |dir| scan_vhost(dir) }
+      end
+
+      def v4? : Bool
+        @pre_v1_file.nil?
+      end
+
+      private def vhost_dirs(data_dir) : Array(String)
+        File.open(File.join(data_dir, "vhosts.json")) do |f|
+          JSON.parse(f).as_a.map do |vhost|
+            dir = vhost["dir"]?.try(&.as_s?) || Digest::SHA1.hexdigest(vhost["name"].as_s)
+            File.join(data_dir, dir)
+          end
+        end
+      rescue File::NotFoundError
+        Array(String).new
+      end
+
+      private def scan_vhost(vhost_dir) : Nil
+        Dir.each_child(vhost_dir) do |child|
+          path = File.join(vhost_dir, child)
+          if SEGMENT.matches?(child)
+            @pre_v1_file ||= path
+          elsif Dir.exists?(path)
+            scan_queue(path)
+          end
+        end
+      rescue File::NotFoundError
+      end
+
+      private def scan_queue(queue_dir) : Nil
+        Dir.each_child(queue_dir) do |child|
+          path = File.join(queue_dir, child)
+          if child.in?("enq", "ack")
+            @pre_v1_file ||= path
+          elsif @v4_file.nil? && SEGMENT.matches?(child) && v4_segment?(path)
+            @v4_file = path
+          end
+        end
+      end
+
+      private def v4_segment?(path) : Bool
+        File.open(path) { |f| f.read_bytes(Int32) == VERSION }
+      rescue IO::EOFError
+        false
+      end
     end
   end
 
@@ -87,9 +159,21 @@ module LavinMQ
       super "Unsupported schema version #{@version} for #{path}"
     end
 
-    def initialize(path)
-      super "Missing #{path}, the data directory was created by LavinMQ < 1.0. " \
-            "Upgrade it with LavinMQ 2.11 before upgrading to this version."
+    def initialize(path, layout : Schema::Layout)
+      if pre_v1 = layout.pre_v1_file
+        if v4 = layout.v4_file
+          super "Missing or invalid #{path}, and the data directory has both files of " \
+                "LavinMQ < 1.0 (#{pre_v1}) and of LavinMQ >= 1.0 (#{v4}). " \
+                "If LavinMQ >= 1.0 ran on this data directory, the older files are leftovers: " \
+                "write #{Schema::VERSION} to #{path}. " \
+                "Otherwise upgrade it with LavinMQ 2.11 before upgrading to this version."
+        else
+          super "Missing or invalid #{path}, the data directory was created by LavinMQ < 1.0 (#{pre_v1}). " \
+                "Upgrade it with LavinMQ 2.11 before upgrading to this version."
+        end
+      else
+        super "Missing or invalid #{path}"
+      end
     end
   end
 end

@@ -48,7 +48,7 @@ Two things to check before you upgrade. An invalid boolean config value now stop
 ### Removed
 
 - Restarting a closed queue: `PUT /api/queues/:vhost/:name/restart`, `lavinmqctl restart_queue` and the "Restart queue" button [#2781](https://github.com/cloudamqp/lavinmq/pull/2781)
-- Migration of data directories created by LavinMQ < 1.0 (schema versions 1-3). Such a data directory is now refused at startup; upgrade it with LavinMQ 2.11 first [#2482](https://github.com/cloudamqp/lavinmq/pull/2482)
+- Migration of data directories created by LavinMQ < 1.0 (schema versions 1-3). Such a data directory is now refused at startup; upgrade it with LavinMQ 2.11 first. It's told apart by its files, so a 1.0+ data directory whose `schema_version` file is missing or empty, such as after a crash soon after its first start, still starts and gets the file back [#2482](https://github.com/cloudamqp/lavinmq/pull/2482)
 - The `delayed-message` policy key, which never had any effect. Declare delayed exchanges with the `x-delayed-exchange` argument or the `x-delayed-message` type. A policy that sets the key is still accepted and ignored [#2772](https://github.com/cloudamqp/lavinmq/pull/2772)
 
 ### Fixed
