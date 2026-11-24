@@ -89,7 +89,7 @@ module LavinMQ
       # The runner returns once a shutdown has started, e.g. when its lease
       # expires meanwhile, and the broker may still be closing
       @stopped.receive? if @closed.get
-      @runner.broker_closed
+      @runner.close
       @data_dir_lock.try &.release
     ensure
       @run_done.close

@@ -165,7 +165,7 @@ describe LavinMQ::Clustering::EtcdRunner do
       end
       etcd.getting.receive
       runner.stop
-      runner.broker_closed
+      runner.close
       etcd.gate.close
       select
       when done.receive?
@@ -190,7 +190,7 @@ describe LavinMQ::Clustering::EtcdRunner do
       runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
       runner.lease_for_spec = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
       runner.stop
-      runner.broker_closed
+      runner.close
     end
   end
 
@@ -266,23 +266,23 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     case leader
     when .try &.starts_with?(config1.clustering_advertised_uri.to_s)
       runner1.stop
-      runner1.broker_closed
+      runner1.close
       listen.receive.to_s.should start_with config2.clustering_advertised_uri.to_s
       sleep 0.1.seconds
       runner2.stop
-      runner2.broker_closed
+      runner2.close
     when .try &.starts_with?(config2.clustering_advertised_uri.to_s)
       runner2.stop
-      runner2.broker_closed
+      runner2.close
       listen.receive.to_s.should start_with config1.clustering_advertised_uri.to_s
       sleep 0.1.seconds
       runner1.stop
-      runner1.broker_closed
+      runner1.close
     else fail("no leader elected")
     end
   ensure
     runner1.try &.stop rescue nil
-    runner1.try &.broker_closed
+    runner1.try &.close
     runner2.try &.stop rescue nil
   end
 
@@ -334,7 +334,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     # candidacy stays queued; the leader then dies.
     etcd.put("lavinmq/isr", runner1.id.to_s(36))
     runner1.stop
-    runner1.broker_closed
+    runner1.close
 
     # Winning the election out of the ISR means it lacks confirmed data:
     # it must step down instead of serving.
@@ -347,7 +347,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     served2.should be_false
   ensure
     runner2.try &.stop rescue nil # closes the replication client, its lease is gone
-    runner2.try &.broker_closed
+    runner2.try &.close
     FileUtils.rm_rf "/tmp/isr-stepdown1"
     FileUtils.rm_rf "/tmp/isr-stepdown2"
   end
@@ -369,7 +369,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       end
       sleep 0.5.seconds # waiting to be in sync
       runner.stop
-      runner.broker_closed
+      runner.close
       select
       when code = done.receive
         code.should be_nil
@@ -408,7 +408,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         when timeout(5.seconds)
         end
         runner.stop
-        runner.broker_closed
+        runner.close
       end
     end
   end
@@ -441,7 +441,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         end
       ensure
         runner.stop
-        runner.broker_closed
+        runner.close
       end
     end
   end
@@ -561,7 +561,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         etcd.lease_ttl(lease_id).should be > 10
       ensure
         runner.stop
-        runner.broker_closed
+        runner.close
       end
     end
   end
