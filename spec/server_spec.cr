@@ -1236,6 +1236,26 @@ describe LavinMQ::Server do
     end
   end
 
+  it "refuses an exchange binding with amq.default as destination" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        expect_raises(AMQP::Client::Channel::ClosedException, "ACCESS_REFUSED") do
+          ch.exchange_bind("amq.direct", "", "foo")
+        end
+      end
+    end
+  end
+
+  it "refuses an exchange unbinding with amq.default as destination" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        expect_raises(AMQP::Client::Channel::ClosedException, "ACCESS_REFUSED") do
+          ch.exchange_unbind("amq.direct", "", "foo")
+        end
+      end
+    end
+  end
+
   it "requeues unacked msg from basic_ack on disconnect" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

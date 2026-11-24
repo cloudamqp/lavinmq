@@ -149,6 +149,12 @@ module LavinMQ
           @arguments == frame_args
       end
 
+      # True only for the nameless AMQP default exchange, not the
+      # pre-declared `amq.*` exchanges.
+      def default_exchange? : Bool
+        false
+      end
+
       def in_use?
         return true unless bindings_details.empty?
         @vhost.exchanges_any? do |_, x|
