@@ -17,6 +17,11 @@ module LavinMQ
       # Keeps the state, the paused file and its replication in step when
       # #pause, #resume and #delete race
       @pause_lock = Mutex.new
+      # Held while the source and destination stop, which can take long: a
+      # stalled source connection never answers its close. #pause stops them
+      # outside @pause_lock, so #resume doesn't wait for it, and a run started
+      # meanwhile starts them only once they are stopped.
+      @stop_lock = Mutex.new
       # Consecutive failing rounds of transient (Retry) deliveries (see
       # extend_backoff), written by the outcome handler (confirm fiber) and
       # read by the consuming loop for backoff.
@@ -57,6 +62,7 @@ module LavinMQ
         loop do
           break if should_stop_loop?(run_generation)
           @state = State::Starting
+          @stop_lock.synchronize { } # until a #pause has stopped both ends
           @source.start
           @destination.start
 
@@ -282,8 +288,9 @@ module LavinMQ
           File.write(@paused_file_path, @name)
           @vhost.replicator.try &.replace_file(@paused_file_path)
           Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
-          halt(State::Paused)
+          stop_run(State::Paused)
         end
+        stop_ends
         Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
       end
 
@@ -305,10 +312,20 @@ module LavinMQ
       # generation makes the run loop exit without deleting the parameter or
       # terminating, and stops it from reconnecting.
       private def halt(state : State)
+        stop_run(state)
+        stop_ends
+      end
+
+      private def stop_run(state : State)
         @state = state
         @stop_generation.add(1_u64, :release)
-        @source.stop
-        @destination.stop
+      end
+
+      private def stop_ends
+        @stop_lock.synchronize do
+          @source.stop
+          @destination.stop
+        end
       end
 
       private def delete_paused_file

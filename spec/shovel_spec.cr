@@ -104,6 +104,45 @@ module ShovelSpecHelpers
     end
   end
 
+  # A source whose first stop stalls until released, as closing a connection
+  # does when the peer stops answering. Each run blocks until stopped.
+  class StallingStopSource < LavinMQ::Shovel::Source
+    @stopped = Channel(Nil).new
+    @stops = Atomic(UInt32).new(0_u32)
+
+    getter delete_after = LavinMQ::Shovel::DeleteAfter::Never
+    getter stop_entered = Channel(Nil).new(1)
+    getter release_stop = Channel(Nil).new
+    getter starts = Atomic(UInt32).new(0_u32)
+
+    def start
+      @starts.add(1_u32, :relaxed)
+      @stopped = Channel(Nil).new
+    end
+
+    def stop
+      if @stops.add(1_u32, :relaxed).zero?
+        @stop_entered.send nil
+        @release_stop.receive?
+      end
+      @stopped.close
+    end
+
+    def started? : Bool
+      true
+    end
+
+    def ack(delivery_tag, batch = true)
+    end
+
+    def reject(delivery_tag, requeue)
+    end
+
+    def each(&_blk : ::AMQP::Client::DeliverMessage -> Nil)
+      @stopped.receive?
+    end
+  end
+
   class PauseRaceDestination < LavinMQ::Shovel::Destination
     def start
     end
@@ -851,6 +890,34 @@ describe LavinMQ::Shovel do
         10.times { Fiber.yield }
         shovel.running?.should be_true
       ensure
+        shovel.try &.terminate
+      end
+    end
+
+    it "resumes a shovel while its pause waits for a stalled source to stop" do
+      with_amqp_server do |s|
+        source = ShovelSpecHelpers::StallingStopSource.new
+        dest = ShovelSpecHelpers::PauseRaceDestination.new
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "stalled-pause", s.vhosts["/"])
+        spawn shovel.run
+        wait_for { shovel.running? }
+        spawn shovel.pause
+        source.stop_entered.receive
+        resumed = Channel(Nil).new(1)
+        spawn { shovel.resume; resumed.send nil }
+        select
+        when resumed.receive
+        when timeout(1.second)
+          fail "resume waited for the stalled pause"
+        end
+        File.exists?(shovel.@paused_file_path).should be_false
+        # The resumed run starts the source only once the stalled stop is done
+        source.starts.get.should eq 1
+        source.release_stop.close
+        wait_for { shovel.running? }
+        source.starts.get.should eq 2
+      ensure
+        source.try &.release_stop.close
         shovel.try &.terminate
       end
     end
