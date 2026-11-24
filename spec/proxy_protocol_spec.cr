@@ -1,5 +1,6 @@
 require "./spec_helper"
 require "../src/lavinmq/proxy_protocol"
+require "log/spec"
 
 # Counts the writes it gets, to check that a header isn't written in pieces
 private class WriteCountingIO < IO
@@ -459,6 +460,21 @@ describe "ProxyProtocol" do
     ensure
       ssl_client.try &.close rescue nil
       tcp_client.try &.close rescue nil
+    end
+  end
+
+  it "logs an invalid PROXY header in front of a TLS handshake as a warning" do
+    with_amqp_server(tls: true) do |s|
+      s.@config.tcp_proxy_protocol = true
+      Log.capture("lmq.server", :warn) do |logs|
+        socket = TCPSocket.new("localhost", amqp_tls_port(s))
+        socket.read_timeout = 5.seconds
+        # An invalid address raises ArgumentError, not a ProxyProtocol::Error
+        socket.write "PROXY TCP4 a b 1 2\r\n".to_slice
+        socket.read(Bytes.new(1)).should eq 0 # closed by the server
+        socket.close
+        logs.check(:warn, /^Error accepting TLS connection from /).empty
+      end
     end
   end
 end
