@@ -226,9 +226,7 @@ module LavinMQ
 
     private def handle_tls_connection(ssl_client, conn_info)
       set_buffer_size(ssl_client)
-      conn_info.ssl = true
-      conn_info.ssl_version = ssl_client.tls_version
-      conn_info.ssl_cipher = ssl_client.cipher
+      conn_info.with_ssl(ssl_client)
       handle_connection(ssl_client, conn_info)
     end
 

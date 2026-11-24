@@ -19,7 +19,7 @@ Available backends:
 
 | Backend | Description |
 |---------|-------------|
-| `local` | Username/password stored in the definitions file |
+| `local` | Username/password stored in the definitions file, or a [client certificate](#client-certificate-authentication-sasl-external) |
 | `oauth` | JWT/OAuth2 token validation |
 
 ## Local Authentication
@@ -48,6 +48,33 @@ LavinMQ creates a default user on first start with the `administrator` tag.
 | `default_user_only_loopback` | `[main]` | `true` | If true, the default user can only connect from loopback (127.0.0.1, ::1) |
 
 The check uses the real socket address. A connection with a PROXY protocol header never counts as loopback, so the default user cannot log in through a proxy or through a cluster follower. See the Proxy Protocol section in [connections](connections.md#proxy-protocol).
+
+## Client Certificate Authentication (SASL EXTERNAL)
+
+AMQP clients can authenticate with their TLS client certificate instead of a password, using the SASL `EXTERNAL` mechanism. LavinMQ takes the username from the certificate and looks it up among the local users. The user's password, if it has one, is not checked, and anything the client sends as a SASL response is ignored. The user's permissions and tags apply as usual.
+
+This needs mTLS: the TLS listener must request client certificates and verify them against a CA, see [Mutual TLS](tls.md). Only certificates that LavinMQ verified in its own TLS handshake are accepted, so `EXTERNAL` is not available on connections through a PROXY protocol listener, even if the proxy forwards the client certificate's CN.
+
+```ini
+[sni:amqp.example.com]
+tls_cert = /etc/lavinmq/server.crt
+tls_key = /etc/lavinmq/server.key
+amqp_tls_verify_peer = true
+amqp_tls_ca_cert = /etc/lavinmq/clients-ca.pem
+
+[external_auth]
+login_from = common_name
+```
+
+| Config Key | Section | Default | Description |
+|-----------|---------|---------|-------------|
+| `login_from` | `[external_auth]` | (none) | `common_name` uses the subject CN, `subject_alternative_name` uses an entry of the subjectAltName extension. `EXTERNAL` is disabled when unset |
+| `san_type` | `[external_auth]` | (none) | With `subject_alternative_name`: only consider entries of this type, e.g. `DNS`, `email` or `URI` (case-insensitive) |
+| `san_index` | `[external_auth]` | `0` | With `subject_alternative_name`: zero-based index among the matching entries |
+
+For example, with `login_from = subject_alternative_name`, `san_type = DNS` and `san_index = 1`, a certificate with the SANs `DNS:a.example.com, email:ops@example.com, DNS:b.example.com` authenticates as the user `b.example.com`.
+
+`EXTERNAL` is offered in `Connection.Start` only when `login_from` is set and the client presented a certificate that passed verification. A client that selects it without one, or whose certificate has no matching field or names a user that doesn't exist, is refused with `ACCESS_REFUSED`. `default_user_only_loopback` still applies to the default user. MQTT and the HTTP API don't support certificate authentication yet.
 
 ## OAuth2 / OIDC Authentication
 

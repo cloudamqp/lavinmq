@@ -6,6 +6,7 @@ require "../auth/user_store"
 require "../vhost_store"
 require "../client/connection_factory"
 require "../auth/authenticator"
+require "../auth/mechanisms"
 require "./connection_reply_code"
 
 module LavinMQ
@@ -22,7 +23,7 @@ module LavinMQ
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           stream = AMQ::Protocol::Stream.new(socket)
-          if start_ok = start(stream, logger)
+          if start_ok = start(stream, connection_info, logger)
             if user = authenticate(stream, connection_info, start_ok, logger)
               if tune_ok = tune(stream, logger)
                 if vhost = open(stream, user, logger)
@@ -79,8 +80,10 @@ module LavinMQ
         },
       })
 
-      def start(socket, log : Logger)
-        start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
+      def start(socket, connection_info : ConnectionInfo, log : Logger)
+        start = AMQP::Frame::Connection::Start.new(
+          server_properties: SERVER_PROPERTIES,
+          mechanisms: Auth::Mechanisms.advertised(connection_info))
         socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
         socket.flush
         start_ok = socket.next_frame.as(AMQP::Frame::Connection::StartOk)
@@ -91,36 +94,31 @@ module LavinMQ
         start_ok
       end
 
-      def credentials(start_ok)
-        case start_ok.mechanism
-        when "PLAIN"
-          resp = start_ok.response
-          if i = resp.index('\u0000', 1)
-            {resp[1...i], resp[(i + 1)..-1]}
-          else
-            raise "Invalid authentication response"
-          end
-        when "AMQPLAIN"
-          io = ::IO::Memory.new(start_ok.response)
-          tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.bytesize.to_u32)
-          user = tbl["LOGIN"]?.as(String?) || ""
-          password = tbl["PASSWORD"]?.as(String?) || ""
-          {user, password}
-        else raise "Unsupported authentication mechanism: #{start_ok.mechanism}"
-        end
+      def credentials(start_ok, connection_info) : Tuple(String, String)
+        Auth::Mechanisms[start_ok.mechanism].credentials(start_ok.response, connection_info)
       end
 
       def authenticate(socket, connection_info : ConnectionInfo, start_ok, log)
-        username, password = credentials(start_ok)
+        begin
+          username, password = credentials(start_ok, connection_info)
+        rescue ex : Auth::Mechanisms::Error
+          log.info { "Authentication failure (#{start_ok.mechanism}): #{ex.message}" }
+          return refuse_authentication(socket, start_ok)
+        end
         context = Auth::Context.new(
           username,
           password.to_slice,
+          mechanism: start_ok.mechanism,
           loopback: connection_info.loopback?
         )
         user = @authenticator.authenticate(context)
         return user if user
 
         log.info { "Authentication failure for user \"#{username}\"" }
+        refuse_authentication(socket, start_ok)
+      end
+
+      private def refuse_authentication(socket, start_ok) : Nil
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)

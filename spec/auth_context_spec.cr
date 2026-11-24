@@ -46,4 +46,21 @@ describe LavinMQ::Auth::Context do
       ctx.loopback?.should be_false
     end
   end
+
+  describe "#external_authentication?" do
+    it "is true for the EXTERNAL mechanism" do
+      ctx = LavinMQ::Auth::Context.new("user", Bytes.empty, mechanism: "EXTERNAL")
+      ctx.external_authentication?.should be_true
+    end
+
+    it "is false for other mechanisms" do
+      ctx = LavinMQ::Auth::Context.new("user", "pass".to_slice, mechanism: "PLAIN")
+      ctx.external_authentication?.should be_false
+    end
+
+    it "is false when no mechanism is given" do
+      ctx = LavinMQ::Auth::Context.new("user", "pass".to_slice)
+      ctx.external_authentication?.should be_false
+    end
+  end
 end

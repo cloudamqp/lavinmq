@@ -117,7 +117,20 @@ module LavinMQ
       unless @clustering_etcd_lease_ttl.positive?
         raise Error.new("clustering etcd_lease_ttl must be positive (got #{@clustering_etcd_lease_ttl})")
       end
+      validate_external_auth!
       validate_sni_tls!
+    end
+
+    EXTERNAL_AUTH_LOGIN_FROM = {"common_name", "subject_alternative_name"}
+
+    private def validate_external_auth!
+      if (login_from = @external_auth_login_from) && !EXTERNAL_AUTH_LOGIN_FROM.includes?(login_from)
+        raise Error.new("Unsupported external_auth login_from value '#{login_from}', " \
+                        "expected one of #{EXTERNAL_AUTH_LOGIN_FROM.join(", ")}")
+      end
+      if (san_index = @external_auth_san_index) && san_index.negative?
+        raise Error.new("external_auth san_index must not be negative (got #{san_index})")
+      end
     end
 
     # Builds every SNI host's TLS contexts, so an unreadable certificate or

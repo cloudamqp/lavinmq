@@ -25,7 +25,7 @@ Settings of type Bool accept `1`, `true`, `yes`, `on` or `y` for true and `0`, `
 
 Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had. The configuration is rebuilt the same way as at startup: a setting removed from the file goes back to its default, and command line arguments and environment variables take precedence over the file.
 
-Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
+Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)), and the `[external_auth]` settings (see [Client Certificate Authentication](authentication.md#client-certificate-authentication-sasl-external)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Changes to `[external_auth]` and to the client CA in `tls_ca_cert` apply to new connections only: clients that already authenticated with a certificate stay connected, so close their connections through the management API to make them log in again. Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
 
 A reload reads the file on top of the running configuration, so a setting removed from the file keeps its current value instead of going back to its default. To change a setting with a reload, set the new value explicitly. `[sni:...]` sections are the exception: a removed SNI host is removed on reload.
 
@@ -146,6 +146,16 @@ A reload reads the file on top of the running configuration, so a setting remove
 | `verify_aud` | Bool | `true` | Verify JWT audience claim |
 | `audience` | String | (none) | Expected JWT audience. Also sent as the `audience` parameter in the SSO authorization request |
 | `jwks_cache_ttl` | Int (seconds) | `3600` | JWKS cache TTL |
+
+## [external_auth] Section
+
+Settings for the SASL `EXTERNAL` mechanism, which authenticates AMQP clients by their TLS client certificate. See [Client Certificate Authentication](authentication.md#client-certificate-authentication-sasl-external).
+
+| INI Key | Type | Default | Description |
+|---------|------|---------|-------------|
+| `login_from` | String | (none) | Certificate field used as the username: `common_name` or `subject_alternative_name`. `EXTERNAL` is disabled when unset |
+| `san_type` | String | (none) | With `subject_alternative_name`: only consider entries of this type, e.g. `DNS`, `email` or `URI` (case-insensitive). When unset, all entries are considered |
+| `san_index` | Int | `0` | With `subject_alternative_name`: zero-based index among the entries that match `san_type` |
 
 ## [experimental] Section
 
