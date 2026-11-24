@@ -1703,11 +1703,11 @@ th.group.last {
   border-right: 1px solid var(--color-border-separator);
   border-bottom: 1px solid var(--color-border-separator);
 
-  &:nth-child(3n) {
+  &:nth-child(3n of :not(.hide)) {
     border-right: 0;
   }
 
-  &:nth-last-child(-n + 3) {
+  &:nth-last-child(-n + 3 of :not(.hide)) {
     border-bottom: 0;
   }
 }
@@ -1746,11 +1746,11 @@ th.group.last {
     border-right: 0;
     border-bottom: 1px solid var(--color-border-separator);
 
-    &:nth-last-child(-n + 3) {
+    &:nth-last-child(-n + 3 of :not(.hide)) {
       border-bottom: 1px solid var(--color-border-separator);
     }
 
-    &:last-child {
+    &:nth-last-child(1 of :not(.hide)) {
       border-bottom: 0;
     }
   }
