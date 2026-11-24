@@ -429,6 +429,79 @@ describe IO::Buffered do
       pool.stats[:available].should eq 1
     end
 
+    it "returns the read buffer when the reader closes the IO with unread data" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      reader.buffer_pool = pool
+      reader.read_buffering = true
+      writer.write Bytes.new(10, 1_u8)
+      reader.read_byte.should eq 1_u8
+      reader.close
+      pool.stats[:available].should eq 1
+    ensure
+      writer.try &.close
+    end
+
+    it "returns the read buffer on the reader's next read after another fiber closes the IO" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      reader.buffer_pool = pool
+      reader.read_buffering = true
+      writer.write Bytes.new(10, 1_u8)
+      reader.read_byte.should eq 1_u8
+      closed = Channel(Nil).new
+      spawn do
+        reader.close
+        closed.send nil
+      end
+      closed.receive
+      # the reader may still use it, so the closing fiber doesn't return it
+      reader.@in_buffer.null?.should be_false
+      expect_raises(IO::Error) { reader.read_byte }
+      pool.stats[:available].should eq 1
+    ensure
+      writer.try &.close
+    end
+
+    it "returns the read buffer when the reader closes the IO after another fiber closed it" do
+      pool = IO::BufferPool.new(1024)
+      reader, writer = UNIXSocket.pair
+      reader.buffer_pool = pool
+      reader.read_buffering = true
+      writer.write Bytes.new(10, 1_u8)
+      reader.read_byte.should eq 1_u8
+      closed = Channel(Nil).new
+      spawn do
+        reader.close
+        closed.send nil
+      end
+      closed.receive
+      reader.close
+      pool.stats[:available].should eq 1
+    ensure
+      writer.try &.close
+    end
+
+    it "lets the GC finalize a closed socket whose reader fiber captured it" do
+      pool = IO::BufferPool.new(1024)
+      cycles = FinalizationCycles.count do
+        1000.times do
+          reader, writer = UNIXSocket.pair
+          reader.buffer_pool = pool
+          FinalizationCycles.tracked << reader.object_id
+          done = Channel(Nil).new
+          spawn do
+            reader.read_byte
+            reader.close
+            done.send nil
+          end
+          writer.close
+          done.receive
+        end
+      end
+      cycles.should eq 0
+    end
+
     it "releases the read buffer at end of stream of a non-socket IO" do
       pool = IO::BufferPool.new(1024)
       io = ScriptedIO.new { 0 }
@@ -518,6 +591,31 @@ class RecordingIO < IO
   end
 
   def unbuffered_rewind
+  end
+end
+
+lib LibGC
+  fun get_warn_proc = GC_get_warn_proc : WarnProc
+end
+
+module FinalizationCycles
+  class_getter tracked = Array(UInt64).new
+  @@count = 0
+
+  def self.count(&) : Int32
+    @@count = 0
+    previous = LibGC.get_warn_proc
+    LibGC.set_warn_proc ->(_msg : LibC::Char*, arg : LibGC::Word) do
+      @@count += 1 if @@tracked.includes?(arg.to_u64)
+    end
+    yield
+    3.times do
+      GC.collect
+      Fiber.yield
+    end
+    @@count
+  ensure
+    LibGC.set_warn_proc previous if previous
   end
 end
 

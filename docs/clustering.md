@@ -70,7 +70,7 @@ The ISR set tracks which followers are fully synchronized. A follower joins the 
 
 ## Failover
 
-If the leader fails, etcd coordinates leader election among ISR members. A failed leader is detected when its etcd lease expires. The leader renews the lease every third of `etcd_lease_ttl` (default 10 seconds), so after a crash the lease expires between two thirds of `etcd_lease_ttl` and `etcd_lease_ttl` seconds later. A leader that pauses longer than two thirds of `etcd_lease_ttl`, for example in a long GC pause, can lose its leadership. The first ISR member to successfully campaign becomes the new leader. A node that wins the election while no longer in the ISR (its candidacy was queued before it fell out of sync) steps down immediately — it releases its lease and exits so an in-sync candidate can win, and rejoins as a follower after re-syncing.
+If the leader fails, etcd coordinates leader election among ISR members. A failed leader is detected when its etcd lease expires. The leader renews the lease every third of `etcd_lease_ttl` (default 10 seconds), so after a crash the lease expires between two thirds of `etcd_lease_ttl` and `etcd_lease_ttl` seconds later. A leader that pauses longer than two thirds of `etcd_lease_ttl`, for example in a long GC pause, can lose its leadership. Every node, not just the leader, exits when etcd reports its lease gone or when no lease keepalive has succeeded within `etcd_lease_ttl`, and rejoins as a follower after the restart. Transient etcd errors, for example during an etcd leader election, are retried. A keepalive held by an unresponsive etcd leader is only retried after a third of `etcd_lease_ttl`, so keep a third of `etcd_lease_ttl` above the time etcd needs to elect a new leader. A node that can't connect to any of its etcd endpoints exits at once, so with only the local etcd member as endpoint, a restart of that member restarts LavinMQ too. The first ISR member to successfully campaign becomes the new leader. A node that wins the election while no longer in the ISR (its candidacy was queued before it fell out of sync) steps down immediately: it releases its lease and exits so an in-sync candidate can win, and rejoins as a follower after re-syncing.
 
 ### Leader Election Hooks
 
@@ -94,9 +94,22 @@ The proxy is transparent and runs on every follower for:
 
 The plaintext TCP listeners always proxy. The TLS listeners (`amqps_port`, `mqtts_port`, `https_port`) proxy when TLS is configured (`tls_cert_path` is set) and the port is above 0. Unix-socket proxying activates per protocol when the matching `unix_path` is configured in `[amqp]`, `[mqtt]`, or `[mgmt]`. The same setting controls both the listener on the leader and the proxy socket on a follower, so configuring `unix_path` once gives clients a consistent Unix socket on every node. TLS is only offered on TCP ports, on the leader and on followers alike; Unix sockets are always plaintext.
 
-TLS is passed through unterminated: the follower forwards the encrypted bytes to the same port on the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
+TLS is passed through unterminated: the follower forwards the encrypted bytes to the leader, which does the TLS handshake. Certificates, SNI and kTLS are therefore handled by the leader.
+
+The follower forwards each connection to the port the leader listens on for that protocol, which doesn't have to be the port the follower listens on. The leader advertises its ports in the query of the URI it registers in etcd, e.g. `tcp://node1:5679?amqp=5672&mqtt=1883&http=15672`; TLS ports are included when TLS is configured. A follower forwards a protocol the leader doesn't advertise, for example when the leader runs an older version, to its own port.
+
+When clients reach the leader through other ports than it binds, for example behind NAT or a container port mapping, put the reachable ports in `advertised_uri`. Ports given there take precedence over the ones the leader listens on:
+
+```ini
+[clustering]
+advertised_uri = tcp://node1.example.com:5679?amqp=30672&https=30671
+```
+
+The advertised ports are `amqp`, `amqps`, `mqtt`, `mqtts`, `http` and `https`. If a leader restarts with other ports, followers start forwarding to the new ones.
 
 For AMQP, AMQPS, MQTT and MQTTS TCP traffic, the proxy prepends a PROXY protocol v1 header so the leader sees the original client address. For AMQPS and MQTTS, the leader reads this header before the TLS handshake. HTTP and HTTPS connections get no PROXY header. No further configuration is needed; the proxy starts and stops automatically as leadership changes.
+
+A load balancer in front of every node can send its own PROXY header (e.g. HAProxy's `send-proxy`) when `tcp_proxy_protocol` is enabled. A follower then reads that header and forwards a single header to the leader. If the load balancer is one of the `proxy_protocol_trusted_sources`, its header is forwarded as is: a v1 header with the same addresses, a v2 header byte for byte, TLVs included. Otherwise, or for a v2 `LOCAL` header, the follower's own header is forwarded, with the load balancer's address. The leader always accepts the header from a follower, whether or not the follower is listed in `proxy_protocol_trusted_sources`.
 
 ## Security
 

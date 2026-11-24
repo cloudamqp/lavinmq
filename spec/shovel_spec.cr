@@ -3,6 +3,16 @@ require "../src/lavinmq/shovel"
 require "http/server"
 require "wait_group"
 
+class LavinMQ::Shovel::Runner
+  def self.delivery_backoff_for_spec(failures : Int32) : Time::Span
+    delivery_backoff(failures)
+  end
+
+  def self.reconnect_backoff_for_spec(delay : Time::Span, retries : Int) : Time::Span
+    reconnect_backoff(delay, retries)
+  end
+end
+
 module ShovelSpecHelpers
   # Every end-to-end scenario runs against both kinds of endpoint: this broker
   # in-process (a URI without host) and over AMQP (a URI with host).
@@ -1385,12 +1395,45 @@ describe LavinMQ::Shovel do
       end
     end
 
+    it "waits the reconnect delay, then the delay to the power of the attempts past the threshold" do
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(5.seconds, 1).should eq 5.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(5.seconds, 10).should eq 5.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(5.seconds, 11).should eq 5.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(5.seconds, 12).should eq 25.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(5.seconds, 13).should eq 125.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(5.seconds, 14).should eq 300.seconds
+    end
+
+    it "uses the whole reconnect delay when it is a minute or longer" do
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(60.seconds, 11).should eq 60.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(90.seconds, 11).should eq 90.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(90.seconds, 12).should eq 300.seconds
+    end
+
+    it "stays at the reconnect cap instead of overflowing" do
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(5.seconds, 24).should eq 300.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(5.seconds, 1000).should eq 300.seconds
+    end
+
+    it "grows the reconnect delay from 2s when it is shorter" do
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(1.second, 10).should eq 1.second
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(1.second, 11).should eq 2.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(1.second, 12).should eq 4.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(1.second, 18).should eq 256.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(1.second, 19).should eq 300.seconds
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(0.seconds, 12).should eq 4.seconds
+    end
+
+    it "never waits less than the reconnect delay" do
+      LavinMQ::Shovel::Runner.reconnect_backoff_for_spec(600.seconds, 11).should eq 600.seconds
+    end
+
     it "backs off 0.5s, doubling, up to 30s" do
-      LavinMQ::Shovel::Runner.delivery_backoff(0).should eq 0.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(1).should eq 0.5.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(2).should eq 1.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(4).should eq 4.seconds
-      LavinMQ::Shovel::Runner.delivery_backoff(20).should eq 30.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(0).should eq 0.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(1).should eq 0.5.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(2).should eq 1.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(4).should eq 4.seconds
+      LavinMQ::Shovel::Runner.delivery_backoff_for_spec(20).should eq 30.seconds
     end
 
     it "counts a burst of Retry outcomes as one failing round" do

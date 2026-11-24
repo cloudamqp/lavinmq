@@ -199,6 +199,33 @@ describe LavinMQ::Server do
     end
   end
 
+  describe "connection close" do
+    it "cancels the consumers before confirming the close" do
+      with_amqp_server do |s|
+        with_channel(s, &.queue("q"))
+        q = s.vhosts["/"].queue("q")
+        with_raw_amqp_connection(s) do |io, stream|
+          io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+          io.write_bytes AMQ::Protocol::Frame::Basic::Consume.new(1_u16, 0_u16, "q", "", false, true, false, false,
+            AMQ::Protocol::Table.new), IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Basic::ConsumeOk)
+          q.consumers.size.should eq 1
+
+          io.write_bytes AMQ::Protocol::Frame::Connection::Close.new(200_u16, "bye", 0_u16, 0_u16),
+            IO::ByteFormat::NetworkEndian
+          io.flush
+          stream.next_frame.as(AMQ::Protocol::Frame::Connection::CloseOk)
+          q.consumers.should be_empty
+          with_channel(s, &.basic_publish_confirm("msg", "", "q"))
+          q.message_count.should eq 1
+        end
+      end
+    end
+  end
+
   describe "unexpected frames" do
     it "doesn't time out a client whose frames never start at a socket read" do
       with_amqp_server do |s|
@@ -224,6 +251,25 @@ describe LavinMQ::Server do
           io.write bytes[4, 4]
           io.flush
           sleep 1.5.seconds
+          client.closed?.should be_false
+        end
+      end
+    end
+
+    it "doesn't time out a client that sends heartbeats when socket_buffer_size is 0" do
+      config = LavinMQ::Config.new
+      config.socket_buffer_size = 0
+      with_amqp_server(config: config) do |s|
+        with_raw_amqp_connection(s, heartbeat: 1_u16) do |io, _stream|
+          wait_for { s.connections.size == 1 }
+          client = s.connections.first.as(LavinMQ::AMQP::Client)
+          # Longer than the heartbeat timeout (1 s + 5 s), with a pause
+          # between heartbeats that lets the server's read time out
+          8.times do
+            io.write_bytes AMQ::Protocol::Frame::Heartbeat.new, IO::ByteFormat::NetworkEndian
+            io.flush
+            sleep 1.second
+          end
           client.closed?.should be_false
         end
       end

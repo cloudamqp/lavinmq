@@ -124,6 +124,18 @@ describe LavinMQ::Exchange do
     end
   end
 
+  describe "federation upstream exchange declaration" do
+    it "loads a manually declared exchange after restart" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.exchange("fed", "x-federation-upstream", durable: true)
+        end
+        restart_server(s)
+        s.vhosts["/"].exchange("fed").type.should eq "x-federation-upstream"
+      end
+    end
+  end
+
   describe "delayed message exchange declaration" do
     dmx_args = AMQP::Client::Arguments.new({"x-delayed-type" => "topic", "test" => "hello"})
     illegal_dmx_args = AMQP::Client::Arguments.new({"test" => "hello"})

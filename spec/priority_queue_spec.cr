@@ -6,6 +6,17 @@ module PrioSpec
       super(*args, **kwargs)
     end
   end
+
+  # Fails the migration from a single store on its first message
+  class FailingPushStore < LavinMQ::AMQP::PriorityQueue::PriorityMessageStore
+    def initialize(*args, **kwargs)
+      super(*args, **kwargs)
+    end
+
+    def push(msg) : LavinMQ::SegmentPosition
+      raise "Spec push failure"
+    end
+  end
 end
 
 def with_prio_store(max_prio, &)
@@ -90,6 +101,21 @@ describe LavinMQ::AMQP::PriorityQueue do
     end
 
     describe "migration" do
+      it "unmaps the old store when the migration fails" do
+        data_dir = File.tempname
+        Dir.mkdir data_dir
+        old_store = LavinMQ::MessageStore.new(data_dir, nil, durable: true)
+        old_store.push LavinMQ::Message.new("ex", "rk", "body")
+        old_store.close
+        count_before = MFile.mmap_count
+        expect_raises(Exception, "Spec push failure") do
+          PrioSpec::FailingPushStore.new(5u8, data_dir, nil, durable: true)
+        end
+        MFile.mmap_count.should eq count_before
+      ensure
+        FileUtils.rm_rf data_dir if data_dir
+      end
+
       it "should migrate old store" do
         data_dir = File.tempname
         Dir.mkdir data_dir
@@ -293,6 +319,37 @@ describe LavinMQ::AMQP::PriorityQueue do
           env = store.shift?.should_not be_nil
           store.delete env.segment_position
           store.size.should eq 0
+        end
+      end
+    end
+
+    describe "#purge_all" do
+      it "is failed after it reached data that a sub store can't read" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 2u8)
+          2.times { store.push LavinMQ::Message.new("ex", "rk", "body", properties: props) }
+          segment = store.@stores[2].@segments.first_value
+          write_at(segment.path, 4 + 8 + 1 + "ex".bytesize + 1 + "rk".bytesize + props.bytesize, UInt64::MAX)
+          store.failed?.should be_false
+          store.purge_all { }
+          # So that the queue sees it, and isn't read or written
+          store.failed?.should be_true
+        end
+      end
+    end
+
+    describe "#shift?" do
+      it "reads no priority while one sub store can't be read" do
+        with_prio_store(5) do |store|
+          store.push LavinMQ::Message.new("ex", "rk", "low")
+          segment = store.@stores[0].@segments.first_value
+          # The body size of the first message
+          write_at(segment.path, 4 + 8 + 1 + "ex".bytesize + 1 + "rk".bytesize + AMQ::Protocol::Properties.new.bytesize, UInt64::MAX)
+          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+          store.push LavinMQ::Message.new("ex", "rk", "high", properties: AMQP::Client::Properties.new(priority: 2u8))
+          expect_raises(LavinMQ::MessageStore::Error) { store.first? }
+          expect_raises(LavinMQ::MessageStore::Error) { store.shift? }
+          store.size.should eq 2
         end
       end
     end
@@ -565,6 +622,72 @@ describe LavinMQ::AMQP::PriorityQueue do
           end
           q.get(no_ack: false).should_not be_nil
           q.purge[:message_count].should eq 3
+        end
+      end
+    end
+  end
+
+  # Every priority sub-store numbers its segments from 1, so the first message
+  # of each priority has the same segment and position
+  describe "delivery count" do
+    it "is not shared between messages of different priorities" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue("prio-dlimit-dlq")
+          args = AMQP::Client::Arguments.new({
+            "x-max-priority"            => 9,
+            "x-delivery-limit"          => 1,
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "prio-dlimit-dlq",
+          })
+          q = ch.queue("prio-dlimit", args: args)
+          q.publish_confirm "lo", props: AMQP::Client::Properties.new(priority: 0u8)
+          q.publish_confirm "hi", props: AMQP::Client::Properties.new(priority: 5u8)
+
+          hi = q.get(no_ack: false).should_not be_nil
+          hi.body_io.to_s.should eq "hi"
+          lo = q.get(no_ack: false).should_not be_nil
+          lo.body_io.to_s.should eq "lo"
+          lo.redelivered.should be_false
+          lo.properties.headers.try(&.["x-delivery-count"]?).should be_nil
+
+          lo.reject(requeue: true)
+          lo2 = q.get(no_ack: false).should_not be_nil
+          lo2.body_io.to_s.should eq "lo"
+          lo2.properties.headers.try(&.["x-delivery-count"]?).should eq 1
+          s.vhosts["/"].queue("prio-dlimit-dlq").message_count.should eq 0
+          hi.ack
+          lo2.ack
+        end
+      end
+    end
+
+    it "is not shared between messages of different priorities with retries" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-max-priority"             => 9,
+            "x-delivery-limit"           => 3,
+            "x-delayed-retry-min"        => 1,
+            "x-delayed-retry-multiplier" => 1,
+          })
+          q = ch.queue("prio-retry", args: args)
+          q.publish_confirm "lo", props: AMQP::Client::Properties.new(priority: 0u8)
+          q.publish_confirm "hi", props: AMQP::Client::Properties.new(priority: 5u8)
+
+          hi = q.get(no_ack: false).should_not be_nil
+          hi.body_io.to_s.should eq "hi"
+          lo = q.get(no_ack: false).should_not be_nil
+          lo.body_io.to_s.should eq "lo"
+          lo.redelivered.should be_false
+
+          lo.reject(requeue: true)
+          lo2 = wait_for(timeout: 5.seconds) { q.get(no_ack: false) }
+          lo2.body_io.to_s.should eq "lo"
+          lo2.redelivered.should be_true
+          lo2.properties.headers.try(&.["x-delivery-count"]?).should eq 1
+          hi.ack
+          lo2.ack
         end
       end
     end

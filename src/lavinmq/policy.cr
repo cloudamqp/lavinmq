@@ -17,10 +17,6 @@ module LavinMQ
     # @effective_args / store state.
     @policy_lock = Mutex.new(:reentrant)
 
-    def reapply_policy
-      apply_policy(@policy, @operator_policy)
-    end
-
     # The generation of the newest VHost#apply_policies run applied here
     @applied_policy_generation : UInt64 = 0_u64
 
@@ -83,7 +79,8 @@ module LavinMQ
     SUPPORTED_POLICIES = {"max-length", "max-length-bytes", "message-ttl", "expires", "overflow",
                           "dead-letter-exchange", "dead-letter-routing-key", "federation-upstream",
                           "federation-upstream-set", "delivery-limit", "max-age",
-                          "alternate-exchange", "delayed-message"}
+                          "alternate-exchange", "delayed-retry-min",
+                          "delayed-retry-multiplier", "delayed-retry-max"}
     enum Target
       All
       Queues

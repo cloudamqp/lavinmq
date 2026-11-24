@@ -102,32 +102,21 @@ describe "LavinMQPerf" do
   end
 
   describe "Ticker" do
-    # Bursty pacing puts all ops in the first bucket; smooth pacing spreads
-    # them evenly. Lower bounds only, so a slow CI just stretches the run.
+    # A stalled process only runs ops late, never ahead of schedule, so this holds under load
     it "paces evenly across the configured rate window" do
       rate = 500
       total_ops = 250
-      ticker = LavinMQPerf::Ticker.new(rate)
       timestamps = Array(Time::Span).new(total_ops)
-      start = Time.instant
+      start = Time.instant # before the ticker's own start
+      ticker = LavinMQPerf::Ticker.new(rate)
       total_ops.times do
         ticker.tick
         timestamps << Time.instant - start
       end
-      elapsed = Time.instant - start
 
-      target = (total_ops.to_f64 / rate).seconds
-      elapsed.should be >= target * 0.7
-
-      bucket_count = 10
-      bucket_width = elapsed / bucket_count
-      buckets = Array(Int32).new(bucket_count, 0)
-      timestamps.each do |ts|
-        idx = (ts.total_nanoseconds / bucket_width.total_nanoseconds).to_i
-        idx = bucket_count - 1 if idx >= bucket_count
-        buckets[idx] += 1
+      timestamps.each_with_index(1) do |ts, op|
+        ts.should be >= (op / rate).seconds - LavinMQPerf::Ticker::SLEEP_GRANULARITY
       end
-      buckets.max.should be < total_ops // 2
     end
 
     # The consume path hands the ticker to a helper method per message, so it

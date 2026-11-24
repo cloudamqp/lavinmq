@@ -27,6 +27,71 @@ describe LavinMQ::Client::Channel::Consumer do
         end
       end
     end
+
+    it "should round-robin when all consumers have capacity" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("round-robin")
+          got = Channel(Int32).new
+          with_channel(s) do |ch1|
+            with_channel(s) do |ch2|
+              {ch1, ch2}.each_with_index do |consumer_ch, i|
+                consumer_ch.prefetch 8 - 4 * i
+                consumer_ch.basic_consume(q.name, no_ack: false) do |msg|
+                  msg.ack
+                  got.send i
+                end
+              end
+              # The first message starts the deliver loops, which don't
+              # race for it in line
+              q.publish("m")
+              got.receive
+              # Publish one at a time, so both consumers are idle with free
+              # capacity whenever a message arrives
+              order = Array.new(20) do
+                q.publish("m")
+                got.receive
+              end
+              order.each_cons_pair { |a, b| a.should_not eq b }
+            end
+          end
+        end
+      end
+    end
+
+    it "should not stall other consumers when one consumer's client stops reading" do
+      LavinMQ::Config.instance.tcp_send_timeout = 30
+      LavinMQ::Config.instance.tcp_send_buffer_size = 4096
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("stalled-reader")
+          queue = s.vhosts["/"].queue(q.name)
+          # A no-ack consumer that never reads, with small buffers so they fill fast
+          with_raw_amqp_connection(s) do |io, stream|
+            io.recv_buffer_size = 4096
+            io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+            io.flush
+            stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
+            io.write_bytes AMQ::Protocol::Frame::Basic::Consume.new(1_u16, 0_u16, q.name, "", false, true, false, false,
+              AMQ::Protocol::Table.new), IO::ByteFormat::NetworkEndian
+            io.flush
+            stream.next_frame.as(AMQ::Protocol::Frame::Basic::ConsumeOk)
+            with_channel(s) do |ch2|
+              ch2.prefetch 10
+              ch2.basic_consume(q.name, no_ack: false, &.ack)
+              body = Bytes.new(8 * 1024)
+              # One message at a time, so the queue is empty whenever the
+              # stuck consumer flushes, and its flush blocks once its socket
+              # is full. The other consumer must still get every message.
+              200.times do
+                q.publish_confirm body
+                wait_for(3.seconds) { queue.message_count.zero? }
+              end
+            end
+          end
+        end
+      end
+    end
   end
 
   describe "with x-priority" do
@@ -193,7 +258,10 @@ describe LavinMQ::Client::Channel::Consumer do
     it "should requeue a message shifted after the channel closed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q = ch.queue("consumer-close-shift")
+          # With no delivery attempt to spare, the message is dropped if the
+          # delivery that never reached the client counts as one
+          args = AMQP::Client::Arguments.new({"x-delivery-limit" => 0})
+          q = ch.queue("consumer-close-shift", args: args)
           q.publish_confirm("m")
           sq = s.vhosts["/"].queue("consumer-close-shift")
           server_ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
@@ -211,8 +279,41 @@ describe LavinMQ::Client::Channel::Consumer do
           wait_for { sq.message_count == 1 }
           sq.unacked_count.should eq 0
           sq.consumers.should be_empty
-          # Requeued by the consumer, not by the closed check before the shift
-          sq.reject_count.should eq 1
+          sq.reject_count.should eq 0
+        end
+        with_channel(s) do |ch|
+          msg = ch.basic_get("consumer-close-shift", no_ack: false).should_not be_nil
+          # Redelivered, so it was shifted and requeued by the consumer rather
+          # than stopped by the closed check before the shift, but it's still
+          # on its first counted delivery
+          msg.redelivered.should be_true
+          msg.properties.headers.try(&.["x-delivery-count"]?).should be_nil
+          msg.ack
+        end
+      end
+    end
+
+    it "should stop waiting for higher priority consumers when closed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("prio-wait-close")
+          sq = s.vhosts["/"].queue("prio-wait-close")
+          # Without a prefetch limit this consumer never runs out of capacity
+          high_prio = AMQP::Client::Arguments.new({"x-priority" => 10})
+          q.subscribe(no_ack: false, args: high_prio) { |_| }
+          low = with_channel(s) do |ch2|
+            ch2.queue("prio-wait-close").subscribe(no_ack: false) { |_| }
+            wait_for { sq.consumers_size == 2 }
+            consumer = sq.consumers.find! { |c| c.priority == 0 }.as(LavinMQ::AMQP::Consumer)
+            # Starts the deliver loops; the low priority one then waits for the
+            # high priority consumer to run out of capacity, which it never does
+            q.publish_confirm("m")
+            wait_for { sq.unacked_count == 1 }
+            consumer.@deliver_loop_running.get.should be_true
+            consumer
+          end
+          # Closing the low priority consumer's channel must end that wait
+          wait_for { !low.@deliver_loop_running.get }
         end
       end
     end

@@ -2,6 +2,7 @@ require "../logger"
 require "../sortable_json"
 require "../rough_time"
 require "../endpoint"
+require "../amqp/binding_details"
 
 module LavinMQ
   module Federation
@@ -39,6 +40,8 @@ module LavinMQ
         NACK_BACKOFF = 100.milliseconds
         @upstream_session : Endpoint::Session
         @downstream : Endpoint::LocalSession
+        # Closed when the run loop has ended, see #wait_stopped
+        @run_loop_done : ::Channel(Nil)?
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
@@ -80,8 +83,14 @@ module LavinMQ
 
         def run
           @log.info { "Starting" }
+          @run_loop_done = ::Channel(Nil).new
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
           Fiber.yield
+        end
+
+        # Blocks until the link has terminated
+        def wait_stopped : Nil
+          @run_loop_done.try &.receive?
         end
 
         # Graceful close of the link without removing any upstream resources.
@@ -133,6 +142,7 @@ module LavinMQ
           end
         ensure
           set_state(State::Terminated)
+          @run_loop_done.try &.close
           @log.info { "Terminated" }
         end
 
@@ -372,7 +382,7 @@ module LavinMQ
       class ExchangeLink < Link
         getter federated_ex, upstream_q
         # Bindings to forward upstream, in order; see #forward_bindings
-        @binding_ops = Deque({Bool, AMQP::BindingDetails}).new
+        @binding_ops : Deque({Bool, AMQP::BindingDetails}) = Deque({Bool, AMQP::BindingDetails}).new
         @binding_ops_lock = Mutex.new
         @binding_signal = ::Channel(Nil).new(1)
 

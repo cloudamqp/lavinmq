@@ -66,7 +66,7 @@ module LavinMQ
       end
       setup_sni_callbacks
       setup_signal_traps
-      SystemD::MemoryPressure.monitor { GC.collect }
+      GCPauseRecorder.install
     end
 
     private def start : self
@@ -130,6 +130,9 @@ module LavinMQ
         Log.warn { "Not built in release mode" }
       {% end %}
       Log.info { "Parallelism: #{Fiber::ExecutionContext.default.capacity}" }
+      {% if flag?(:patched_libgc) %}
+        Log.info { "libgc #{GC::LIBGC_VERSION}, mark stack growth: #{LibGC.get_grow_mark_stack == 1 ? "on" : "off"}" }
+      {% end %}
       Log.info { "PID: #{Process.pid}" }
       # we do this here to have nice consistent logging
       Pidfile.new(@config.pidfile).acquire unless @config.pidfile.empty?
@@ -319,12 +322,19 @@ module LavinMQ
       Log.warn { "Invalid configuration, keeping the running configuration: #{ex.message}" }
     else
       reload_tls
+      reload_authenticator
     end
 
     private def reload_tls
       reload_tls_context
     rescue ex
       Log.error { "Could not apply TLS changes on reload, a restart is required: #{ex.message}" }
+    end
+
+    private def reload_authenticator
+      @server.try &.authenticator.reload(@config)
+    rescue ex
+      Log.error(exception: ex) { "Could not apply authentication changes on reload, a restart is required: #{ex.message}" }
     end
 
     private def shutdown_server

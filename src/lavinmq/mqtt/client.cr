@@ -164,6 +164,15 @@ module LavinMQ
         @recv_oct_count.add(packet.bytesize, :relaxed)
         vhost.add_recv_bytes(packet.bytesize.to_u64)
 
+        # Packet id 0 is illegal [MQTT-2.3.1-1]. Handled like a packet that
+        # can't be decoded, as there is nothing valid to acknowledge.
+        case packet
+        when Protocol::Publish, Protocol::Subscribe, Protocol::Unsubscribe
+          if packet.packet_id == 0
+            raise Protocol::Error::PacketDecode.new("#{packet.class.name} with packet id 0")
+          end
+        end
+
         case packet
         when Protocol::Publish     then recieve_publish(packet)
         when Protocol::PubAck      then recieve_puback(packet)
@@ -176,10 +185,11 @@ module LavinMQ
         packet
       end
 
-      def send(packet)
+      # Over WebSocket every packet is flushed, one WebSocket frame per packet like the AMQP path
+      def send(packet, flush = true)
         @lock.synchronize do
           @io.write_packet(packet)
-          @io.flush
+          @io.flush if flush || websocket?
           @send_oct_count.add(packet.bytesize, :relaxed)
           vhost.add_send_bytes(packet.bytesize.to_u64)
         end
@@ -194,6 +204,14 @@ module LavinMQ
         when Protocol::PubAck
           vhost.event_tick(EventType::ClientPublishConfirm)
         end
+      end
+
+      def flush
+        @lock.synchronize { @io.flush }
+      end
+
+      private def websocket?
+        @io.io.is_a?(LavinMQ::WebSocketIO)
       end
 
       def receive_pingreq(packet : Protocol::PingReq)

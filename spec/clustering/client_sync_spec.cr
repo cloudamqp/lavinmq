@@ -58,6 +58,21 @@ module ClientSyncSpec
     client_io.try &.close
   end
 
+  # Writes `dirs` x `files_per_dir` small segment-like files and returns them as
+  # the leader's file list, with the same content so their checksums match.
+  def self.write_cached_files(data_dir : String, dirs : Int32, files_per_dir : Int32) : Hash(String, String)
+    leader_files = Hash(String, String).new
+    dirs.times do |d|
+      Dir.mkdir File.join(data_dir, "q#{d}")
+      files_per_dir.times do |f|
+        name = "q#{d}/msgs.#{f.to_s.rjust(10, '0')}"
+        File.write File.join(data_dir, name), name
+        leader_files[name] = name
+      end
+    end
+    leader_files
+  end
+
   # One replication record: a negative length appends, a positive one replaces.
   def self.write_record(lz4 : Compress::LZ4::Writer, filename : String, len : Int64, bytes : Bytes)
     lz4.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
@@ -79,13 +94,6 @@ module ClientSyncSpec
       acked += io.read_bytes(Int64, IO::ByteFormat::LittleEndian)
     end
     acked.should eq target
-  end
-
-  # follow() was never called in this harness, so satisfy close's follower-done
-  # handshake ourselves.
-  def self.close_client(client : TestClient)
-    spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
-    client.close
   end
 
   def self.persisted_checksums(data_dir : String) : Hash(String, {String, String})
@@ -626,6 +634,34 @@ module ClientSyncSpec
           Dir.exists?(File.join(data_dir, "queue2")).should be_false
         end
       end
+
+      # With cached checksums nothing in the comparison yields on its own, so
+      # without periodic yields it blocks client proxies, the HTTP API and acks.
+      it "lets other fibers run while comparing a large data dir" do
+        with_datadir do |data_dir|
+          leader_files = write_cached_files(data_dir, dirs: 4, files_per_dir: 1000)
+          client = make_client(data_dir)
+          client.hash_local_files_public
+          logs = ::Log::MemoryBackend.new
+          ::Log.builder.bind("lmq.clustering.client", :info, logs)
+          ran_while_comparing = false
+          stop = false
+          spawn do
+            until stop
+              last = logs.entries.last?.try(&.message) || ""
+              # "Comparing files" or "Compared 1/4000 files…" while the loop
+              # runs; "Compared 4000 files, 0 to sync" once it's done.
+              ran_while_comparing = true if last == "Comparing files" || last.matches?(/\ACompared \d+\/\d+ files/)
+              Fiber.yield
+            end
+          end
+          sync_with_leader(client, leader_files)
+          stop = true
+          ran_while_comparing.should be_true
+        ensure
+          ::Log.builder.unbind("lmq.clustering.client", :info, logs) if logs
+        end
+      end
     end
 
     describe "checksum persistence during sync" do
@@ -757,7 +793,7 @@ module ClientSyncSpec
           read_acks(leader_io, record_size(filename, payload.bytesize))
 
           client_socket.close
-          close_client(client)
+          client.close
 
           File.read(File.join(data_dir, filename)).should eq "hello world"
           # Dropped when the append arrived, so the next sync re-hashes the file
@@ -787,7 +823,7 @@ module ClientSyncSpec
           end
 
           client_socket.close
-          close_client(client)
+          client.close
 
           File.read(File.join(data_dir, filename)).should eq "abcdef"
           checksums_matching_disk(data_dir)[filename].should eq Digest::SHA1.digest("abcdef").hexstring
@@ -816,7 +852,7 @@ module ClientSyncSpec
           read_acks(leader_io, record_size(filename, content.bytesize))
 
           client_socket.close
-          close_client(client)
+          client.close
 
           checksums_matching_disk(data_dir)[filename].should eq Digest::SHA1.digest(content).hexstring
         end
@@ -857,7 +893,7 @@ module ClientSyncSpec
             fail "stream fiber did not exit"
           end
 
-          close_client(client)
+          client.close
 
           File.read(File.join(data_dir, filename)).should eq "old content"
           checksums_matching_disk(data_dir)[filename].should eq Digest::SHA1.digest("old content").hexstring
@@ -889,7 +925,7 @@ module ClientSyncSpec
           sync_with_leader(client, {} of String => String, resync: true)
           File.exists?(File.join(data_dir, filename)).should be_false
 
-          close_client(client)
+          client.close
           checksums_matching_disk(data_dir).has_key?(filename).should be_false
         end
       end
@@ -944,7 +980,7 @@ module ClientSyncSpec
           File.read(File.join(data_dir, filename)).should eq "newB"
 
           client_socket.close
-          close_client(client)
+          client.close
           checksums_matching_disk(data_dir)
         end
       end
@@ -1309,9 +1345,6 @@ module ClientSyncSpec
             # close drained and closed the channel
           end
 
-          # follow() was never called in this harness, so satisfy close's
-          # follower-done handshake ourselves.
-          spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
           client.close
 
           sleep 200.milliseconds # let any straggler sync run after close returned

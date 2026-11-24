@@ -157,7 +157,7 @@
           </div>
         </label>
         <div class="dialog-footer">
-          <button type="submit" class="btn btn-green">Add queue</button>
+          <button type="submit" class="btn btn-green btn-inline">Add queue</button>
         </div>
         </form>
       </dialog>

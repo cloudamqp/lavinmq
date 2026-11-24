@@ -70,6 +70,24 @@ describe "Transactions" do
       end
     end
 
+    it "doesn't return a mandatory publish that a full queue rejects" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          returned = Channel(String).new
+          ch.on_return { |msg| returned.send msg.routing_key }
+          args = AMQP::Client::Arguments.new
+          args["x-max-length"] = 0_i64
+          args["x-overflow"] = "reject-publish"
+          q = ch.queue("", args: args)
+          ch.tx_select
+          ch.basic_publish("m1", "", q.name, mandatory: true)
+          ch.basic_publish("m2", "", "unroutable", mandatory: true)
+          ch.tx_commit
+          returned.receive.should eq "unroutable"
+        end
+      end
+    end
+
     it "can be rollbacked" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -105,6 +123,24 @@ describe "Transactions" do
       end
     end
 
+    it "keeps acks in a transaction across basic_recover" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("tx-recover")
+          2.times { q.publish "m1" }
+          ch.tx_select
+          msg = q.get(no_ack: false).should_not be_nil
+          q.get(no_ack: false).should_not be_nil
+          msg.ack
+          ch.basic_recover(requeue: true)
+          ch.tx_commit
+          sq = s.vhosts["/"].queue(q.name)
+          sq.message_count.should eq 1
+          sq.unacked_count.should eq 0
+        end
+      end
+    end
+
     it "can be rollbacked" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -120,6 +156,27 @@ describe "Transactions" do
           ch.tx_rollback
           ch.basic_recover(requeue: true)
           q.message_count.should eq 2
+        end
+      end
+    end
+
+    {"ack", "nack"}.each do |method|
+      it "treats #{method} of all messages as a no-op when nothing is outstanding" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.tx_select
+            if method == "ack"
+              ch.basic_ack(0_u64, multiple: true)
+            else
+              ch.basic_nack(0_u64, multiple: true)
+            end
+            ch.tx_commit
+            q = ch.queue
+            q.publish "m1"
+            ch.tx_commit
+            msg = q.get(no_ack: true).should_not be_nil
+            msg.body_io.to_s.should eq "m1"
+          end
         end
       end
     end

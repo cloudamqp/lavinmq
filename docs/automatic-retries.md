@@ -34,6 +34,23 @@ x-dead-letter-routing-key:  failed-messages
 
 Retry delays are 500 ms, 1 s, 2 s, 4 s, 8 s. When the 6th delivery is also rejected, the message is routed to the `failed-messages` queue with `x-death` reason `delivery_limit`.
 
+## Policies
+
+A policy can tune the retries of queues declared with `x-delayed-retry-min`, for example to change the backoff of existing queues without recreating them. The policy keys mirror the arguments without the `x-` prefix:
+
+| Policy key | Argument |
+|------------|----------|
+| `delayed-retry-min` | `x-delayed-retry-min` |
+| `delayed-retry-multiplier` | `x-delayed-retry-multiplier` |
+| `delayed-retry-max` | `x-delayed-retry-max` |
+| `delivery-limit` | `x-delivery-limit` |
+
+Values must be integers of at least 1. Like the other numeric policy keys, each key applies when the queue has no matching argument, or when the policy value is lower than the argument. Removing the policy restores the argument values.
+
+A policy can't enable or disable retries: on a queue declared without `x-delayed-retry-min`, the retry keys are ignored and aren't listed among the queue's effective policy arguments. `delivery-limit` still applies, as on any queue.
+
+Changing the retry values of a policy affects subsequent retries only: messages already waiting in the retry queue keep the delay they were given.
+
 ## What Triggers a Retry
 
 | Consumer action | Behavior |
@@ -46,7 +63,9 @@ The `x-delivery-count` header on a delivery tells the consumer how many deliveri
 
 ## Retry Queue
 
-Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding delayed messages ordered by redelivery time. It is created with the queue, deleted with it, and recreated automatically if it disappears. Like all internal queues it cannot be operated on by AMQP clients, but it is visible in the management UI and HTTP API, where the number of delayed messages can be monitored.
+Each retry-enabled queue gets an internal companion queue named `amq.retry-<queue>`, holding delayed messages ordered by redelivery time. It is created when the queue starts, and closed and deleted with it. If its message store fails it is paused, like [any queue](queues.md#message-store-errors). Like all internal queues it cannot be deleted or otherwise operated on by AMQP clients or through the HTTP API, but it is visible in the management UI and HTTP API, where the number of delayed messages can be monitored.
+
+The management UI marks retry-enabled queues with an `R` badge in the queue list, and the queue page shows the effective retry settings: initial delay, backoff, max delay, delivery limit, delayed message count and a link to the retry queue. The retry queue's page links back to its queue. In the HTTP API, a retry-enabled queue's object has a `delayed_retry` field with the same settings, and a retry queue's object has a `primary_queue` field naming its queue.
 
 ## Notes and Limitations
 
@@ -57,6 +76,6 @@ Each retry-enabled queue gets an internal companion queue named `amq.retry-<queu
 - Without `x-delivery-limit`, a message that always fails (a poison message) retries forever. Set a limit and a dead letter exchange to move it aside
 - Redeliveries caused by consumer disconnects consume the delivery budget, so pick `x-delivery-limit` with restart frequency in mind
 - If the queue is full with `overflow=reject-publish` when a retry is due, the message stays in the retry queue and is delayed again for one more backoff period, unless its TTL has run out, in which case it is dead-lettered
-- The retry arguments can only be set at queue declaration, not via policies, and are refused on streams
-- If the retry queue cannot store a message, for example on a disk error, the message is requeued instantly without backoff and the retry queue is recreated on the next reject
+- Retries can only be enabled at queue declaration, and the retry arguments are refused on streams. Policies only tune the retries of queues declared with them
+- If the retry queue cannot store a message, for example on a disk error, the message is requeued instantly without backoff. The retry queue stays open, so later rejects are delayed again once it can store messages. If it fails to release a delayed message, it tries again on the next reject that it delays
 - The queue name must leave room for the `amq.retry-` prefix within the 255 byte queue name limit

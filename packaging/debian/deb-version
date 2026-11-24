@@ -1,0 +1,5 @@
+#!/bin/bash -eu
+# Generates a Debian upstream version string from `git describe`
+# "~" sorts before everything in Debian versions, so 2.11.0~rc.3 < 2.11.0
+git_describe=$(git describe --tags)
+sed -E 's/-(alpha|beta|rc)/~\1/' <<< ${git_describe:1}

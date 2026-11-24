@@ -1,7 +1,7 @@
 require "./stream"
-require "./stream_consumer"
-require "./stream_cursor"
 require "./consumer_offsets"
+require "./stream_offset"
+require "./stream_cursor"
 
 module LavinMQ::AMQP
   class StreamMessageStore < MessageStore
@@ -16,13 +16,22 @@ module LavinMQ::AMQP
     @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
     @segment_first_offset = Hash(UInt32, Int64).new  # segment_id => offset of first msg
     @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
+    @dropped_segment_end = Hash(UInt32, Int64).new   # empty segment dropped at load => offset after its last msg
     @consumer_offsets : ConsumerOffsets
     @segment_readers = Hash(UInt32, UInt32).new # segment_id => consumers positioned in it
+    # segment_id => position of every 64th message, so an offset lookup needn't scan from the segment start
+    @offset_index = Hash(UInt32, Array(UInt32)).new
+    OFFSET_INDEX_INTERVAL = 64
+    # Segment, position and count of the last lookup, so requeues in delivery order only scan forward
+    @offset_cursor = {0u32, 0u32, 0i64}
 
     def initialize(*args, **kwargs)
       super
-      @last_offset = get_last_offset
+      # A store that failed to load isn't counted, so its last offset isn't
+      # known and nothing is dropped from it. Nothing is published to it either.
+      @last_offset = failed? ? 0i64 : get_last_offset
       @consumer_offsets = ConsumerOffsets.new(@msg_dir, Config.instance.segment_size, @replicator)
+      store_offset_after_dropped_segment unless failed?
       drop_overflow
     end
 
@@ -48,41 +57,37 @@ module LavinMQ::AMQP
       offset
     end
 
-    # Used once when a consumer is started
-    # Populates `segment` and `position` by iterating through segments
-    # until `offset` is found
-    # ameba:disable Metrics/CyclomaticComplexity
-    def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
+    # Resolves `offset` to the {offset, segment, position} to start reading at
+    def find_offset(offset : StreamOffset::Any) : Tuple(Int64, UInt32, UInt32)
       raise ClosedError.new if @closed
-      if track_offset
-        consumer_last_offset = last_offset_by_consumer_tag(tag)
-        return find_offset_in_segments(consumer_last_offset) if consumer_last_offset
-      end
-
+      return last_offset_seg_pos if failed? || @size.zero? # nothing can be read
       case offset
-      when "first" then offset_at(@segments.first_key, 4u32)
-      when "last"  then offset_at(@segments.last_key, 4u32)
-      when "next"  then last_offset_seg_pos
-      when Time    then find_offset_in_segments(offset)
-      when nil
-        consumer_last_offset = last_offset_by_consumer_tag(tag) || 0
-        find_offset_in_segments(consumer_last_offset)
-      when Int
-        if offset.negative?
-          find_negative_offset(offset)
-        elsif offset > @last_offset
-          last_offset_seg_pos
-        else
-          find_offset_in_segments(offset)
-        end
-      else raise OffsetError.new(offset)
+      in StreamOffset::First     then offset_at(@segments.first_key, 4u32)
+      in StreamOffset::Last      then offset_at(@segments.last_key, 4u32)
+      in StreamOffset::Next      then last_offset_seg_pos
+      in StreamOffset::Timestamp then find_offset_in_segments(offset.time)
+      in StreamOffset::FromEnd   then find_offset_from_end(offset.count)
+      in StreamOffset::Absolute
+        offset.value > @last_offset ? last_offset_seg_pos : find_offset_in_segments(offset.value)
       end
     end
 
-    def acquire_segment(consumer : StreamCursor) : Nil
-      return if consumer.segment_acquired?
-      consumer.segment_acquired = true
-      seg = consumer.segment
+    # A cursor at `start`, or at the offset stored for `stored_offset_tag` if
+    # there is one, see StreamCursor
+    def cursor(start : StreamOffset::Any, filter : ConsumerFilter? = nil,
+               stored_offset_tag : String? = nil) : StreamCursor
+      raise ClosedError.new if @closed
+      if stored_offset_tag && (stored = last_offset_by_consumer_tag(stored_offset_tag))
+        start = StreamOffset::Absolute.new(stored)
+      end
+      offset, segment, pos = find_offset(start)
+      StreamCursor.new(self, offset, segment, pos, filter)
+    end
+
+    private def pin(cursor : StreamCursor) : Nil
+      return if cursor.pinned?
+      cursor.pinned = true
+      seg = cursor.segment
       @segment_readers[seg] = (@segment_readers[seg]? || 0u32) + 1
     end
 
@@ -95,10 +100,10 @@ module LavinMQ::AMQP
       mfile.advise(MFile::Advice::Normal) unless mfile == @wfile
     end
 
-    def release_segment(consumer : StreamCursor) : Nil
-      return unless consumer.segment_acquired?
-      consumer.segment_acquired = false
-      release_segment(consumer.segment)
+    def unpin(cursor : StreamCursor) : Nil
+      return unless cursor.pinned?
+      cursor.pinned = false
+      release_segment(cursor.segment)
     end
 
     private def release_segment(seg : UInt32) : Nil
@@ -119,18 +124,29 @@ module LavinMQ::AMQP
       mfile = @segments[seg]? || return
       return if mfile == @wfile
       mfile.dontneed
+      @offset_index.delete(seg)
     end
 
+    # Scans from the nearest indexed position or the last lookup before `pos`
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
       return {@last_offset, seg, pos} if @size.zero?
       mfile = @segments[seg]
-      offset = @segment_first_offset[seg]
-      mfile.pos = 4
+      index = @offset_index.put_if_absent(seg) { [4u32] }
+      i = (index.bsearch_index { |p| p > pos } || index.size) - 1
+      count = i.to_i64 * OFFSET_INDEX_INTERVAL
+      mfile.pos = index[i]
+      cursor_seg, cursor_pos, cursor_count = @offset_cursor
+      if cursor_seg == seg && index[i] < cursor_pos && cursor_pos <= pos
+        mfile.pos = cursor_pos
+        count = cursor_count
+      end
       while mfile.pos < pos
         BytesMessage.skip(mfile)
-        offset += 1
+        count += 1
+        index << mfile.pos.to_u32 if count == index.size * OFFSET_INDEX_INTERVAL
       end
-      {offset, seg, pos}
+      @offset_cursor = {seg, pos, count}
+      {@segment_first_offset[seg] + count, seg, pos}
     rescue ex : IndexError # first segment can be empty if message size >= segment size
       return offset_at(seg + 1, 4_u32, true) unless retried
       raise ex
@@ -140,11 +156,9 @@ module LavinMQ::AMQP
       {@last_offset + 1, @segments.last_key, @segments.last_value.size.to_u32}
     end
 
-    private def find_negative_offset(offset : Int) : Tuple(Int64, UInt32, UInt32)
-      return last_offset_seg_pos if @size.zero?
-
+    private def find_offset_from_end(count : Int64) : Tuple(Int64, UInt32, UInt32)
       first_offset, _seg, _pos = offset_at(@segments.first_key, 4u32)
-      target_offset = @last_offset + offset.to_i64 + 1
+      target_offset = @last_offset - count + 1
       target_offset = first_offset if target_offset < first_offset
       find_offset_in_segments(target_offset)
     end
@@ -176,7 +190,7 @@ module LavinMQ::AMQP
         msg_offset += 1
         pos += msg.bytesize.to_u32
       rescue ex
-        raise rfile ? Error.new(rfile, cause: ex) : ex
+        raise rfile ? read_failed(rfile, ex) : ex
       end
       {msg_offset, segment, pos}
     end
@@ -217,68 +231,46 @@ module LavinMQ::AMQP
       offset_at(@segments.first_key, 4u32).first
     end
 
-    # Like #read, but yields the message outside `lock`, see #shift_with_lease?
-    def read_with_lease?(lock : Mutex, segment : UInt32, position : UInt32, & : Envelope -> _) : Bool
-      env = lock.synchronize { read(segment, position).try &.lease } || return false
-      begin
-        yield env
-      ensure
-        env.release
-      end
-      true
-    end
+    # The next message for `cursor`, requeued messages first. Steps one message
+    # at a time, nil if it didn't match the cursor's filter.
+    def shift?(cursor : StreamCursor) : Envelope?
+      check_readable(@wfile)
+      return if cursor.closed?
 
-    def read(segment : UInt32, position : UInt32) : Envelope?
-      return if @closed
-      rfile = @segments[segment]? || return # dropped by retention
-      return if position == rfile.size
-      begin
-        msg = BytesMessage.from_bytes(rfile.to_slice + position)
-        sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
-        Envelope.new(sp, msg, redelivered: false, segment: rfile)
-      rescue ex
-        puts "read segment=#{segment} position=#{position}"
-        raise Error.new(rfile, cause: ex)
-      end
-    end
-
-    def shift?(consumer : AMQP::StreamCursor) : Envelope?
-      raise ClosedError.new if @closed
-
-      if env = shift_requeued(consumer)
+      if env = shift_requeued(cursor)
         return env
       end
 
-      return if consumer.offset > @last_offset
-      rfile = @segments[consumer.segment]? || next_segment(consumer) || return
-      if consumer.pos == rfile.size # EOF
+      return if cursor.offset > @last_offset
+      pin(cursor)
+      rfile = @segments[cursor.segment]? || next_segment(cursor) || return
+      if cursor.pos == rfile.size # EOF
         return if rfile == @wfile
-        rfile = next_segment(consumer) || return
+        rfile = next_segment(cursor) || return
       end
       begin
-        msg = BytesMessage.from_bytes(rfile.to_slice + consumer.pos)
-        sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
-        msg.properties.headers = add_offset_header(msg.properties.headers, consumer.offset)
-        consumer.pos += sp.bytesize
-        consumer.offset += 1
-        return unless consumer.filter_match?(msg.properties.headers)
+        msg = BytesMessage.from_bytes(rfile.to_slice + cursor.pos)
+        sp = SegmentPosition.new(cursor.segment, cursor.pos, msg.bytesize.to_u32)
+        msg.properties.headers = add_offset_header(msg.properties.headers, cursor.offset)
+        cursor.advance(sp.bytesize)
+        return unless cursor.match?(msg.properties.headers)
         Envelope.new(sp, msg, redelivered: false, segment: rfile)
       rescue ex
-        raise Error.new(rfile, cause: ex)
+        raise read_failed(rfile, ex)
       end
     end
 
-    private def shift_requeued(consumer) : Envelope?
-      while sp = consumer.requeued.shift?
+    private def shift_requeued(cursor) : Envelope?
+      while sp = cursor.requeued.shift?
         if segment = @segments[sp.segment]? # segment might have expired since requeued
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             offset, _, _ = offset_at(sp.segment, sp.position)
-            unmap_if_unused(sp.segment) if consumer.requeued.none? { |r| r.segment == sp.segment }
+            unmap_if_unused(sp.segment) if cursor.requeued.none? { |r| r.segment == sp.segment }
             msg.properties.headers = add_offset_header(msg.properties.headers, offset)
             return Envelope.new(sp, msg, redelivered: true, segment: segment)
           rescue ex
-            raise Error.new(segment, cause: ex)
+            raise read_failed(segment, ex)
           end
         end
       end
@@ -288,29 +280,22 @@ module LavinMQ::AMQP
       @segments.each_key.find { |sid| sid > segment }
     end
 
-    # The segment after `segment` and the offset of its first message
-    def next_segment_offset(segment) : Tuple(UInt32, Int64)?
-      if seg = next_segment_id(segment)
-        {seg, @segment_first_offset[seg]}
-      end
-    end
-
-    private def next_segment(consumer) : MFile?
-      if seg_id = next_segment_id(consumer.segment)
-        fast = @segments[consumer.segment]?.try { |prev| read_fast?(prev, consumer.segment_since) }
-        release_segment(consumer)
-        consumer.segment = seg_id
-        consumer.pos = 4u32
-        consumer.segment_since = RoughTime.instant
-        acquire_segment(consumer)
+    private def next_segment(cursor) : MFile?
+      if seg_id = next_segment_id(cursor.segment)
+        fast = @segments[cursor.segment]?.try { |prev| read_fast?(prev, cursor.segment_since) }
+        unpin(cursor)
+        # From the segment's first offset, as retention may have dropped the
+        # segment the cursor was in
+        cursor.enter(seg_id, @segment_first_offset[seg_id])
+        pin(cursor)
         @segments[seg_id].tap { |mfile| read_ahead(mfile) if fast }
       end
     end
 
     def push(msg) : SegmentPosition
       raise ClosedError.new if @closed
-      @last_offset += 1
       sp = write_to_disk(msg)
+      @last_offset += 1
       @bytesize += sp.bytesize
       @size += 1
       @segment_last_ts[sp.segment] = msg.timestamp
@@ -328,7 +313,7 @@ module LavinMQ::AMQP
         @persister.try &.sync_soon(finished, meta_file_name(finished))
         @expiry_changed.try_send?(nil)
         drop_overflow
-        @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
+        @segment_first_offset[@segments.last_key] = @last_offset + 1
         @segment_first_ts[@segments.last_key] = RoughTime.unix_ms
       end
     end
@@ -340,21 +325,24 @@ module LavinMQ::AMQP
       io.write_bytes @segment_last_ts[seg]
     end
 
+    # Nothing is dropped from a store with data it can't read: its segments
+    # aren't counted
     def drop_overflow
-      return if @closed
+      return if @closed || failed?
       drop_overflow_by_length
       drop_overflow_by_age
       cleanup_consumer_offsets
     end
 
     def drop_expired : Nil
-      return if @closed
+      return if @closed || failed?
       cleanup_consumer_offsets if drop_overflow_by_age
     end
 
     # When the oldest segment expires, nil if no segment can be dropped
     # (no max-age, or only the write segment is left)
     def next_expiry : Time?
+      return if failed? # nothing is dropped from it, see #drop_expired
       max_age = @max_age || return
       @segments.each do |seg_id, mfile|
         return if mfile == @wfile
@@ -399,6 +387,8 @@ module LavinMQ::AMQP
         @segment_last_ts.delete(seg_id)
         @segment_first_offset.delete(seg_id)
         @segment_first_ts.delete(seg_id)
+        @offset_index.delete(seg_id)
+        @offset_cursor = {0u32, 0u32, 0i64} if @offset_cursor[0] == seg_id
         @bytesize -= mfile.size - 4
         delete_file(mfile, including_meta: true)
         true
@@ -435,21 +425,49 @@ module LavinMQ::AMQP
         # Whole queue empty, or this trailing segment was opened (4-byte
         # Schema::VERSION header written by open_new_segment) but no message
         # was written before shutdown — don't parse a msg out of an empty file.
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
-        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
-        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
+        @segment_first_offset[seg] = first_offset_from_previous(seg)
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
       else
-        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
-        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
+        @segment_first_offset[seg] = first_offset_from_previous(seg)
         @segment_first_ts[seg] = msg.timestamp
         # NOTE: scan_last_ts re-scans the segment even though super already did.
         # This path only runs when metadata files are missing, so the cost is acceptable.
         @segment_last_ts[seg] = scan_last_ts(mfile)
       end
+    end
+
+    # The meta file of an empty segment still tells where the next segment's offsets start
+    private def delete_empty_segment(seg : UInt32, file : MFile) : Nil
+      File.open(meta_file_name(file)) do |meta|
+        count = meta.read_bytes(UInt32)
+        @dropped_segment_end[seg] = meta.read_bytes(Int64) + count
+      end
+    rescue File::NotFoundError | IO::EOFError
+    ensure
+      super
+    end
+
+    # From the segment before *seg*, also when that one was dropped as empty at load
+    private def first_offset_from_previous(seg : UInt32) : Int64
+      if first = @segment_first_offset[seg - 1]?
+        return first + (@segment_msg_count[seg - 1]? || 0u32)
+      end
+      loaded = @segment_first_offset.each_key.select(&.<(seg)).max?
+      loaded_end = loaded ? @segment_first_offset[loaded] + (@segment_msg_count[loaded]? || 0u32) : 1i64
+      # A meta file isn't synced when it's written, so a power loss can zero-fill it too
+      if (offset = @dropped_segment_end[seg - 1]?) && offset >= loaded_end
+        return offset
+      end
+      @log.warn { "No segment or meta file before segment #{seg}, the offsets from it on have moved" } if loaded
+      loaded_end
+    end
+
+    # The offset after a dropped segment is stored when its segment gets a meta file, at a rollover
+    private def store_offset_after_dropped_segment : Nil
+      return if @closed || @size.zero? || @segments.size == 1 || @segments.has_key?(@segments.last_key - 1)
+      open_new_segment
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
@@ -507,12 +525,6 @@ module LavinMQ::AMQP
         BytesMessage.skip(mfile)
       end
       last_ts
-    end
-
-    class OffsetError < Exception
-      def initialize(offset)
-        super("invalid offset #{offset}")
-      end
     end
   end
 end

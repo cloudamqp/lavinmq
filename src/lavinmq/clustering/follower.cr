@@ -65,12 +65,7 @@ module LavinMQ
         validate_header!
         authenticate!(password)
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
-        if keepalive = Config.instance.tcp_keepalive
-          @socket.keepalive = true
-          @socket.tcp_keepalive_idle = keepalive[0]
-          @socket.tcp_keepalive_interval = keepalive[1]
-          @socket.tcp_keepalive_count = keepalive[2]
-        end
+        Config.instance.apply_tcp_keepalive(@socket)
         @socket.read_timeout = nil # assumed authed followers are well behaving
         Log.info { "Accepted ID #{@id.to_s(36)}" }
       end

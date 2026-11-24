@@ -51,10 +51,16 @@ module LavinMQ::AMQP
         @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
         @stores = Array(MessageStore).new(1 + @max_priority)
 
-        init_sub_stores(@stores)
-        migrate_from_single_store
+        begin
+          init_sub_stores(@stores)
+          migrate_from_single_store
+        rescue ex
+          @stores.each &.close
+          raise ex
+        end
 
         @empty = BoolChannel.new(empty?)
+        sync_failed
       end
 
       private def init_sub_stores(stores)
@@ -81,18 +87,21 @@ module LavinMQ::AMQP
                 "but substores are not empty. Migration aborted, manually intervention needed."
         end
         old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata, persister: @persister)
-        msg_count = old_store.size
-        @log.info { "Migrating #{msg_count} message" }
-        i = 0u32
-        while env = old_store.shift?
-          push env.message
-          Fiber.yield if ((i &+= 1) % 8096).zero?
+        begin
+          msg_count = old_store.size
+          @log.info { "Migrating #{msg_count} message" }
+          i = 0u32
+          while env = old_store.shift?
+            push env.message
+            Fiber.yield if ((i &+= 1) % 8096).zero?
+          end
+          if size != msg_count
+            raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
+          end
+          @log.info { "Migration complete" }
+        ensure
+          old_store.close # also when the migration fails, before its files are deleted otherwise
         end
-        if size != msg_count
-          raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
-        end
-        @log.info { "Migration complete" }
-        old_store.close
         i = 0u32
         pattern = %r{^(msgs|acks|meta)\.}
         Dir.each_child(@msg_dir) do |f|
@@ -151,32 +160,57 @@ module LavinMQ::AMQP
         @empty.set false if was_empty
       end
 
+      # Raises the error of the sub store that can't be read: none of them
+      # is read then
+      private def raise_if_failed : Nil
+        @stores.each { |s| s.first? if s.failed? } if failed?
+      end
+
+      # Notes that a sub store has failed, so that #failed? is one load on the
+      # publish and delivery paths
+      private def note_failure(&)
+        yield
+      rescue ex : Error
+        sync_failed
+        raise ex
+      end
+
+      private def sync_failed : Nil
+        mark_failed if @stores.any?(&.failed?)
+      end
+
       def first? : Envelope?
         raise ClosedError.new if @closed
-        @stores.reverse_each do |s|
-          envelope = s.first?
-          return envelope unless envelope.nil?
+        raise_if_failed
+        note_failure do
+          @stores.reverse_each do |s|
+            envelope = s.first?
+            return envelope unless envelope.nil?
+          end
         end
       end
 
       def shift?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
-        @stores.reverse_each do |s|
-          if envelope = s.shift?(consumer)
-            @empty.set true if size.zero?
-            return envelope
+        raise_if_failed
+        note_failure do
+          @stores.reverse_each do |s|
+            if envelope = s.shift?(consumer)
+              @empty.set true if size.zero?
+              return envelope
+            end
           end
         end
       end
 
       def [](sp : SegmentPosition) : BytesMessage
         raise ClosedError.new if @closed
-        store_for sp, &.[sp]
+        note_failure { store_for sp, &.[sp] }
       end
 
       def envelope(sp : SegmentPosition, redelivered = false) : Envelope
         raise ClosedError.new if @closed
-        store_for sp, &.envelope(sp, redelivered)
+        note_failure { store_for sp, &.envelope(sp, redelivered) }
       end
 
       def delete(sp) : Nil
@@ -185,10 +219,17 @@ module LavinMQ::AMQP
       end
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
+        purge(max_count) { }
+      end
+
+      # Yields the position of each purged message
+      def purge(max_count : Int = UInt32::MAX, & : SegmentPosition ->) : UInt32
         raise ClosedError.new if @closed
         count = 0u32
         while count < max_count && (env = shift?)
-          delete(env.segment_position)
+          sp = env.segment_position
+          delete(sp)
+          yield sp
           count += 1
           break if count >= max_count
           Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
@@ -196,9 +237,16 @@ module LavinMQ::AMQP
         count
       end
 
-      def purge_all
-        @stores.each &.purge_all
+      def release_idle_pages : Nil
+        return if @closed
+        @stores.each &.release_idle_pages
+      end
+
+      def purge_all(&on_requeued : SegmentPosition ->)
+        @stores.each(&.purge_all(&on_requeued))
         @empty.set true
+        # A sub store's purge can have reached data it can't read
+        sync_failed
       end
 
       def delete

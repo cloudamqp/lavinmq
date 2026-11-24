@@ -8,6 +8,7 @@ on:
       - 'shard.*'
       - 'static/**'
       - 'views/**'
+      - 'packaging/libgc/**'
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
@@ -22,6 +23,7 @@ on:
       - 'shard.*'
       - 'static/**'
       - 'views/**'
+      - 'packaging/libgc/**'
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
@@ -32,7 +34,7 @@ jobs:
     name: Format check
     runs-on: ubuntu-26.04
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-26.04
+    container: 84codes/crystal:1.22.2-ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - run: crystal tool format --check
@@ -41,7 +43,7 @@ jobs:
     name: Lint check
     runs-on: ubuntu-26.04
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-26.04
+    container: 84codes/crystal:1.22.2-ubuntu-26.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -83,10 +85,10 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-26.04
-            container: 84codes/crystal:latest-ubuntu-26.04
+            container: 84codes/crystal:1.22.2-ubuntu-26.04
           - arch: arm64
             runner: ubuntu-26.04-arm
-            container: 84codes/crystal:latest-ubuntu-26.04
+            container: 84codes/crystal:1.22.2-ubuntu-26.04
     steps:
       - name: Print Crystal version
         run: crystal -v
@@ -104,7 +106,7 @@ jobs:
     name: Spec macOS
     runs-on: macos-15
     if: github.repository == 'cloudamqp/lavinmq'
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Install dependencies
         run: |
@@ -126,7 +128,7 @@ jobs:
   compile-changed-files:
     name: Compile changed *.cr files independently
     runs-on: ubuntu-26.04
-    container: 84codes/crystal:latest-ubuntu-26.04
+    container: 84codes/crystal:1.22.2-ubuntu-26.04
     steps:
       - name: Install dependencies
         run: apt-get update && apt-get install -y liblz4-dev git
@@ -175,7 +177,7 @@ jobs:
   compile:
     name: Compile LavinMQ
     runs-on: ubuntu-26.04
-    container: 84codes/crystal:latest-ubuntu-26.04
+    container: 84codes/crystal:1.22.2-ubuntu-26.04
 
     steps:
       - name: Install dependencies
@@ -629,7 +631,7 @@ jobs:
     runs-on: ubuntu-26.04
     needs: compile
     env:
-      QC_VERSION: v0.2.4
+      QC_VERSION: v0.2.5
       QC_BIN: lavinmq-quickcheck-tests-x86_64-linux
     steps:
       - name: Install LavinMQ dependencies

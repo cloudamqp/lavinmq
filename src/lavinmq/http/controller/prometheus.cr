@@ -4,6 +4,7 @@ require "../controller"
 require "../binding_helpers"
 require "../../clustering/client"
 require "../../../stdlib/io_buffered"
+require "../../gc_pause"
 
 module LavinMQ
   module HTTP
@@ -53,9 +54,11 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
+                           NamedTuple(le: String) |
                            NamedTuple(buffer_size: String) |
                            NamedTuple(vhost: String) |
                            NamedTuple(dead_letter_strategy: String) |
+                           NamedTuple(qos: String) |
                            NamedTuple(queue: String, vhost: String) |
                            NamedTuple(exchange: String, vhost: String) |
                            NamedTuple(channel: String, vhost: String, connection: String)
@@ -219,6 +222,19 @@ module LavinMQ
         writer.write({name: "gc_from_os_obtained_bytes_total", value: gc_stats.obtained_from_os_bytes,
                       type: "counter",
                       help: "Total amount of memory obtained from OS, in bytes"})
+
+        gc_pause_metrics(writer)
+      end
+
+      private def gc_pause_metrics(writer)
+        writer.write_header("gc_pause_seconds", "histogram", "Stop-the-world GC pause durations in seconds")
+        count = 0_u64
+        LavinMQ::GCPauseRecorder.each_bucket do |le, cumulative|
+          writer.write_value("gc_pause_seconds_bucket", cumulative, {le: le.nil? ? "+Inf" : le.to_s})
+          count = cumulative
+        end
+        writer.write({name: "gc_pause_seconds_sum", value: LavinMQ::GCPauseRecorder.sum})
+        writer.write({name: "gc_pause_seconds_count", value: count})
       end
     end
 
@@ -425,6 +441,20 @@ module LavinMQ
                       type: "counter",
                       help: "Total number of unroutable messages returned to publishers"})
         dead_lettered_metrics(writer, deleted_stats)
+        mqtt_published_metrics(writer, deleted_stats)
+      end
+
+      # Written from the first MQTT connection on, zeros included, so rate() sees each counter start
+      private def mqtt_published_metrics(writer, deleted_stats)
+        vhosts = @server.vhosts
+        return unless vhosts.mqtt_client_connected?
+        writer.write_header("global_mqtt_messages_published_total", "counter", "Total number of messages published by MQTT clients, by QoS")
+        {% for qos in {0, 1, 2} %}
+          writer.write_value("global_mqtt_messages_published_total",
+            deleted_stats.mqtt_published_qos{{ qos }} +
+            vhosts.sum { |_, v| v.mqtt_published_qos{{ qos }}_count },
+            {qos: "{{ qos }}"})
+        {% end %}
       end
 
       DEAD_LETTER_REASONS = {
@@ -449,12 +479,14 @@ module LavinMQ
 
       private def overview_queue_metrics(vhosts, writer)
         ready = unacked = connections = channels = consumers = queues = bindings = 0_u64
+        mqtt_connections = 0_u64
         vhosts.each do |vhost|
           d = vhost.message_details
           ready += d[:messages_ready]
           unacked += d[:messages_unacknowledged]
           connections += vhost.connections_size
           vhost.each_connection do |conn|
+            mqtt_connections += 1 if conn.is_a?(MQTT::Client)
             channels += conn.channel_count
             conn.each_channel do |ch|
               consumers += ch.consumers_size
@@ -467,6 +499,12 @@ module LavinMQ
                       value: connections,
                       type:  "gauge",
                       help:  "Connections currently open"})
+        if @server.vhosts.mqtt_client_connected?
+          writer.write({name:  "mqtt_connections",
+                        value: mqtt_connections,
+                        type:  "gauge",
+                        help:  "MQTT connections currently open"})
+        end
         writer.write({name:  "channels",
                       value: channels,
                       type:  "gauge",

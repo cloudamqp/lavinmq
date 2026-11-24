@@ -22,6 +22,10 @@ module LavinMQ::AMQP
       # released before the vhost has loaded the bindings they route through
       @vhost.closed.when_false.receive?
       loop do
+        # Nothing is released from a paused or failed queue. A failed one can
+        # have messages counted that aren't in the delay index, and the loop
+        # below would spin on them.
+        wait_for_resume if @paused.value
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
             expire_messages
@@ -40,11 +44,12 @@ module LavinMQ::AMQP
             Fiber.yield
           end
         end
+      rescue ex : MessageStore::Error
+        # Nothing is released until the queue is resumed, so that a lasting
+        # error can't make the loop spin
+        pause_on_store_error(ex)
+        wait_for_resume
       end
-    rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
-      close
-      raise ex
     rescue ::Channel::ClosedError
     ensure
       @message_expire_fiber_active.set(false, :release)
@@ -71,7 +76,10 @@ module LavinMQ::AMQP
 
     # Shifts the next message whose delay has passed, leased before the lock
     # is released
+    # A release that was due when the queue was paused, or one in a batch it
+    # was paused during, waits for the resume
     private def next_expired_message : Envelope?
+      wait_for_resume if @paused.value
       @msg_store_lock.synchronize do
         if (env = delayed_msg_store.first_delayed?) && has_expired?(env)
           delayed_msg_store.shift_delayed?.try &.lease

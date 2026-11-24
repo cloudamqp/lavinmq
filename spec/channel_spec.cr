@@ -1,5 +1,61 @@
 require "./spec_helper"
+
+class LavinMQ::AMQP::Consumer
+  class_property on_recover_deliver : Proc(LavinMQ::AMQP::Channel, Nil)? = nil
+
+  def deliver(msg, sp, redelivered = false, recover = false)
+    if recover && (hook = @@on_recover_deliver)
+      hook.call(@channel)
+    end
+    previous_def
+  end
+end
+
 require "amqp-client"
+
+class LavinMQ::MessageStore
+  class_property? fail_next_requeue = false
+
+  # Yields before it raises, as a reject that does I/O before it fails may,
+  # so that a deliver loop takes the slot the reject freed
+  def requeue(sp : SegmentPosition)
+    if LavinMQ::MessageStore.fail_next_requeue?
+      LavinMQ::MessageStore.fail_next_requeue = false
+      Fiber.yield
+      raise Error.new(@wfile)
+    end
+    previous_def
+  end
+end
+
+# Nacks the first five deliveries of a queue with 20 messages, while the
+# consumer's deliver loop waits for the channel's unacked lock, and fails the
+# first requeue. The queue is paused, and the message stays in it.
+private def nack_multiple_on_store_error(s, tx = false)
+  with_channel(s) do |ch|
+    ch.prefetch(5)
+    q = ch.queue("nack-store-error")
+    with_channel(s) { |pub| 20.times { pub.basic_publish_confirm "x", "", q.name } }
+    tags = Channel(UInt64).new(100)
+    q.subscribe(no_ack: false) { |m| tags.send m.delivery_tag }
+    5.times { tags.receive }
+    ch.tx_select if tx
+    LavinMQ::MessageStore.fail_next_requeue = true
+    ch.basic_nack(5u64, requeue: true, multiple: true)
+    ch.tx_commit if tx
+    queue = s.vhosts["/"].queue("nack-store-error")
+    should_eventually(be_true) { queue.state.paused? }
+    queue.paused_reason.should eq "store_error"
+    queue.closed?.should be_false
+    ch.closed?.should be_false
+    # A deliver loop can have taken a message before the pause
+    should_eventually(eq 20) { queue.message_count + queue.unacked_count }
+    queue.resume!
+    5.times { tags.receive } # the prefetch is filled again
+  end
+ensure
+  LavinMQ::MessageStore.fail_next_requeue = false
+end
 
 describe LavinMQ::AMQP::Channel do
   it "should respect consumer_max_per_channel config" do
@@ -33,7 +89,10 @@ describe LavinMQ::AMQP::Channel do
   it "should requeue a basic_get message when the channel closes during the get" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q = ch.queue("basic-get-close")
+        # With no delivery attempt to spare, the message is dropped if the get
+        # that never reached the client counts as one
+        args = AMQP::Client::Arguments.new({"x-delivery-limit" => 0})
+        q = ch.queue("basic-get-close", args: args)
         q.publish_confirm("m")
         sq = s.vhosts["/"].queue("basic-get-close")
         server_ch = s.connections.first.as(LavinMQ::AMQP::Client).channels.first.as(LavinMQ::AMQP::Channel)
@@ -53,7 +112,80 @@ describe LavinMQ::AMQP::Channel do
         got.receive
         sq.unacked_count.should eq 0
         sq.message_count.should eq 1
+        sq.reject_count.should eq 0
         ch.@connection.closed?.should be_false
+      end
+      with_channel(s) do |ch|
+        msg = ch.basic_get("basic-get-close", no_ack: false).should_not be_nil
+        # Redelivered, so the get shifted it and put it back, but it's still on
+        # its first counted delivery
+        msg.redelivered.should be_true
+        msg.properties.headers.try(&.["x-delivery-count"]?).should be_nil
+        msg.ack
+      end
+    end
+  end
+
+  it "pauses a queue on a store error during a nack multiple without deadlocking" do
+    with_amqp_server { |s| nack_multiple_on_store_error(s) }
+  end
+
+  it "pauses a queue on a store error during a tx.commit without deadlocking" do
+    with_amqp_server { |s| nack_multiple_on_store_error(s, tx: true) }
+  end
+end
+
+describe "LavinMQ::AMQP::Channel basic.recover" do
+  # The redelivered messages leave @unacked while they're delivered again, so
+  # they must still count against the global prefetch, or the channel's
+  # consumers could deliver new messages meanwhile
+  it "keeps the global prefetch while redelivering with requeue=false" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.prefetch(1, global: true)
+        q = ch.queue
+        2.times { q.publish "m" }
+        msgs = Channel(AMQP::Client::DeliverMessage).new(10)
+        q.subscribe(no_ack: false) { |m| msgs.send m }
+        msgs.receive
+        recorded = [] of Bool
+        LavinMQ::AMQP::Consumer.on_recover_deliver = ->(channel : LavinMQ::AMQP::Channel) { recorded << channel.has_capacity?; nil }
+        ch.basic_recover(requeue: false)
+        msgs.receive.redelivered.should be_true
+        recorded.should eq [false]
+        server_ch = s.connections.first.channels.first.as(LavinMQ::AMQP::Channel)
+        server_ch.has_capacity?.should be_false
+      ensure
+        LavinMQ::AMQP::Consumer.on_recover_deliver = nil
+      end
+    end
+  end
+
+  it "requeues a message whose requeue=false redelivery the channel closed before" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("recover-close")
+        2.times { q.publish "m" }
+        msgs = Channel(AMQP::Client::DeliverMessage).new(10)
+        q.subscribe(no_ack: false) { |m| msgs.send m }
+        2.times { msgs.receive }
+        server_ch = s.connections.first.channels.first.as(LavinMQ::AMQP::Channel)
+        redeliveries = 0
+        LavinMQ::AMQP::Consumer.on_recover_deliver = ->(channel : LavinMQ::AMQP::Channel) do
+          channel.close if (redeliveries += 1) == 2
+          nil
+        end
+        expect_raises(LavinMQ::AMQP::Channel::ClosedError) do
+          server_ch.basic_recover(AMQ::Protocol::Frame::Basic::Recover.new(server_ch.id, false))
+        end
+        sq = s.vhosts["/"].queue(q.name)
+        sq.unacked_count.should eq 0
+        sq.message_count.should eq 2
+        # Both were delivered before, so unlike an unrecorded first delivery
+        # their requeue counts as a reject
+        sq.reject_count.should eq 2
+      ensure
+        LavinMQ::AMQP::Consumer.on_recover_deliver = nil
       end
     end
   end

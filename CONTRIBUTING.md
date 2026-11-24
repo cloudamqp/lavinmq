@@ -47,9 +47,19 @@ Normally ECR files and static resources are baked into the binary, which is grea
 
 ### Release
 
-1. Update `CHANGELOG.md`
+1. Update `CHANGELOG.md`: collect the `### Changelog` entries from the descriptions of the PRs merged since the previous release (`git log <prev-tag>..HEAD`), and link each PR. PRs don't edit `CHANGELOG.md` themselves. A rebase-merged PR has its entry in one of its commit messages
 1. Bump version in `shards.yml`
+1. For a patch release, add the label `released-in-<version>` (e.g. `released-in-2.11.2`) to every PR that the release contains. Create the label if it is missing
 1. Create and push an annotated tag (`git tag -a v$(shards version)`), put the changelog of the version in the tagging message
+
+### Version labels
+
+| Label | Meaning | Who adds it |
+| --- | --- | --- |
+| `backport-2.11.x` | The fix is planned for a patch release from the `v2.11.x` branch. It is not released yet | The PR author or a reviewer |
+| `released-in-2.11.2` | The release `v2.11.2` contains the PR | The person who makes the release, with the version bump commit |
+
+To find the version that has a fix, read the `released-in-` labels on the PR.
 
 ### Branching strategy
 

@@ -23,8 +23,13 @@ LavinMQ: message queue and streaming server (AMQP 0-9-1, MQTT 3.1.1) in Crystal.
 - Skip trivial code (getters, covered refactors, config plumbing); extend existing spec files rather than adding new ones.
 
 ## Docs
-- Add a short CHANGELOG.md entry linking the PR; describe user-facing features in docs/.
+- Describe user-facing features in docs/.
+- When you write CHANGELOG.md for a release, order each section (Added, Changed, Fixed) by user impact, most impactful first. New features, behaviour changes users must act on, and fixes for data loss, crashes or a stopped broker go before performance tweaks, metrics, management UI polish and build or packaging changes.
 
 ## Git
 - Branch names describe the change in kebab-case, e.g. `fix-queue-ttl-overflow`; rename a generated branch name with `git branch -m` before the first push.
 - Write commits, PR descriptions and comments as the person you work for: never change git `user.name`/`user.email` or pass `--author`, and add no AI attribution (Co-Authored-By trailers for the agent, "Generated with" footers).
+
+## Labels
+- `backport-2.11.x` on a PR or issue: the fix is planned for a patch release from the `v2.11.x` branch. It does not mean the fix is released.
+- `released-in-2.11.2` on a PR: that release contains the PR. Only add it when you make the release, with the version bump commit, to every PR in the release; create the label if it is missing.

@@ -30,6 +30,8 @@ module LavinMQ
       @unacked = Atomic(UInt32).new(0_u32)
       @deliver_loop_running = Atomic(Bool).new(false)
       @notify_closed = ::Channel(Nil).new
+      # Also the turn for messages, a consumer is in one line at a time
+      @capacity_turn = ::Channel(Nil).new(1)
       @log : Logger
 
       def initialize(@queue : Queue, @tag : String, @no_ack : Bool, @exclusive : Bool,
@@ -41,8 +43,9 @@ module LavinMQ
       # Delivers a message the deliver loop got from the queue
       abstract def deliver(msg, sp, redelivered = false, recover = false)
 
-      # Wait for capacity in the channel (AMQP's global prefetch), if any
-      private abstract def global_capacity_signal : ::Channel(Nil)?
+      # The channel's capacity (AMQP's global prefetch) while it has none, to
+      # wait for; nil when it has, or there is none
+      private abstract def global_capacity : BoolChannel?
 
       # Whether the channel's own prefetch is full (AMQP's global prefetch)
       private abstract def global_prefetch_full? : Bool
@@ -114,7 +117,7 @@ module LavinMQ
       end
 
       private def deliver_loop
-        wait_for_single_active_consumer
+        return if standby_consumer?
         queue = @queue
         delivered_bytes = 0_i32
         loop do
@@ -127,6 +130,7 @@ module LavinMQ
             when :timeout
               @log.debug { "deliver loop idle, exiting fiber" }
               @deliver_loop_running.set(false, :release)
+              @queue.release_idle_memory
               ensure_deliver_loop unless @queue.empty?
               return
             when :ready
@@ -160,40 +164,25 @@ module LavinMQ
         raise ex
       end
 
-      private def wait_for_global_capacity
-        signal = global_capacity_signal || return
-        @log.debug { "Waiting for global prefetch capacity" }
-        flush
-        select
-        when signal.receive
-        when @notify_closed.receive
-        end
+      # A standby consumer of a single active consumer queue runs no deliver
+      # loop: the queue restarts it (#ensure_deliver_loop) when it hands over
+      private def standby_consumer? : Bool
+        return false if @queue.deliver_to?(self)
+        @log.debug { "Not the single active consumer, exiting fiber" }
+        @deliver_loop_running.set(false, :release)
+        # The queue can hand over to this consumer between the check and the reset
+        ensure_deliver_loop if @queue.deliver_to?(self)
         true
       end
 
-      private def wait_for_single_active_consumer
-        case @queue.single_active_consumer
-        when self
-          @log.debug { "This consumer is the single active consumer" }
-        when nil
-          @log.debug { "The queue isn't a single active consumer queue" }
-        else
-          @log.debug { "Waiting for this consumer to become the single active consumer" }
-          flush
-          loop do
-            select
-            when sca = @queue.single_active_consumer_change.receive
-              if sca == self
-                break
-              else
-                @log.debug { "New single active consumer, but not me" }
-              end
-            when @notify_closed.receive
-              break
-            end
-          end
-          true
-        end
+      # Consumers wait for global capacity in line, so the one that delivered
+      # last can't take every freed slot and starve the others
+      private def wait_for_global_capacity
+        capacity = global_capacity || return
+        @log.debug { "Waiting for global prefetch capacity" }
+        flush # before joining the line, a client that doesn't read blocks it
+        capacity.wait_until(true, @capacity_turn, @notify_closed)
+        true
       end
 
       private def wait_for_priority_consumers
@@ -205,9 +194,14 @@ module LavinMQ
           return false unless higher_prio_consumers.any? &.accepts?
           loop do
             # FIXME: doesnt take into account that new higher prio consumer might connect
-            ::Channel.receive_first(higher_prio_consumers.map(&.has_capacity.when_false))
+            channels = higher_prio_consumers.map(&.has_capacity.when_false.as(::Channel(Nil)))
+            # Also wake up when this consumer is closed, as an idle higher
+            # priority consumer may never run out of capacity
+            channels << @notify_closed
+            ::Channel.receive_first(channels)
             break
           rescue ::Channel::ClosedError
+            break if @closed # the deliver loop exits on its next closed check
             higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
             break if higher_prio_consumers.empty?
             next
@@ -216,31 +210,22 @@ module LavinMQ
         end
       end
 
+      # Consumers wait for messages in line, so the one that delivered last
+      # can't win every message while the others also have capacity
       private def wait_for_queue_ready
         return unless @queue.empty?
         @log.debug { "Waiting for queue not to be empty" }
-        flush
-        unless exit_when_idle?
-          select
-          when @queue.empty.when_false.receive
-            return :ready
-          when @notify_closed.receive
-            raise ClosedError.new
-          end
-        end
-        select
-        when @queue.empty.when_false.receive
-          :ready
-        when @notify_closed.receive
-          raise ClosedError.new
-        when timeout Config.instance.deliver_loop_idle_timeout
-          @log.debug { "Deliver loop idle timeout" }
-          :timeout
-        end
+        flush # before joining the line, a client that doesn't read blocks it
+        idle_timeout = Config.instance.deliver_loop_idle_timeout if exit_when_idle?
+        return :ready if @queue.empty.wait_until(false, @capacity_turn, @notify_closed, idle_timeout)
+        raise ClosedError.new if @closed
+        @log.debug { "Deliver loop idle timeout" }
+        :timeout
       end
 
       private def wait_for_paused_queue
-        if @queue.state.paused?
+        state = @queue.state
+        if state.paused? || state.failed?
           @log.debug { "Waiting for queue not to be paused" }
           flush
           select
@@ -287,7 +272,7 @@ module LavinMQ
         if @prefetch_count > 0 && @unacked.get(:relaxed) >= @prefetch_count
           return @has_capacity.when_true
         end
-        global_capacity_signal
+        global_capacity.try &.when_true
       end
 
       # Counts a delivery that must be acked, before it's delivered

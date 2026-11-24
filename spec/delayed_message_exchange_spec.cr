@@ -93,6 +93,51 @@ describe "Delayed Message Exchange" do
       end
     end
 
+    it "keeps a released message when the vhost closes its destination" do
+      with_amqp_server do |s|
+        RoughTime.paused do |t|
+          with_channel(s) do |ch|
+            x = ch.exchange(x_name, "topic", args: x_args)
+            ch.queue("dst").bind(x.name, "#")
+            hdrs = AMQP::Client::Arguments.new({"x-delay" => 60_000})
+            x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          end
+          vhost = s.vhosts["/"]
+          vhost.queue("dst").close
+          t.travel(61.seconds)
+          vhost.@closed.@value.set(true) # closed? as in VHost#close, without waking its waiters
+          begin
+            vhost.queue(delay_q_name).as(LavinMQ::AMQP::DelayedExchangeQueue).expire_messages
+          ensure
+            vhost.@closed.@value.set(false)
+          end
+          restart_server(s)
+          wait_for(2.seconds) { s.vhosts["/"].queue("dst").message_count == 1 }
+        end
+      end
+    end
+
+    # A queue closed on an error stays bound, so keeping messages for it would fill the disk
+    it "drops a released message when its destination closes while the vhost runs" do
+      with_amqp_server do |s|
+        RoughTime.paused do |t|
+          with_channel(s) do |ch|
+            x = ch.exchange(x_name, "topic", args: x_args)
+            ch.queue("dst").bind(x.name, "#")
+            hdrs = AMQP::Client::Arguments.new({"x-delay" => 60_000})
+            x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          end
+          vhost = s.vhosts["/"]
+          vhost.queue("dst").close
+          t.travel(61.seconds)
+          vhost.queue(delay_q_name).as(LavinMQ::AMQP::DelayedExchangeQueue).expire_messages
+          restart_server(s)
+          s.vhosts["/"].queue(delay_q_name).message_count.should eq 0
+          s.vhosts["/"].queue("dst").message_count.should eq 0
+        end
+      end
+    end
+
     it "should rebuild index on restart with truncated segment and acked messages" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -315,7 +360,7 @@ describe "Delayed Message Exchange" do
     end
   end
 
-  it "closes cleanly without hanging the publisher when the expire loop hits a store error" do
+  it "fails without hanging the publisher when the expire loop hits data it can't read" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         x = ch.exchange(x_name, "topic", args: x_args)
@@ -339,21 +384,76 @@ describe "Delayed Message Exchange" do
       # Wake the expire loop so it processes the (now-expired) bogus entry
       queue.@message_ttl_change.send(nil)
 
-      # The store error must close the queue rather than silently killing the only
-      # release fiber and stranding all delayed messages forever.
-      wait_for { queue.closed? }
-      queue.closed?.should be_true
+      # The read error pauses the queue: the release fiber waits for a resume
+      wait_for { queue.state.failed? }
+      queue.state.should eq LavinMQ::QueueState::Failed
+      queue.closed?.should be_false
+      queue.message_expire_fiber_active?.should be_true
 
-      # After the store error closes the queue, delay() must refuse promptly
-      # instead of blocking the publisher.
+      # Delayed publishes are refused, so nacked, without blocking the publisher
       msg = LavinMQ::Message.new("", queue.name, "after-error")
       done = Channel(Bool).new
       spawn { done.send(queue.delay(msg)) }
       select
       when result = done.receive
-        result.should be_false # closed queue refuses the message instead of blocking
+        result.should be_false
       when timeout 2.seconds
-        fail "delay() blocked the publisher after the expire fiber died"
+        fail "delay() blocked the publisher of a paused queue"
+      end
+      queue.message_count.should eq 1
+
+      # Refused, the entry still can't be read
+      expect_raises(LavinMQ::Error::PreconditionFailed, /can't be resumed/) { queue.resume! }
+      queue.state.failed?.should be_true
+    end
+  end
+
+  it "releases nothing while its queue is paused" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        ch.queue("delayed-paused-target").bind(x.name, "#")
+        target = s.vhosts["/"].queue("delayed-paused-target")
+        queue = s.vhosts["/"].queue(delay_q_name)
+        queue.pause!
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 50})
+        x.publish_confirm "m", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+        sleep 300.milliseconds
+        target.message_count.should eq 0
+        queue.resume!
+        should_eventually(eq 1) { target.message_count }
+      end
+    end
+  end
+
+  it "releases nothing that was already due to be released when its queue is paused" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        ch.queue("delayed-armed-target").bind(x.name, "#")
+        target = s.vhosts["/"].queue("delayed-armed-target")
+        queue = s.vhosts["/"].queue(delay_q_name)
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 300})
+        x.publish_confirm "m", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+        sleep 50.milliseconds # the release loop waits for the delay
+        queue.pause!
+        sleep 500.milliseconds
+        target.message_count.should eq 0
+        queue.resume!
+        should_eventually(eq 1) { target.message_count }
+      end
+    end
+  end
+
+  it "nacks a delayed publish when the internal queue is closed" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::Exchange)
+        ex.@delayed_queue.should_not(be_nil).close
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
+        x.publish_confirm("test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)).should be_false
+        ex.publish_out_count.should eq 0
       end
     end
   end

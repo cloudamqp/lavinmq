@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "../mqtt/spec_helper"
 require "string_scanner"
 
 describe LavinMQ::HTTP::PrometheusController do
@@ -140,6 +141,24 @@ describe LavinMQ::HTTP::PrometheusController do
         parsed_metrics = PrometheusSpecHelper.parse_prometheus(response.body)
         mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }.should_not be_nil
         mfile_metric[:value].should be >= 0
+      end
+    end
+
+    it "should expose gc pause time as a histogram" do
+      with_metrics_server do |http, _|
+        GC.collect
+        lines = http.get("/metrics").body.lines
+        lines.should contain "# TYPE lavinmq_gc_pause_seconds histogram"
+        value = ->(prefix : String) do
+          lines.find!(&.starts_with?(prefix)).split(' ').last.to_f
+        end
+        count = value.call("lavinmq_gc_pause_seconds_count ")
+        count.should be > 0
+        value.call("lavinmq_gc_pause_seconds_sum ").should be > 0
+        value.call(%(lavinmq_gc_pause_seconds_bucket{le="+Inf"} )).should eq count
+        buckets = lines.select(&.starts_with?("lavinmq_gc_pause_seconds_bucket"))
+          .map(&.split(' ').last.to_f)
+        buckets.should eq buckets.sort
       end
     end
 
@@ -624,6 +643,7 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
       response.status_code.should eq 200
       response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
       response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_true
+      response.body.lines.any?(&.starts_with? "lavinmq_gc_pause_seconds_count").should be_true
     end
   end
 
@@ -736,5 +756,112 @@ class PrometheusSpecHelper
       s.scan(/\s/)
     end
     attrs
+  end
+end
+
+describe LavinMQ::GCPauseRecorder do
+  it "adds recorded nanoseconds to the sum in seconds" do
+    GC.disable # no real pauses may land between the snapshots
+    begin
+      sum_before = LavinMQ::GCPauseRecorder.sum
+      1000.times { LavinMQ::GCPauseRecorder.record(1_u64) }
+      LavinMQ::GCPauseRecorder.record(1_500_000_u64)
+      (LavinMQ::GCPauseRecorder.sum - sum_before).should be_close(0.001501, 1e-12)
+    ensure
+      GC.enable
+    end
+  end
+end
+
+module PrometheusMqttSpecs
+  extend MqttHelpers
+
+  def self.metric_value(http, key, attrs = {} of String => String) : Float64
+    PrometheusSpecHelper.parse_prometheus(http.get("/metrics").body)
+      .find! { |m| m[:key] == key && m[:attrs] == attrs }[:value]
+  end
+
+  describe "LavinMQ::HTTP::PrometheusController MQTT metrics" do
+    it "leaves out MQTT series until an MQTT client has connected" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          port = s.amqp_server.@listeners.select(TCPServer).first.local_address.port
+          amqp = AMQP::Client.new(port: port, name: "prometheus-spec").connect
+          http.get("/metrics").body.should_not contain("mqtt")
+          amqp.close
+        end
+      end
+    end
+
+    it "writes all MQTT series once an MQTT client has connected, before any publish" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          with_client_io(s) do |io|
+            connect(io, client_id: "metrics")
+            disconnect(io)
+          end
+          should_eventually(eq(0)) { metric_value(http, "lavinmq_mqtt_connections") }
+          %w[0 1 2].each do |qos|
+            metric_value(http, "lavinmq_global_mqtt_messages_published_total", {"qos" => qos}).should eq 0
+          end
+        end
+      end
+    end
+
+    it "counts open MQTT connections and leaves out AMQP ones" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          port = s.amqp_server.@listeners.select(TCPServer).first.local_address.port
+          amqp = AMQP::Client.new(port: port, name: "prometheus-spec").connect
+          with_client_io(s) do |io|
+            connect(io, client_id: "metrics")
+            # The server registers the connection after sending CONNACK
+            should_eventually(eq(2)) { metric_value(http, "lavinmq_connections") }
+            should_eventually(eq(1)) { metric_value(http, "lavinmq_mqtt_connections") }
+            disconnect(io)
+          end
+          should_eventually(eq(0)) { metric_value(http, "lavinmq_mqtt_connections") }
+          amqp.close
+        end
+      end
+    end
+
+    it "keeps the MQTT series and counts when the vhost that had the MQTT client is deleted" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          s.vhosts.create("mqtt_gone")
+          s.users.add_permission("guest", "mqtt_gone", /.*/, /.*/, /.*/)
+          with_client_io(s) do |io|
+            connect(io, username: "mqtt_gone:guest", client_id: "metrics")
+            # Its PUBACK means the publish is counted
+            publish(io, topic: "a/b", qos: 1u8)
+            disconnect(io)
+          end
+          s.vhosts.delete("mqtt_gone")
+          metric_value(http, "lavinmq_mqtt_connections").should eq 0
+          metric_value(http, "lavinmq_global_mqtt_messages_published_total", {"qos" => "1"}).should eq 1
+        end
+      end
+    end
+
+    it "counts MQTT publishes by QoS" do
+      with_server do |s|
+        serve_metrics(s) do |http|
+          key = "lavinmq_global_mqtt_messages_published_total"
+          with_client_io(s) do |io|
+            connect(io, client_id: "metrics")
+            2.times { publish(io, topic: "a/b", qos: 0u8) }
+            # QoS 2 is answered with a PUBACK like QoS 1 (#2314)
+            publish(io, topic: "a/b", qos: 2u8)
+            # Its PUBACK means the publishes before it are counted
+            publish(io, topic: "a/b", qos: 1u8)
+            metric_value(http, key, {"qos" => "0"}).should eq 2
+            metric_value(http, key, {"qos" => "1"}).should eq 1
+            metric_value(http, key, {"qos" => "2"}).should eq 1
+            disconnect(io)
+          end
+        end
+      end
+    end
   end
 end

@@ -11,7 +11,7 @@ module LavinMQ
 
       def initialize(session : LocalSession, stream : AMQP::Stream, tag : String, no_ack : Bool,
                      exclusive : Bool, prefetch_count : UInt16, args : AMQ::Protocol::Table)
-        setup_stream_consumer(stream, tag, args, exclusive, no_ack, prefetch_count, 0_u16)
+        @cursor = setup_stream_consumer(stream, tag, args, exclusive, no_ack, prefetch_count, 0_u16)
         super(session, stream, tag, no_ack, exclusive, prefetch_count)
       end
     end
