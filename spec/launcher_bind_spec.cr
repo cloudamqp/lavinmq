@@ -19,45 +19,6 @@ class LavinMQ::Launcher
   end
 end
 
-class LavinMQ::Launcher
-  def demote_for_spec(hand_over : Proc(Nil)?) : Nil
-    demote(hand_over)
-  end
-end
-
-# Records whether the broker was closed when it stored the checksums
-private class StoreOrderServer < LavinMQ::Clustering::Server
-  property broker : LavinMQ::Server?
-  getter broker_closed_at_store : Bool? = nil
-
-  def close
-    @broker_closed_at_store = @broker.try &.closed?
-    super
-  end
-end
-
-# Serves with a StoreOrderServer as the replicator
-private class StoreOrderRunner < LavinMQ::StandaloneRunner
-  getter replicator : StoreOrderServer
-  # Closed once the broker has started
-  getter started = Channel(Nil).new
-
-  def initialize(config : LavinMQ::Config)
-    @replicator = StoreOrderServer.new(config, NullCoordinator.new, 1)
-  end
-
-  def run(& : LavinMQ::Clustering::Replicator? -> _)
-    super do
-      yield @replicator
-      @started.close
-    end
-  end
-
-  def broker_closed : Nil
-    @replicator.close
-  end
-end
-
 # Calls *on_write* at the broker's first replicated write, which loading a
 # new data dir makes
 private class FirstWriteServer < LavinMQ::Clustering::Server
@@ -90,7 +51,7 @@ private class StoppingRunner < LavinMQ::StandaloneRunner
     end
   end
 
-  def broker_closed : Nil
+  def close : Nil
     @replicator.try &.close
   end
 end
@@ -158,30 +119,6 @@ private class EarlyReturnRunner < LavinMQ::Runner
 end
 
 describe LavinMQ::Launcher do
-  # The broker writes files while it closes, and the next term's replication
-  # client trusts the stored checksums of files it doesn't rehash
-  it "stores the replication checksums after the broker is closed when leadership is lost" do
-    with_datadir do |data_dir|
-      config = standalone_config(data_dir)
-      launcher = LavinMQ::Launcher.new(config)
-      runner = StoreOrderRunner.new(config)
-      launcher.runner_for_spec = runner
-      done = Channel(Nil).new
-      spawn(name: "launcher run") do
-        launcher.run
-      ensure
-        done.close
-      end
-      runner.started.receive?
-      runner.replicator.broker = launcher.@server
-      launcher.demote_for_spec(nil)
-      runner.replicator.broker_closed_at_store.should be_true
-    ensure
-      launcher.try &.stop
-      done.try &.receive? # before the data dir is removed
-    end
-  end
-
   it "doesn't start serving once stopped" do
     with_datadir do |data_dir|
       config = standalone_config(data_dir)
