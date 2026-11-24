@@ -220,6 +220,7 @@ module LavinMQ
       enum PublishResult
         Routed
         Overflowed
+        Closed # a matched queue was closed, e.g. on shutdown
       end
 
       def publish(msg : Message, immediate : Bool,
@@ -260,6 +261,7 @@ module LavinMQ
 
         count = 0u32
         overflow = false
+        closed = false
         queues.each do |queue|
           case queue.publish(msg)
           in .ok?
@@ -268,7 +270,8 @@ module LavinMQ
           in .overflow?
             overflow = true
           in .dropped?
-            # queue was closed or message was a duplicate; nothing to do
+            # queue was closed or message was a duplicate
+            closed = true if queue.closed?
           end
         end
         @publish_out_count.add(count, :relaxed)
@@ -277,6 +280,7 @@ module LavinMQ
         result = PublishResult::None
         result |= PublishResult::Routed if count.positive?
         result |= PublishResult::Overflowed if overflow
+        result |= PublishResult::Closed if closed
         result
       end
 

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.7] - 2026-11-24
+
+### Fixed
+
+- Persistent messages in a delayed exchange whose delay had passed while the broker was down were dropped at startup, because they were released before the exchange's bindings were restored. Delayed queues now wait for the vhost to finish loading before releasing messages [#2511](https://github.com/cloudamqp/lavinmq/pull/2511)
+- A delayed message that came due during a shutdown, after the shutdown closed its destination queue, was lost. The broker now keeps the message in the delayed exchange and releases it after the restart [#2694](https://github.com/cloudamqp/lavinmq/pull/2694)
+- On a queue with `x-single-active-consumer`, the next consumer could get no messages after the active consumer cancelled, while the queue had messages ready. Now only the active consumer runs a deliver loop, and the handoff starts it [#2693](https://github.com/cloudamqp/lavinmq/pull/2693)
+- `PUT /api/queues/:vhost/:name/pause`, `/resume` and `/restart` didn't check the user's permissions on the queue, so any management user with access to the vhost could pause, resume or restart any queue in it. They now require configure permission on the queue, like delete does [#2690](https://github.com/cloudamqp/lavinmq/pull/2690)
+- A queue declared while the server was low on disk space was still created, even though the declare was refused with PRECONDITION_FAILED [#2560](https://github.com/cloudamqp/lavinmq/pull/2560)
+- Every config reload (SIGHUP) leaked the previous log backend: its dispatcher fiber, a 2048-entry channel and, with `log_file` set, the open file [#2442](https://github.com/cloudamqp/lavinmq/pull/2442)
+- A follower that synced from a leader after the leader's start deleted every MQTT retained message stored before that start. A failover to that follower lost the retained messages [#2552](https://github.com/cloudamqp/lavinmq/pull/2552)
+- After a power loss that left a queue's newest segment zero-filled, the first message written to the queue could crash the broker with a segmentation fault. Now a new empty segment takes the writes [#2700](https://github.com/cloudamqp/lavinmq/pull/2700)
+- A vhost failed to load with `mmap: Invalid argument` when a queue had an empty segment file that wasn't its last one, which a crash or power loss can leave. The empty segment is now deleted at startup, as an empty last segment already was [#2695](https://github.com/cloudamqp/lavinmq/pull/2695)
+- A stream numbered the messages of its last segment from offset 1 again when the segment before it was empty after a crash or power loss and was deleted at startup. The offsets now continue after the deleted segment, and stream consumers read on across it [#2800](https://github.com/cloudamqp/lavinmq/pull/2800)
+- A clustered node that restarted in the last second of its old etcd lease exited with code 1. It now waits for the old lease to expire and starts [#2797](https://github.com/cloudamqp/lavinmq/pull/2797)
+- A manually declared `x-federation-upstream` exchange corrupted `definitions.amqp` and stopped the broker at the next start [#2813](https://github.com/cloudamqp/lavinmq/pull/2813)
+- An MQTT topic longer than 255 bytes closed every MQTT session queue it was routed to, and the next PUBACKed message to them was lost. Such a publish now closes the connection, a CONNECT with such a will topic is refused, a topic filter that long gets SUBACK Failure, and a retain store poisoned by an older version heals on the first restart [#2516](https://github.com/cloudamqp/lavinmq/pull/2516)
+
 ## [2.10.6] - 2026-11-11
 
 ### Fixed

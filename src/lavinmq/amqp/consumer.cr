@@ -69,7 +69,7 @@ module LavinMQ
       end
 
       private def deliver_loop
-        wait_for_single_active_consumer
+        return if standby_consumer?
         queue = @queue
         delivered_bytes = 0_i32
         loop do
@@ -113,6 +113,16 @@ module LavinMQ
         raise ex
       end
 
+      # A standby consumer of a single active consumer queue runs no deliver loop
+      private def standby_consumer? : Bool
+        return false if @queue.deliver_to?(self)
+        @log.debug { "Not the single active consumer, exiting fiber" }
+        @deliver_loop_running.set(false, :release)
+        # The queue can hand over to this consumer between the check and the reset
+        ensure_deliver_loop if @queue.deliver_to?(self)
+        true
+      end
+
       # Consumers wait for global capacity in line, so the one that delivered
       # last can't take every freed slot and starve the others
       private def wait_for_global_capacity
@@ -121,31 +131,6 @@ module LavinMQ
         @log.debug { "Waiting for global prefetch capacity" }
         ch.has_capacity.wait_until_true(@capacity_turn, @notify_closed) { flush }
         true
-      end
-
-      private def wait_for_single_active_consumer
-        case @queue.single_active_consumer
-        when self
-          @log.debug { "This consumer is the single active consumer" }
-        when nil
-          @log.debug { "The queue isn't a single active consumer queue" }
-        else
-          @log.debug { "Waiting for this consumer to become the single active consumer" }
-          flush
-          loop do
-            select
-            when sca = @queue.single_active_consumer_change.receive
-              if sca == self
-                break
-              else
-                @log.debug { "New single active consumer, but not me" }
-              end
-            when @notify_closed.receive
-              break
-            end
-          end
-          true
-        end
       end
 
       private def wait_for_priority_consumers

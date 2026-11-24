@@ -29,6 +29,7 @@ describe LavinMQ::Clustering::Client do
         follower_config.https_port = follower_config.mqtts_port = 0
         follower_config.amqps_port = follower_amqps_port
         follower_config.tls_cert_path = "spec/resources/server_certificate.pem"
+        follower_config.metrics_http_port = -1 # another spec may hold the default port
         repli = LavinMQ::Clustering::Client.new(follower_config, 1, replicator.password)
         # The follower forwards to the same port on the leader, which can't be bound twice
         # on one host, so point it at the leader's port now that its listener is bound

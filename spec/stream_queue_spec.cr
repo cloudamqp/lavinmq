@@ -1372,6 +1372,71 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    # state of the meta file of zero-filled segment 2 => first offset of segment 3 after the load
+    {kept: 3i64, deleted: 2i64, zero_filled: 2i64}.each do |meta, offset|
+      it "numbers the offsets after a zero-filled segment whose meta file is #{meta}, also after a second restart" do
+        with_datadir do |data_dir|
+          store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+          body = "a" * (LavinMQ::Config.instance.segment_size // 2)
+          3.times do
+            store.push LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, body.bytesize.to_u64, IO::Memory.new(body))
+          end
+          store.@segments.size.should eq 3
+          store.close
+          segment = File.join(data_dir, "msgs.0000000002")
+          File.write(segment, Bytes.new(File.size(segment))) # a power loss can leave a segment zero-filled
+          meta_file = File.join(data_dir, "meta.0000000002")
+          File.delete(meta_file) if meta == :deleted
+          File.write(meta_file, Bytes.new(File.size(meta_file))) if meta == :zero_filled
+
+          2.times do
+            store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+            store.@segment_first_offset[1u32].should eq 1
+            store.@segment_first_offset[3u32].should eq offset
+            store.last_offset.should eq offset
+            store.@segment_first_offset[4u32].should eq offset + 1
+            store.close
+          end
+        end
+      end
+    end
+
+    # A consumer counted offsets on from the previous segment, so after #2800
+    # kept the offsets of a deleted segment unused, it read offsets that
+    # didn't match the stored ones, and the empty segment opened at load
+    # closed the queue when the consumer reached it
+    it "delivers stored offsets across a segment deleted at load, and keeps the queue open at the end" do
+      with_amqp_server do |s|
+        q_name = "stream-dropped-segment"
+        args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
+        body = "a" * (LavinMQ::Config.instance.segment_size // 2)
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, args: args)
+          3.times { q.publish_confirm body }
+        end
+        data_dir = s.vhosts["/"].queue(q_name).@data_dir
+        File.size(File.join(data_dir, "msgs.0000000003")).should be > 4
+        File.write(File.join(data_dir, "msgs.0000000002"), "") # the crash left segment 2 empty
+        restart_server(s)
+
+        with_channel(s) do |ch|
+          ch.prefetch 10
+          q = ch.queue(q_name, args: args)
+          offsets = Channel(Int64).new(10)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset" => "first"})) do |msg|
+            offsets.send msg.properties.headers.not_nil!["x-stream-offset"].as(Int64)
+            msg.ack
+          end
+          offsets.receive.should eq 1
+          offsets.receive.should eq 3
+          sleep 0.1.seconds # the consumer reaches the empty segment opened at load
+          s.vhosts["/"].queue(q_name).closed?.should be_false
+          q.publish_confirm("new").should be_true
+          offsets.receive.should eq 4
+        end
+      end
+    end
+
     it "loads when the trailing record is torn mid-body" do
       with_datadir do |data_dir|
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
