@@ -7,6 +7,12 @@ require "../../name_validator"
 module LavinMQ
   module HTTP
     module QueueHelpers
+      # A pause or resume of a durable queue is replicated as a file: acknowledged
+      # once the followers have it, as a failover right after must not lose it
+      private def wait_for_followers(q) : Nil
+        q.vhost.replicator.try &.wait_for_followers if q.durable?
+      end
+
       private def find_queue(context, params, vhost, key = "name")
         name = params[key]
         q = vhost.queue?(name) || vhost.session?(name)
@@ -101,6 +107,7 @@ module LavinMQ
               access_refused(context, "User doesn't have permissions to pause queue '#{q.name}'")
             end
             q.pause!
+            wait_for_followers(q)
             context.response.status_code = 204
           end
         end
@@ -113,7 +120,11 @@ module LavinMQ
             unless user.can_config?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to resume queue '#{q.name}'")
             end
-            q.resume!
+            begin
+              q.resume!
+            ensure # a failed queue refuses the resume, but its pause is removed
+              wait_for_followers(q)
+            end
             context.response.status_code = 204
           end
         end
