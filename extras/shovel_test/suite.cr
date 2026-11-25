@@ -91,6 +91,9 @@ module ShovelTest
     private def prepare_shovel_user : Bool
       created = !@cfg.shovel_user_given?
       if created
+        if @api.user_exists?(@cfg.shovel_user)
+          raise "user #{@cfg.shovel_user} already exists; pass --shovel-user and --shovel-password to reuse it"
+        end
         @api.create_user(@cfg.shovel_user, @cfg.shovel_password)
       elsif !@api.user_exists?(@cfg.shovel_user)
         raise "user #{@cfg.shovel_user} doesn't exist; create it, or leave --shovel-user out to have one created"
