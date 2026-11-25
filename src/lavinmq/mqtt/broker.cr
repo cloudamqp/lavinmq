@@ -33,6 +33,7 @@ module LavinMQ
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
         @exchange = @vhost.mqtt_exchange
+        spawn expire_retained_loop, name: "MQTT retained expiry #{@vhost.name}"
       end
 
       def permission_service : PermissionService
@@ -163,7 +164,7 @@ module LavinMQ
         return Protocol::SubAck::ReturnCode::Failure if tf.topic.bytesize > MAX_TOPIC_BYTESIZE
         return Protocol::SubAck::ReturnCode::Failure unless session.subscribe(tf.topic, qos)
         ts = RoughTime.unix_ms
-        @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
+        @retain_store.each(tf.topic, @vhost.retained_message_ttl) do |topic, body_io, body_bytesize|
           props = AMQP::Properties.new(headers: RETAIN_HEADERS, delivery_mode: qos)
           msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
           session.publish(msg)
@@ -178,7 +179,35 @@ module LavinMQ
         end
       end
 
+      RETAINED_EXPIRY_INTERVAL = 1.minute
+
+      @closed = ::Channel(Nil).new
+
+      private def expire_retained_loop
+        loop do
+          select
+          when @closed.receive?
+            break
+          when timeout(RETAINED_EXPIRY_INTERVAL)
+            begin
+              expire_retained
+            rescue ex
+              Log.error(exception: ex) { "Failed to remove expired retained messages in vhost '#{@vhost.name}'" }
+            end
+          end
+        end
+      end
+
+      # Subscribers already don't get expired retained messages, this frees
+      # their files
+      def expire_retained : Nil
+        max_age = @vhost.retained_message_ttl || return
+        expired = @retain_store.delete_expired(max_age)
+        @vhost.count_mqtt_retained_expired(expired) if expired > 0
+      end
+
       def close
+        @closed.close
         @retain_store.close
       end
     end

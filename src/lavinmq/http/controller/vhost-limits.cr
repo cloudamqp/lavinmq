@@ -24,21 +24,8 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             if body = context.request.body
               json = JSON.parse(body)
-              if value = json["value"]?.try &.as_i64?
-                case params["type"]
-                when "max-connections"
-                  vhost.max_connections = value.to_i32
-                  context.response.status_code = 204
-                when "max-queues"
-                  vhost.max_queues = value.to_i32
-                  context.response.status_code = 204
-                when "max-retained-messages"
-                  vhost.max_retained_messages = value
-                  context.response.status_code = 204
-                when "max-retained-message-size"
-                  vhost.max_retained_message_size = value
-                  context.response.status_code = 204
-                end
+              if (value = json["value"]?.try &.as_i64?) && set_limit(vhost, params["type"], value)
+                context.response.status_code = 204
               end
             end
           end
@@ -49,23 +36,23 @@ module LavinMQ
           context.response.status_code = 400
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            case params["type"]
-            when "max-connections"
-              context.response.status_code = 204
-              vhost.max_connections = nil
-            when "max-queues"
-              context.response.status_code = 204
-              vhost.max_queues = nil
-            when "max-retained-messages"
-              context.response.status_code = 204
-              vhost.max_retained_messages = nil
-            when "max-retained-message-size"
-              context.response.status_code = 204
-              vhost.max_retained_message_size = nil
-            end
+            context.response.status_code = 204 if set_limit(vhost, params["type"], nil)
           end
           context
         end
+      end
+
+      # Returns false for an unknown limit type
+      private def set_limit(vhost : VHost, type : String, value : Int64?) : Bool
+        case type
+        when "max-connections"           then vhost.max_connections = value.try &.to_i32
+        when "max-queues"                then vhost.max_queues = value.try &.to_i32
+        when "max-retained-messages"     then vhost.max_retained_messages = value
+        when "max-retained-message-size" then vhost.max_retained_message_size = value
+        when "retained-message-ttl"      then vhost.retained_message_ttl = value
+        else                                  return false
+        end
+        true
       end
 
       struct VHostLimitsView
@@ -76,7 +63,8 @@ module LavinMQ
 
         def self_if_limited : VHostLimitsView?
           self if @vhost.max_connections || @vhost.max_queues ||
-                  @vhost.max_retained_messages || @vhost.max_retained_message_size
+                  @vhost.max_retained_messages || @vhost.max_retained_message_size ||
+                  @vhost.retained_message_ttl
         end
 
         def details_tuple
@@ -92,6 +80,9 @@ module LavinMQ
           end
           if max = @vhost.max_retained_message_size
             value = value.merge({"max-retained-message-size": max})
+          end
+          if ttl = @vhost.retained_message_ttl
+            value = value.merge({"retained-message-ttl": ttl})
           end
           {
             vhost: @vhost.name,

@@ -327,12 +327,18 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 204
         response = http.put("/api/vhost-limits/%2f/max-retained-messages", body: %({"value": 10}))
         response.status_code.should eq 204
+        response = http.put("/api/vhost-limits/%2f/retained-message-ttl", body: %({"value": 3600}))
+        response.status_code.should eq 204
         value = JSON.parse(http.get("/api/vhost-limits/%2f").body)[0]["value"]
+        value["retained-message-ttl"].should eq 3600
         value["max-retained-message-size"].should eq 3_000_000_000
         value["max-retained-messages"].should eq 10
         restart_server(s)
         s.vhosts["/"].max_retained_message_size.should eq 3_000_000_000
         s.vhosts["/"].max_retained_messages.should eq 10
+        s.vhosts["/"].retained_message_ttl.should eq 3600
+        http.delete("/api/vhost-limits/%2f/retained-message-ttl").status_code.should eq 204
+        s.vhosts["/"].retained_message_ttl.should be_nil
       end
     end
 
@@ -354,10 +360,13 @@ describe LavinMQ::HTTP::Server do
       with_http_server do |http, s|
         s.vhosts["/"].max_retained_message_size = 3_000_000_000_i64
         s.vhosts["/"].max_retained_messages = 10_i64
+        s.vhosts["/"].retained_message_ttl = 3600_i64
         definitions = http.get("/api/definitions").body
         s.vhosts["/"].max_retained_message_size = nil
         s.vhosts["/"].max_retained_messages = nil
+        s.vhosts["/"].retained_message_ttl = nil
         http.post("/api/definitions", body: definitions).status_code.should eq 200
+        s.vhosts["/"].retained_message_ttl.should eq 3600
         s.vhosts["/"].max_retained_message_size.should eq 3_000_000_000
         s.vhosts["/"].max_retained_messages.should eq 10
       end

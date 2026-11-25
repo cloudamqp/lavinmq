@@ -13,7 +13,11 @@ module LavinMQ
       MESSAGE_FILE_SUFFIX = ".msg"
       INDEX_FILE_NAME     = "index"
 
-      alias IndexTree = TopicTree(String)
+      # published_at is unix ms: the publish time, or after a restart the
+      # modification time of the message file
+      record Entry, file_name : String, size : Int64, published_at : Int64
+
+      alias IndexTree = TopicTree(Entry)
 
       def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new, @persister : Persister? = nil)
         FileSystem.mkdir_p @dir
@@ -24,12 +28,20 @@ module LavinMQ
         # Set when the index file has lines the index doesn't, by
         # #restore_index or a delete, so it is compacted (see #write_index)
         @dirty = false
+        # Lines in the index file for topics that were deleted since it was written
+        @dead_lines = 0
+        @closed = false
         # Written under @lock, read by the HTTP API and metrics from other fibers
         @count = Atomic(Int64).new(0_i64)
         @bytes = Atomic(Int64).new(0_i64)
         if @index.empty?
           restore_index
           write_index if @dirty
+        else
+          @index.each do |_topic, entry|
+            @count.add(1_i64, :relaxed)
+            @bytes.add(entry.size, :relaxed)
+          end
         end
       end
 
@@ -45,6 +57,7 @@ module LavinMQ
         @lock.synchronize do
           write_index if @dirty
           @index_file.close
+          @closed = true
         end
       end
 
@@ -76,9 +89,10 @@ module LavinMQ
             Log.warn { "msg file for topic #{topic} missing, dropping from index" }
             next
           end
-          @index.insert(topic, msg_file_name)
+          info = File.info(File.join(dir, msg_file_name))
+          @index.insert(topic, Entry.new(msg_file_name, info.size, info.modification_time.to_unix_ms))
           @count.add(1_i64, :relaxed)
-          @bytes.add(stored_size(msg_file_name), :relaxed)
+          @bytes.add(info.size, :relaxed)
           @replicator.try &.register_file(File.join(dir, msg_file_name))
           Log.debug { "restored #{topic}" }
           msg_count += 1
@@ -111,21 +125,21 @@ module LavinMQ
             return true
           end
 
-          msg_file_name = @index[topic]?
-          old_size = msg_file_name ? stored_size(msg_file_name) : 0_i64
+          old = @index[topic]?
+          old_size = old.try(&.size) || 0_i64
           new_size = payload.bytesize.to_i64
           return false if max_message_size && new_size > max_message_size
           # A replacement is not a new message
-          return false if msg_file_name.nil? && max_messages && @count.get(:relaxed) >= max_messages
+          return false if old.nil? && max_messages && @count.get(:relaxed) >= max_messages
 
           # The file is written before a new topic is indexed, so a failed
           # write leaves no topic without a message
-          if msg_file_name
-            write_message(msg_file_name, payload, needs_sync)
+          entry = Entry.new(old.try(&.file_name) || make_file_name(topic), new_size, RoughTime.unix_ms)
+          write_message(entry.file_name, payload, needs_sync)
+          if old
+            @index.insert(topic, entry)
           else
-            msg_file_name = make_file_name(topic)
-            write_message(msg_file_name, payload, needs_sync)
-            add_to_index(topic, msg_file_name)
+            add_to_index(topic, entry)
             @persister.try &.mark_dirty(@index_file_name) if needs_sync
           end
           @bytes.add(new_size - old_size, :relaxed)
@@ -169,10 +183,11 @@ module LavinMQ
         @replicator.try &.replace_file(@index_file_name)
         @index_file = f
         @dirty = false
+        @dead_lines = 0
       end
 
-      private def add_to_index(topic : String, file_name : String) : Nil
-        @index.insert topic, file_name
+      private def add_to_index(topic : String, entry : Entry) : Nil
+        @index.insert topic, entry
         @count.add(1_i64, :relaxed)
         line = "#{topic}\n".to_slice
         offset = @index_file.size.to_i64
@@ -182,21 +197,25 @@ module LavinMQ
       end
 
       private def delete_from_index(topic : String) : Nil
-        if file_name = @index.delete topic
+        if entry = @index.delete topic
           @dirty = true
-          Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
-          file_path = File.join(@dir, file_name)
+          @dead_lines += 1
+          Log.trace { "deleted '#{topic}' from index, deleting file #{entry.file_name}" }
+          file_path = File.join(@dir, entry.file_name)
           @count.sub(1_i64, :relaxed)
-          @bytes.sub(stored_size(file_name), :relaxed)
+          @bytes.sub(entry.size, :relaxed)
           File.delete? file_path
           @replicator.try &.delete_file(file_path)
         end
       end
 
-      def each(subscription : String, &block : String, ::IO, UInt64 -> Nil) : Nil
+      # Skips messages older than max_age seconds; #delete_expired removes them
+      def each(subscription : String, max_age : Int64? = nil, &block : String, ::IO, UInt64 -> Nil) : Nil
         @lock.synchronize do
-          @index.each(subscription) do |topic, file_name|
-            File.open(File.join(@dir, file_name)) do |f|
+          now = RoughTime.unix_ms
+          @index.each(subscription) do |topic, entry|
+            next if expired?(entry, max_age, now)
+            File.open(File.join(@dir, entry.file_name)) do |f|
               f.read_buffering = false
               block.call(topic, f, f.size.to_u64)
             end
@@ -204,8 +223,41 @@ module LavinMQ
         end
       end
 
-      private def stored_size(file_name : String) : Int64
-        File.info?(File.join(@dir, file_name)).try(&.size) || 0_i64
+      EXPIRE_BATCH_SIZE = 100
+
+      # Deletes in batches and lets go of @lock between them, so that publishes
+      # and subscribes don't wait for a run that has many files to delete
+      def delete_expired(max_age : Int64) : Int32
+        expired = Array(String).new
+        @lock.synchronize do
+          now = RoughTime.unix_ms
+          @index.each { |topic, entry| expired << topic if expired?(entry, max_age, now) }
+        end
+        deleted = 0
+        expired.each_slice(EXPIRE_BATCH_SIZE) do |topics|
+          @lock.synchronize do
+            return deleted if @closed
+            now = RoughTime.unix_ms
+            topics.each do |topic|
+              # It can have been published again since the scan
+              entry = @index[topic]? || next
+              next unless expired?(entry, max_age, now)
+              delete_from_index(topic)
+              deleted += 1
+            end
+          end
+          Fiber.yield
+        end
+        # Compacted when most of the index file is dead lines, so the file
+        # can't grow without limit and isn't rewritten on every run either
+        @lock.synchronize { write_index if @dead_lines > @count.get(:relaxed) && !@closed }
+        deleted
+      end
+
+      # The one place that decides when a retained message expires
+      private def expired?(entry : Entry, max_age : Int64?, now : Int64) : Bool
+        return false unless max_age
+        (now - entry.published_at) // 1000 >= max_age
       end
 
       @hasher = Digest::MD5.new

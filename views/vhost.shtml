@@ -51,6 +51,10 @@
             <th>Max retained message size</th>
             <td id="max-retained-message-size"></td>
           </tr>
+          <tr>
+            <th>Retained message TTL (s)</th>
+            <td id="retained-message-ttl"></td>
+          </tr>
         </table>
       </section>
       <section class="card">
@@ -113,6 +117,10 @@
         <label>
           <span>Max retained message size</span>
           <input type="number" name="max-retained-message-size" class="right">
+        </label>
+        <label>
+          <span>Retained message TTL (s)</span>
+          <input type="number" name="retained-message-ttl" class="right">
         </label>
         <button type="submit" class="btn btn-green">Set limits</button>
       </form>

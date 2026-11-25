@@ -96,6 +96,21 @@ A retained publish that is over a limit is still delivered to the current subscr
 - Clearing a retained message with an empty payload always works
 - Lowering a limit deletes nothing. Messages that are already stored stay until they are replaced or cleared
 
+### Retained Message Expiry
+
+By default a retained message stays until it is replaced or cleared. The `retained-message-ttl` [vhost limit](vhosts.md#vhost-limits) gives the retained messages of a vhost a maximum age.
+
+| Limit | Description |
+|-------|-------------|
+| `retained-message-ttl` | Maximum age of a retained message, in seconds, counted from the last publish to its topic |
+
+- A retained message older than the limit is not delivered to new subscribers
+- Expired messages are removed from disk once a minute. Until then they still count towards `max-retained-messages`
+- A change of the limit also applies to the messages that are already stored
+- After a broker restart or a failover, the age is counted from the modification time of the message file. A follower's file can have another time than the leader's, for example after a full synchronization, so after a failover a message can expire somewhat later or earlier than on the old leader
+- The age is measured with the system clock. If the clock is stepped forward, messages expire early, and an expired message that was removed can't be restored
+- Removed messages are counted in the `global_mqtt_retained_expired_total` [metric](monitoring.md)
+
 The current number and size of retained messages per vhost are in `GET /api/vhosts/:name` (`mqtt_retained_messages`, `mqtt_retained_bytes`) and in the metrics.
 
 ## Topic Matching

@@ -37,7 +37,7 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 | `list_vhosts` | List all vhosts |
 | `add_vhost <vhost>` | Create a vhost |
 | `delete_vhost <vhost>` | Delete a vhost |
-| `set_vhost_limits <json>` | Set vhost limits (max-connections, max-queues, max-retained-messages, max-retained-message-size) |
+| `set_vhost_limits <json>` | Set vhost limits (max-connections, max-queues, max-retained-messages, max-retained-message-size, retained-message-ttl) |
 
 ### Queue Management
 

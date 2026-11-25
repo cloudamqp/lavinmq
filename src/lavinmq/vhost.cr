@@ -71,7 +71,7 @@ module LavinMQ
                         "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
                         "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
     MQTT_PUBLISHED_KEYS = {"mqtt_published_qos0", "mqtt_published_qos1", "mqtt_published_qos2"}
-    MQTT_RETAINED_KEYS  = {"mqtt_retained_not_stored"}
+    MQTT_RETAINED_KEYS  = {"mqtt_retained_not_stored", "mqtt_retained_expired"}
     {% for key in DEAD_LETTER_KEYS + MQTT_PUBLISHED_KEYS + MQTT_RETAINED_KEYS %}
       @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
 
@@ -339,7 +339,7 @@ module LavinMQ
     end
 
     # Read by every retained MQTT publish, set over HTTP. Negative is no limit
-    {% for limit in {"max_retained_messages", "max_retained_message_size"} %}
+    {% for limit in {"max_retained_messages", "max_retained_message_size", "retained_message_ttl"} %}
       @{{ limit.id }} = Atomic(Int64).new(-1_i64)
 
       def {{ limit.id }} : Int64?
@@ -362,6 +362,7 @@ module LavinMQ
         @max_connections = limits["max-connections"]?.try &.as_i?
         @max_retained_messages.set(limits["max-retained-messages"]?.try(&.as_i64?) || -1_i64, :relaxed)
         @max_retained_message_size.set(limits["max-retained-message-size"]?.try(&.as_i64?) || -1_i64, :relaxed)
+        @retained_message_ttl.set(limits["retained-message-ttl"]?.try(&.as_i64?) || -1_i64, :relaxed)
         @replicator.try &.register_file(f)
       end
     rescue File::NotFoundError
@@ -375,6 +376,7 @@ module LavinMQ
             json.field "max-connections", @max_connections if @max_connections
             json.field "max-retained-messages", max_retained_messages if max_retained_messages
             json.field "max-retained-message-size", max_retained_message_size if max_retained_message_size
+            json.field "retained-message-ttl", retained_message_ttl if retained_message_ttl
           end
         end
       end
@@ -758,6 +760,10 @@ module LavinMQ
 
     def count_mqtt_retained_not_stored : Nil
       @mqtt_retained_not_stored_count.add(1, :relaxed)
+    end
+
+    def count_mqtt_retained_expired(count : Int32) : Nil
+      @mqtt_retained_expired_count.add(count.to_u64, :relaxed)
     end
 
     def mqtt_retained_messages : Int64

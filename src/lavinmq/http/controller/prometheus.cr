@@ -464,6 +464,11 @@ module LavinMQ
                              vhosts.sum { |_, v| v.mqtt_retained_not_stored_count },
                       type: "counter",
                       help: "Total number of retained MQTT messages not stored because of a vhost limit"})
+        writer.write({name:  "global_mqtt_retained_expired_total",
+                      value: deleted_stats.mqtt_retained_expired +
+                             vhosts.sum { |_, v| v.mqtt_retained_expired_count },
+                      type: "counter",
+                      help: "Total number of retained MQTT messages removed because they expired"})
       end
 
       # Written from the first MQTT connection on, zeros included, so rate() sees each counter start
@@ -822,6 +827,13 @@ module LavinMQ
         vhosts.each do |vhost|
           labels = {vhost: vhost.name}
           writer.write_value("detailed_vhost_mqtt_retained_not_stored_total", vhost.mqtt_retained_not_stored_count, labels)
+        end
+
+        writer.write_header("detailed_vhost_mqtt_retained_expired_total", "counter",
+          "Total retained MQTT messages removed on a vhost because they expired")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_vhost_mqtt_retained_expired_total", vhost.mqtt_retained_expired_count, labels)
         end
       end
 
