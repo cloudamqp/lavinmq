@@ -1455,11 +1455,12 @@ module LavinMQ::AMQP
     end
 
     def unacked_messages : Array(UnackedMessage)
-      result = consumers.select(AMQP::Consumer).flat_map do |c|
-        c.unacked_messages.compact_map do |u|
+      # Each channel once, as it can have several consumers of the queue
+      result = consumers.select(AMQP::Consumer).map(&.channel).uniq!.flat_map do |ch|
+        ch.unacked.compact_map do |u|
           next unless u.queue == self
           if consumer = u.consumer
-            UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
+            UnackedMessage.new(ch, u.tag, u.delivered_at, consumer.tag)
           end
         end
       end

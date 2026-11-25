@@ -17,6 +17,10 @@ lavinmq --config /etc/lavinmq/lavinmq.ini
 
 Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (or the systemd-standard `CONFIGURATION_DIRECTORY`) to a directory; LavinMQ will load `lavinmq.ini` from that directory. Defaults to `/etc/lavinmq`.
 
+## Boolean Values
+
+Settings of type Bool accept `1`, `true`, `yes`, `on` or `y` for true and `0`, `false`, `no`, `off` or `n` for false, in any case. This applies in the INI file, including `[sni:]` sections, in environment variables and in CLI flags that take a value. Any other value stops LavinMQ from starting, or fails a reload, with an error naming the setting. This includes an empty value and a value followed by a comment on the same line, e.g. `sync = false # note`. The exception is `tcp_proxy_protocol`, which also accepts `2` and reads any other value as false.
+
 ## Reloading
 
 Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had. The configuration is rebuilt the same way as at startup: a setting removed from the file goes back to its default, and command line arguments and environment variables take precedence over the file.
@@ -130,7 +134,7 @@ A reload reads the file on top of the running configuration, so a setting remove
 | `password_file` | `--clustering-password-file` | `LAVINMQ_CLUSTERING_PASSWORD_FILE` | String | (empty) | File with the shared secret, overrides `password`. Mode `0600` recommended; group or other access produces a warning. Raft backend only |
 | `election_timeout` | `--clustering-election-timeout` | `LAVINMQ_CLUSTERING_ELECTION_TIMEOUT` | Int | `1500` | Milliseconds without a leader heartbeat before an election starts, raft backend only |
 | `heartbeat_interval` | `--clustering-heartbeat-interval` | `LAVINMQ_CLUSTERING_HEARTBEAT_INTERVAL` | Int | `250` | Milliseconds between leader heartbeats, raft backend only |
-| `etcd_lease_ttl` | `--clustering-etcd-lease-ttl` | `LAVINMQ_CLUSTERING_ETCD_LEASE_TTL` | Int | `10` | etcd lease TTL in seconds. A leader whose lease isn't renewed in time stops serving and continues as a follower, so raise it if long GC pauses cause leadership loss. Higher values also delay failover. etcd backend only |
+| `etcd_lease_ttl` | `--clustering-etcd-lease-ttl` | `LAVINMQ_CLUSTERING_ETCD_LEASE_TTL` | Int | `10` | etcd lease TTL in seconds. A leader whose lease isn't renewed within it stops serving and continues as a follower, other nodes exit, so raise it if long GC pauses cause leadership loss, and keep a third of it above the time etcd needs to elect a leader. Higher values also delay failover |
 | `max_unsynced_actions` | `--clustering-max-unsynced-actions` | `LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS` | Int | `8192` | **Deprecated:** still accepted but has no effect; how far a follower may lag is governed by the leader's ack deadline |
 | `on_leader_elected` | `--clustering-on-leader-elected` | — | String | (empty) | Shell command on leader election |
 | `on_leader_lost` | `--clustering-on-leader-lost` | — | String | (empty) | Shell command on losing leadership |

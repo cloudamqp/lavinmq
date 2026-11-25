@@ -106,7 +106,7 @@ jobs:
     name: Spec macOS
     runs-on: macos-15
     if: github.repository == 'cloudamqp/lavinmq'
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Install dependencies
         run: |

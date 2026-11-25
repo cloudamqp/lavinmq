@@ -21,10 +21,10 @@ module LavinMQ
     def on_demote(&_block : Proc(Nil)? ->) : Nil
     end
 
-    # The broker it last yielded for is closed, so what the runner holds for
-    # it can go, e.g. replication: its checksums are stored after the
-    # broker's last writes
-    def broker_closed : Nil
+    # Called once the Launcher is done with the broker, before the process
+    # exits, so what the runner holds for it can go, e.g. replication: its
+    # checksums are stored after the broker's last writes
+    def close : Nil
     end
 
     # The cluster's membership and leadership, for the HTTP API, nil when

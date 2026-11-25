@@ -143,7 +143,6 @@ private class RunnerCluster
   private def register(runner : LavinMQ::Clustering::RaftRunner) : Nil
     runner.on_demote do |hand_over|
       hand_over.try &.call
-      runner.broker_closed
       @demotions.send({runner, hand_over.nil?})
     end
   end
@@ -216,7 +215,7 @@ private class RunnerCluster
     @reserved_ports.each_value &.close
     @replication_listeners.each_value &.close
     @runners.each &.stop
-    @runners.each &.broker_closed
+    @runners.each &.close
     @dirs.each { |d| FileUtils.rm_rf d }
   end
 end

@@ -135,7 +135,7 @@ module LavinMQ
       end
       @client_listeners.close
       @control_socket.close
-      @runner.broker_closed
+      @runner.close
       @data_dir_lock.try &.release
     ensure
       @run_done.close
@@ -161,7 +161,6 @@ module LavinMQ
           server.close rescue nil
         end
         hand_over.try &.call
-        @runner.broker_closed
         @http_server = nil
         @amqp_server = nil
         @mqtt_server = nil
