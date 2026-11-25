@@ -20,9 +20,9 @@ module LavinMQ
           @channel.prefetch_count, @channel.flow?, Logger.new(Log, @metadata))
       end
 
-      private def global_capacity_signal : ::Channel(Nil)?
+      private def global_capacity : BoolChannel?
         ch = @channel
-        ch.has_capacity.when_true unless ch.has_capacity?
+        ch.has_capacity unless ch.has_capacity?
       end
 
       private def global_prefetch_full? : Bool
@@ -35,7 +35,17 @@ module LavinMQ
 
       def deliver(msg, sp, redelivered = false, recover = false)
         track_unacked unless @no_ack || recover
-        delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        delivery_tag = begin
+          @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        rescue ex : AMQP::Channel::UnrecordedError
+          # Queue#get puts back the messages it shifts, but a recovered one was
+          # delivered before, so it's requeued like on close
+          if recover
+            reject(sp)
+            @queue.requeue(sp)
+          end
+          raise ex
+        end
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
           redelivered,
@@ -56,10 +66,6 @@ module LavinMQ
         0
       rescue OverflowError
         raise LavinMQ::Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
-      end
-
-      def unacked_messages
-        @channel.unacked
       end
 
       private def channel_details

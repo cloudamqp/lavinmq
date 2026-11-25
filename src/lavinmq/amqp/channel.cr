@@ -51,6 +51,8 @@ module LavinMQ
       getter has_capacity = BoolChannel.new(true)
       getter unacked = Deque(Unack).new
       @basic_get_unacked_count = Atomic(UInt32).new(0)
+      # Messages basic.recover has taken out of @unacked to deliver again
+      @recover_pending = Atomic(Int32).new(0)
       @confirm = false
       @confirm_total = 0_u64
       @confirm_ack_mailbox : ::Channel(UInt64)?
@@ -268,6 +270,7 @@ module LavinMQ
       private def publish_and_return(msg)
         validate_user_id(msg.properties.user_id)
         if @tx
+          msg.synced_by_commit = true
           @tx_publishes.push TxMessage.new(msg, @next_publish_mandatory, @next_publish_immediate)
           return
         end
@@ -275,7 +278,7 @@ module LavinMQ
         msg.needs_sync = true if @confirm
         confirm do
           result = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
-          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed?
+          basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless result.routed? || result.rejected?
           result
         rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
@@ -396,7 +399,6 @@ module LavinMQ
             @deliver_count.add(1, :relaxed)
             @client.vhost.event_tick(EventType::ClientDeliver)
           end
-          @deliver_get_count.add(1, :relaxed)
         end
       end
 
@@ -479,7 +481,6 @@ module LavinMQ
               @get_count.add(1, :relaxed)
               @client.vhost.event_tick(EventType::ClientGet)
             end
-            @deliver_get_count.add(1, :relaxed)
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages
@@ -495,6 +496,9 @@ module LavinMQ
         else
           @client.send_not_found(frame, "No queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")
         end
+      rescue ClosedError
+        # Closed from another fiber during the get, e.g. from the management
+        # API. The client gets a Channel::Close, the connection stays open.
       end
 
       private def delete_unacked(delivery_tag) : Unack?
@@ -539,12 +543,16 @@ module LavinMQ
 
       record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool
       @tx_acks = Array(TxAck).new
+      # Only used by the fiber that reads the client's frames
+      @rejects = Array({Unack, Bool}).new
 
       def basic_ack(frame)
         if @tx
           @unack_lock.synchronize do
             if frame.delivery_tag.zero? && frame.multiple # all msgs so far
-              @tx_acks.push(TxAck.new @unacked.last.tag, frame.multiple, false, false)
+              if last = @unacked.last?
+                @tx_acks.push(TxAck.new last.tag, frame.multiple, false, false)
+              end
               return
             elsif @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
               check_double_ack!(frame.delivery_tag)
@@ -613,7 +621,9 @@ module LavinMQ
         if @tx
           @unack_lock.synchronize do
             if frame.delivery_tag.zero? && frame.multiple # all msgs so far
-              @tx_acks.push(TxAck.new @unacked.last.tag, true, true, frame.requeue)
+              if last = @unacked.last?
+                @tx_acks.push(TxAck.new last.tag, true, true, frame.requeue)
+              end
               return
             elsif @unacked.bsearch { |unack| unack.tag >= frame.delivery_tag }.try &.tag == frame.delivery_tag
               check_double_ack!(frame.delivery_tag)
@@ -629,8 +639,9 @@ module LavinMQ
         if frame.multiple
           delete_multiple_unacked(frame.delivery_tag) do |unack|
             found = true
-            do_reject(frame.requeue, unack)
+            @rejects << {unack, frame.requeue}
           end
+          reject_all
         elsif unack = delete_unacked(frame.delivery_tag)
           found = true
           do_reject(frame.requeue, unack)
@@ -653,6 +664,38 @@ module LavinMQ
       private def unknown_tag(delivery_tag)
         # Lower case u important for bunny on_error callback
         "unknown delivery tag #{delivery_tag}"
+      end
+
+      # Rejects outside @unack_lock, which the channel's deliver loops wait
+      # for: a reject can close a queue, which waits for its deliver loops. If
+      # a reject raises, the rest are put back as unacked, so that the
+      # channel's close requeues them.
+      private def reject_all : Nil
+        @rejects.each_with_index do |(unack, requeue), i|
+          do_reject(requeue, unack)
+        rescue ex
+          restore_unacked(i + 1)
+          raise ex
+        end
+      ensure
+        @rejects.clear
+      end
+
+      private def restore_unacked(from : Int32) : Nil
+        notify_has_capacity do
+          @rejects.each(start: from, count: @rejects.size - from) do |(unack, _)|
+            unless @running # closed meanwhile, so requeue as #close does
+              unack.queue.requeue(unack.sp)
+              if unack.consumer.nil?
+                unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+              end
+              next
+            end
+            idx = @unacked.bsearch_index { |u, _| u.tag >= unack.tag } || @unacked.size
+            @unacked.insert(idx, unack)
+            @basic_get_unacked_count.add(1u32, :relaxed) if unack.consumer.nil?
+          end
+        end
       end
 
       private def do_reject(requeue, unack)
@@ -685,31 +728,70 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
+        redeliver = Array({Unack, AMQP::Consumer}).new
         notify_has_capacity do
           if frame.requeue
-            @unacked.each do |unack|
-              next if delivery_tag_is_in_tx?(unack.tag)
+            @unacked.reject! do |unack|
+              next false if delivery_tag_is_in_tx?(unack.tag)
               if consumer = unack.consumer
                 consumer.reject(unack.sp, requeue: true)
               end
+              release_basic_get(unack)
               unack.queue.requeue(unack.sp)
+              true
             end
-            @unacked.clear
           else # redeliver to the original recipient
             @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
               if (consumer = unack.consumer) && !consumer.closed?
-                env = unack.queue.read(unack.sp)
-                consumer.deliver(env.message, env.segment_position, true, recover: true)
-                false
+                # Delivered again below with a new delivery tag, which
+                # takes @unack_lock, so it can't happen in here
+                redeliver << {unack, consumer}
               else
+                release_basic_get(unack)
                 unack.queue.requeue(unack.sp)
-                true
+              end
+              true
+            end
+            # Still counts against the global prefetch until delivered again
+            @recover_pending.add(redeliver.size, :relaxed)
+          end
+        end
+        handed_over = 0
+        begin
+          redeliver.each do |(unack, consumer)|
+            if consumer.closed?
+              handed_over += 1
+              unack.queue.requeue(unack.sp)
+            else
+              read = unack.queue.read(unack.sp) do |env|
+                # deliver records it in @unacked again, or requeues it if the channel closed
+                handed_over += 1
+                consumer.deliver(env.message, env.segment_position, true, recover: true)
+              end
+              unless read # it can't be read, which paused the queue
+                handed_over += 1
+                consumer.reject(unack.sp, requeue: true)
+                unack.queue.requeue(unack.sp)
               end
             end
           end
+        ensure
+          # Requeue what is no longer in @unacked if a delivery raised
+          (handed_over...redeliver.size).each do |i|
+            unack, consumer = redeliver[i]
+            consumer.reject(unack.sp, requeue: true)
+            unack.queue.requeue(unack.sp)
+          end
+          notify_has_capacity { @recover_pending.sub(redeliver.size, :relaxed) }
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
+      end
+
+      private def release_basic_get(unack : Unack) : Nil
+        return unless unack.consumer.nil?
+        @basic_get_unacked_count.sub(1u32, :relaxed)
+        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
       end
 
       private def delivery_tag_is_in_tx?(delivery_tag) : Bool
@@ -761,10 +843,15 @@ module LavinMQ
         @client.close_channel(self)
       end
 
+      # Raises UnrecordedError if the channel is closed, so that no unacked
+      # message is recorded after #close has requeued them. An Unack recorded
+      # under the lock while the channel is still running is always requeued
+      # by close.
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         tag = @delivery_tag.add(1, :relaxed)
         unless no_ack
           @unack_lock.synchronize do
+            raise UnrecordedError.new("Channel is closed") unless @running
             @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
           end
           add = consumer ? 0u32 : 1u32
@@ -795,7 +882,7 @@ module LavinMQ
 
       def has_capacity? : Bool
         return true if @global_prefetch_count.zero?
-        consumer_unacked = @unacked.size - @basic_get_unacked_count.get(:relaxed)
+        consumer_unacked = @unacked.size + @recover_pending.get(:relaxed) - @basic_get_unacked_count.get(:relaxed)
         consumer_unacked < @global_prefetch_count
       end
 
@@ -806,7 +893,8 @@ module LavinMQ
           begin
             yield
           ensure
-            @has_capacity.set(true) if !had_capacity && has_capacity?
+            capacity = has_capacity?
+            @has_capacity.set(capacity) unless capacity == had_capacity
           end
         end
       end
@@ -859,7 +947,7 @@ module LavinMQ
         @tx_publishes.each do |tx_msg|
           tx_msg.message.timestamp = RoughTime.unix_ms
           result = @client.vhost.publish(tx_msg.message, tx_msg.immediate, @visited, @found_queues)
-          basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless result.routed?
+          basic_return(tx_msg.message, tx_msg.mandatory, tx_msg.immediate) unless result.routed? || result.rejected?
           # skip to next msg body in the next_msg_body_file
           tx_msg.message.body_io.seek(tx_msg.message.bodysize, IO::Seek::Current)
         end
@@ -879,7 +967,7 @@ module LavinMQ
                   unack = @unacked.shift
                   @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
                   if tx_ack.negative
-                    do_reject(tx_ack.requeue, unack)
+                    @rejects << {unack, tx_ack.requeue}
                   else
                     do_ack(unack)
                   end
@@ -888,7 +976,7 @@ module LavinMQ
                 unack = @unacked.delete_at(idx)
                 @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
                 if tx_ack.negative
-                  do_reject(tx_ack.requeue, unack)
+                  @rejects << {unack, tx_ack.requeue}
                 else
                   do_ack(unack)
                 end
@@ -897,6 +985,12 @@ module LavinMQ
           end
           @tx_acks.clear
         end
+      rescue ex
+        restore_unacked(0)
+        @rejects.clear
+        raise ex
+      else
+        reject_all
       end
 
       def tx_rollback(frame)
@@ -912,6 +1006,10 @@ module LavinMQ
       end
 
       class ClosedError < Error; end
+
+      # The channel closed before it recorded a delivery as unacked, so the
+      # message never reached the client and close won't requeue it
+      class UnrecordedError < ClosedError; end
     end
   end
 end

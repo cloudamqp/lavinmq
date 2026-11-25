@@ -19,6 +19,19 @@ test.describe('overview', _ => {
     }
   })
 
+  test('counters and their footers line up across the overview card', async ({ page }) => {
+    // Narrow enough that "View queues →" and the other links wrap, while
+    // Bindings has no link and a one line footer.
+    await page.setViewportSize({ width: 1100, height: 720 })
+    await page.goto('/')
+    await expect(page.locator('#uptime')).not.toHaveText('0s')
+    const tops = sel => page.locator(sel).evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().top)))
+    const counters = await tops('#overview .counter:not(#uptime)')
+    const footers = await tops('#overview .overview-col-footer')
+    expect(new Set(counters).size, `counter tops ${counters}`).toBe(1)
+    expect(new Set(footers).size, `footer tops ${footers}`).toBe(1)
+  })
+
   test('legend click isolates a series', async ({ page }) => {
     await page.goto('/')
     const items = page.locator('#msgChart .u-legend-item')
@@ -129,6 +142,55 @@ test.describe('overview', _ => {
     for (const id of ids) await expect(legendTime(id)).toHaveText(live)
   })
 
+  function routeOverviewSamples (page, samples) {
+    return page.route(/\/api\/overview(\?|$)/, async route => {
+      const response = await route.fetch()
+      const body = await response.json()
+      const log = new Array(samples()).fill(5)
+      body.queue_totals = { ...body.queue_totals, messages_ready_log: log, messages_unacknowledged_log: log }
+      body.send_oct_details = { rate: 5, log }
+      body.recv_oct_details = { rate: 5, log }
+      body.message_stats = { publish: 5, publish_details: { rate: 5, log } }
+      await route.fulfill({ response, json: body })
+    })
+  }
+
+  test('a chart says it is collecting data until it has two samples to draw a line', async ({ page }) => {
+    let samples = 1
+    await routeOverviewSamples(page, () => samples)
+    await page.clock.install()
+    await page.goto('/')
+    const collecting = page.locator('#rateChart').getByText('Collecting data')
+    await expect(collecting).toBeVisible()
+
+    samples = 2
+    await page.clock.runFor(5000)
+    await expect(collecting).toBeHidden()
+  })
+
+  test('a chart stops saying it is collecting data when no samples arrive within three stats intervals', async ({ page }) => {
+    await routeOverviewSamples(page, () => 1)
+    await page.clock.install()
+    await page.goto('/')
+    const collecting = page.locator('#rateChart').getByText('Collecting data')
+    await expect(collecting).toBeVisible()
+
+    await page.clock.runFor(20000)
+    await expect(collecting).toBeHidden()
+  })
+
+  test('a paused chart does not say it is collecting data', async ({ page }) => {
+    await routeOverviewSamples(page, () => 1)
+    await page.goto('/')
+    const collecting = page.locator('#rateChart').getByText('Collecting data')
+    await expect(collecting).toBeVisible()
+
+    await page.locator('#refresh-toggle').click()
+    await expect(collecting).toBeHidden()
+    await page.locator('#refresh-toggle').click()
+    await expect(collecting).toBeVisible()
+  })
+
   test('chart timestamp shows the latest sample and the pause state', async ({ page }) => {
     await page.goto('/')
     const legendTime = page.locator('.u-legend-time').first()
@@ -137,6 +199,43 @@ test.describe('overview', _ => {
     await expect(legendTime).toContainText('Paused at')
     await page.locator('#refresh-toggle').click()
     await expect(legendTime).toHaveText(/^\d{2}:\d{2}:\d{2}$/)
+  })
+
+  function yAxisTicks (page, unit, log) {
+    return page.evaluate(async ({ url, unit, log }) => {
+      const Chart = await import(url)
+      const el = document.createElement('div')
+      el.id = 'axisChart'
+      el.style.width = '1400px'
+      document.body.append(el)
+      const chart = Chart.render(el.id, unit)
+      Chart.update(chart, [{ key: 'value', value: log.at(-1), log }])
+      await new Promise(resolve => window.requestAnimationFrame(resolve))
+      const axis = chart.uplot.axes[1]
+      return { splits: axis._splits, labels: axis._values }
+    }, { url: '/js/chart.js', unit, log })
+  }
+
+  const LABEL_SCALES = { K: 1e3, M: 1e6, G: 1e9, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3 }
+
+  function parseLabel (label) {
+    const [, digits, scale] = label.match(/^([\d.,]+)\s*(\w*)/)
+    return Number(digits.replace(/,/g, '')) * (LABEL_SCALES[scale] ?? 1)
+  }
+
+  for (const [unit, value] of [['msgs/s', 0.2], ['msgs/s', 1400], ['bytes/s', 0.2], ['bytes/s', 1.4 * 1024 ** 2]]) {
+    test(`y axis labels name their tick values exactly at ${value} ${unit}`, async ({ page }) => {
+      await page.goto('/')
+      const { splits, labels } = await yAxisTicks(page, unit, [value, value])
+      expect(splits.length).toBeGreaterThan(2)
+      expect(labels.map(parseLabel)).toEqual(splits.map(v => Number(v.toPrecision(12))))
+    })
+  }
+
+  test('y axis ticks of message counts are whole numbers', async ({ page }) => {
+    await page.goto('/')
+    const { splits } = await yAxisTicks(page, 'msgs', [1, 1])
+    expect(splits.filter(v => !Number.isInteger(v))).toEqual([])
   })
 
   test('y axis shrinks after five polls below the range, not five redraws', async ({ page }) => {
@@ -154,6 +253,20 @@ test.describe('overview', _ => {
     }, '/js/chart.js')
     expect(maxes).toEqual([...new Array(12).fill(1000), 100, 100, 100])
   })
+
+  // Chromium on Linux reports e.g. 'en-US@posix' when started without LANG
+  for (const language of ['en-US@posix', 'C']) {
+    test(`renders charts when navigator.language is '${language}'`, async ({ page }) => {
+      await page.addInitScript(language => {
+        Object.defineProperty(Navigator.prototype, 'language', { get: () => language })
+      }, language)
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
+      await page.goto('/')
+      await expect(page.locator('#msgChart .u-legend-item')).toHaveCount(2)
+      expect(errors).toEqual([])
+    })
+  }
 
   test('definitions export trigger GET to /api/definitions for all vhosts', async ({ page }) => {
     const definitionsRequest = helpers.waitForPathRequest(page, '/api/definitions')

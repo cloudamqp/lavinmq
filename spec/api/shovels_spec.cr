@@ -3,8 +3,8 @@ require "uri"
 
 def create_shovel(server, name = "spec-shovel", config = NamedTuple.new, paused = false)
   config = NamedTuple.new(
-    "src-uri": server.amqp_server.url,
-    "dest-uri": server.amqp_server.url,
+    "src-uri": remote_amqp_uri(server),
+    "dest-uri": remote_amqp_uri(server),
     "dest-queue": "q1",
     "src-queue": "q2",
     "src-prefetch-count": 1000,
@@ -178,7 +178,7 @@ describe LavinMQ::HTTP::ShovelsController do
       with_http_server do |http, s|
         body = {
           value: {
-            "src-uri":   s.amqp_server.url,
+            "src-uri":   remote_amqp_uri(s),
             "src-queue": "events",
             "dest-uri":  "https://example.com/webhook",
           },

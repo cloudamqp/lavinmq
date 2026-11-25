@@ -17,7 +17,7 @@ Each shovel runs as an independent fiber owned by its vhost. When started, it op
 An AMQP `src-uri` or `dest-uri` names either this broker or another one:
 
 - **This broker, in-process.** A URI without host, `amqp://` (the `/` vhost) or `amqp:///vhost`, is this broker. The shovel works directly against the vhost: it is registered as a consumer of the source queue and publishes straight into the destination, without opening any AMQP connection and without logging in as any user. It works whatever ports the AMQP listeners use. Publishes to it are confirmed once they are durable (and replicated to in-sync followers), like a publisher confirm. Use `amqp:///other-vhost` to move messages between vhosts.
-- **Another broker, over AMQP.** Any URI with a host, `localhost` included, is reached with an AMQP connection using the credentials in the URI, e.g. `amqps://user:password@broker.example.com/vhost`.
+- **Another broker, over AMQP.** Any URI with a host, `localhost` included, is reached with an AMQP connection using the credentials in the URI, e.g. `amqps://user:password@broker.example.com/vhost`. The URI must include credentials, and can't use the default user while that user is restricted to localhost clients (`default_user_only_loopback`), since the broker itself connects from localhost.
 
 Because an in-process endpoint has no credentials of its own, the user creating the shovel must have the permissions the shovel needs there: `read` and `configure` on the source queue or exchange, `write` and `configure` on the destination exchange, and `configure` on the destination queue. A shovel parameter that names a vhost or resource the user can't access is refused. A remote broker checks the URI's credentials itself.
 
@@ -220,7 +220,7 @@ There is no in-place retry of a failed request; a `Retry` goes straight back to 
 
 ## Reconnection
 
-Shovels automatically reconnect on failure with a default base delay of 5 seconds. After 10 consecutive retries, the delay increases exponentially up to a maximum of 300 seconds.
+Shovels automatically reconnect on failure with a default base delay of 5 seconds. After 10 consecutive retries, the delay grows exponentially, starting from at least 2 seconds, up to 300 seconds. It is never shorter than `reconnect-delay`.
 
 A reconnect is a fresh start: both the source and the destination are stopped before the delay, and a [multi-destination](#multi-destination) shovel draws a destination at random again when it restarts.
 

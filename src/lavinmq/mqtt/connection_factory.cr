@@ -24,6 +24,10 @@ module LavinMQ
           io = Protocol::IO.new(socket, @config.mqtt_max_packet_size)
           if packet = io.read_packet.as?(Protocol::Connect)
             logger.trace { "recv #{packet.inspect}" }
+            if (will = packet.will) && will.topic.bytesize > MAX_TOPIC_BYTESIZE
+              # No CONNACK return code fits in MQTT 3.1.1, so refuse without one
+              raise TopicTooLong.new("will topic is #{will.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
+            end
             user, broker = authenticate(packet, connection_info)
             packet = assign_client_id(packet, user.name) if packet.client_id.empty?
             validate_client_id!(packet.client_id, user.name)
@@ -32,6 +36,7 @@ module LavinMQ
                 "too many connections to vhost \"#{broker.vhost.name}\"")
             end
             session_present = broker.session_present?(packet.client_id, packet.clean_session?)
+            @vhosts.mqtt_client_connected!
             connack io, session_present, Protocol::Connack::ReturnCode::Accepted
             broker.run_client(io, connection_info, user, packet)
           end

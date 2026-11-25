@@ -38,13 +38,42 @@ module LavinMQ
     STATS_KEYS = {"channel_closed", "channel_created", "connection_closed", "connection_created",
                   "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                   "redeliver", "reject", "return_unroutable", "consumer_added", "consumer_removed", "recv_oct", "send_oct"}
-    rate_stats(STATS_KEYS)
+    rate_stats(STATS_KEYS, {"messages_ready", "messages_unacknowledged"}, UInt64)
+
+    # Ready and unacked messages in all queues and sessions, as of the last stats tick
+    @messages_ready = 0_u64
+    @messages_unacknowledged = 0_u64
+    private getter messages_ready, messages_unacknowledged
+
+    # Updates every object's rates, then the vhost's own and the message totals they summed
+    def update_rates(interval : Float64 = Config.instance.stats_interval / 1000.0) : Nil
+      ready = unacked = 0_u64
+      each_queue do |q|
+        q.update_rates(interval)
+        ready += q.message_count
+        unacked += q.unacked_count
+      end
+      each_exchange(&.update_rates(interval))
+      each_session do |s|
+        s.update_rates(interval)
+        ready += s.message_count
+        unacked += s.unacked_count
+      end
+      each_connection do |c|
+        c.update_rates(interval)
+        c.each_channel(&.update_rates(interval))
+      end
+      @messages_ready = ready
+      @messages_unacknowledged = unacked
+      previous_def
+    end
 
     DEAD_LETTER_KEYS = {"dead_lettered_delivery_limit_disabled", "dead_lettered_delivery_limit_at_most_once",
                         "dead_lettered_expired_disabled", "dead_lettered_expired_at_most_once",
                         "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
                         "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
-    {% for key in DEAD_LETTER_KEYS %}
+    MQTT_PUBLISHED_KEYS = {"mqtt_published_qos0", "mqtt_published_qos1", "mqtt_published_qos2"}
+    {% for key in DEAD_LETTER_KEYS + MQTT_PUBLISHED_KEYS %}
       @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
 
       def {{ key.id }}_count : UInt64
@@ -58,8 +87,8 @@ module LavinMQ
     # before definitions replay; entries are sessions and x-mqtt-topic exchanges.
     getter mqtt_subscription_tree = MQTT::SubscriptionTree(MQTT::Subscriber).new
     getter closed = BoolChannel.new(true)
-    property max_connections : Int32?
-    property max_queues : Int32?
+    getter max_connections : Int32?
+    getter max_queues : Int32?
 
     # Set by the server's disk space monitor, read by every publishing client
     @flow = Atomic(Bool).new(true)
@@ -158,6 +187,10 @@ module LavinMQ
 
     def register_queue(queue : AMQP::Queue) : Nil
       definitions.register_queue(queue)
+    end
+
+    def synchronize_definitions(&)
+      definitions.synchronize { yield }
     end
 
     def queues_clear : Nil
@@ -281,8 +314,8 @@ module LavinMQ
       @persister.enqueue_ack(target, id)
     end
 
-    def max_connections=(value : Int32) : Nil
-      value = nil if value < 0
+    def max_connections=(value : Int32?) : Nil
+      value = nil if value && value < 0
       @max_connections = value
       store_limits
     end
@@ -291,8 +324,8 @@ module LavinMQ
       @max_connections.try { |max| connections_size >= max } || false
     end
 
-    def max_queues=(value : Int32) : Nil
-      value = nil if value < 0
+    def max_queues=(value : Int32?) : Nil
+      value = nil if value && value < 0
       @max_queues = value
       store_limits
     end
@@ -359,7 +392,8 @@ module LavinMQ
       }
     end
 
-    def message_details
+    # Ready and unacked messages in all queues and sessions right now
+    def count_messages : {UInt64, UInt64}
       ready = unacked = 0_u64
       each_queue do |q|
         ready += q.message_count
@@ -369,7 +403,11 @@ module LavinMQ
         ready += s.message_count
         unacked += s.unacked_count
       end
+      {ready, unacked}
+    end
 
+    def message_details
+      ready, unacked = count_messages
       {
         messages:                ready + unacked,
         messages_unacknowledged: unacked,
@@ -497,8 +535,15 @@ module LavinMQ
 
     def add_parameter(p : Parameter, save = true, apply = true)
       @log.debug { "Add parameter #{p.name}" }
+      previous = @parameters[p.name]?
       @parameters.create(p, save: save)
-      apply_parameters(p)
+      begin
+        apply_parameters(p)
+      rescue ex
+        # The old config still runs in memory, so put its parameter back
+        previous.try { |prev| @parameters.create(prev, save: save) }
+        raise ex
+      end
       spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}" if apply
     end
 
@@ -571,7 +616,7 @@ module LavinMQ
     # resource skips a run older than the newest one it has applied, so a run
     # that read the policies before a later change can't overwrite that
     # change's run. No lock is held while applying: applying a policy can
-    # take other locks, e.g. a delayed-message policy registers a queue.
+    # take other locks, e.g. a federation-upstream policy reconciles its link.
     def apply_policies(resources : Array(Queue | Exchange)? = nil)
       policies, operator_policies, generation = @policy_snapshot_lock.synchronize do
         {@policies.values.sort_by!(&.priority).reverse,
@@ -663,16 +708,12 @@ module LavinMQ
       in EventType::ClientReturnUnroutable then @return_unroutable_count.add(1, :relaxed)
       in EventType::ClientGet
         @get_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientGetNoAck
         @get_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientDeliver
         @deliver_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientDeliverNoAck
         @deliver_no_ack_count.add(1, :relaxed)
-        @deliver_get_count.add(1, :relaxed)
       end
     end
 
@@ -686,6 +727,14 @@ module LavinMQ
         dlx ? @dead_lettered_maxlen_at_most_once_count.add(1, :relaxed) : @dead_lettered_maxlen_disabled_count.add(1, :relaxed)
       when :rejected
         dlx ? @dead_lettered_rejected_at_most_once_count.add(1, :relaxed) : @dead_lettered_rejected_disabled_count.add(1, :relaxed)
+      end
+    end
+
+    def count_mqtt_published(qos : UInt8) : Nil
+      case qos
+      when 0 then @mqtt_published_qos0_count.add(1, :relaxed)
+      when 1 then @mqtt_published_qos1_count.add(1, :relaxed)
+      when 2 then @mqtt_published_qos2_count.add(1, :relaxed)
       end
     end
 

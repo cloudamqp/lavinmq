@@ -14,6 +14,9 @@ module LavinMQ
       @message_count : UInt64 = 0
       @retries : Int64 = 0
       @stop_generation = Atomic(UInt64).new(0_u64)
+      # Keeps the state, the paused file and its replication in step when
+      # #pause, #resume and #delete race
+      @pause_lock = Mutex.new
       # Consecutive failing rounds of transient (Retry) deliveries (see
       # extend_backoff), written by the outcome handler (confirm fiber) and
       # read by the consuming loop for backoff.
@@ -38,6 +41,7 @@ module LavinMQ
         @paused_file_path = File.join(Config.instance.data_dir, filename)
         if File.exists?(@paused_file_path)
           @state = State::Paused
+          @vhost.replicator.try &.register_file(@paused_file_path)
         end
       end
 
@@ -187,7 +191,7 @@ module LavinMQ
       # Backoff before the next delivery attempt after `failures` consecutive
       # transient failures: 0.5s, 1s, 2s, 4s, … doubling, capped at
       # MAX_DELIVERY_DELAY, then holding there.
-      def self.delivery_backoff(failures : Int32) : Time::Span
+      protected def self.delivery_backoff(failures : Int32) : Time::Span
         return 0.seconds if failures <= 0
         secs = Math.min(MAX_DELIVERY_DELAY.to_f, 0.5 * 2.0 ** Math.min(failures - 1, 6))
         secs.seconds
@@ -236,11 +240,18 @@ module LavinMQ
 
       def exponential_reconnect_delay
         @retries += 1
-        if @retries > RETRY_THRESHOLD
-          sleep Math.min(MAX_DELAY, @reconnect_delay.seconds ** (@retries - RETRY_THRESHOLD)).seconds
-        else
-          sleep @reconnect_delay
-        end
+        sleep self.class.reconnect_backoff(@reconnect_delay, @retries)
+      end
+
+      # `delay`, then past RETRY_THRESHOLD attempts `delay` in seconds (at least
+      # 2, so 0 and 1 second grow) to the power of the extra attempts, capped at
+      # MAX_DELAY seconds but never below `delay`. Float math, as the power
+      # keeps growing past the cap and would overflow an Int.
+      protected def self.reconnect_backoff(delay : Time::Span, retries : Int) : Time::Span
+        return delay if retries <= RETRY_THRESHOLD
+        base = Math.max(2.0, delay.total_seconds)
+        backoff = Math.min(MAX_DELAY.to_f, base ** (retries - RETRY_THRESHOLD))
+        Math.max(delay, backoff.seconds)
       end
 
       def details_tuple
@@ -262,24 +273,31 @@ module LavinMQ
 
       # Start a new run for a paused or aborted shovel.
       def resume
-        return unless paused? || aborted?
-        delete_paused_file
-        @state = State::Starting
+        @pause_lock.synchronize do
+          return unless paused? || aborted?
+          delete_paused_file
+          @state = State::Starting
+        end
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
         spawn(run, name: "Shovel name=#{@name} vhost=#{@vhost.name}")
       end
 
       def pause
-        return if terminated?
-        File.write(@paused_file_path, @name)
-        Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
-        halt(State::Paused)
+        @pause_lock.synchronize do
+          return if terminated?
+          File.write(@paused_file_path, @name)
+          @vhost.replicator.try &.replace_file(@paused_file_path)
+          Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
+          halt(State::Paused)
+        end
         Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
       end
 
       def delete
-        terminate
-        delete_paused_file
+        @pause_lock.synchronize do
+          terminate
+          delete_paused_file
+        end
       end
 
       # Does not trigger reconnect, but a graceful close
@@ -299,8 +317,10 @@ module LavinMQ
         @destination.stop
       end
 
-      def delete_paused_file
-        FileUtils.rm(@paused_file_path) if File.exists?(@paused_file_path)
+      private def delete_paused_file
+        return unless File.exists?(@paused_file_path)
+        FileUtils.rm(@paused_file_path)
+        @vhost.replicator.try &.delete_file(@paused_file_path)
       end
 
       def should_stop_loop?(run_generation)

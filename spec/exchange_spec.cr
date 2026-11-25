@@ -124,6 +124,18 @@ describe LavinMQ::Exchange do
     end
   end
 
+  describe "federation upstream exchange declaration" do
+    it "loads a manually declared exchange after restart" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.exchange("fed", "x-federation-upstream", durable: true)
+        end
+        restart_server(s)
+        s.vhosts["/"].exchange("fed").type.should eq "x-federation-upstream"
+      end
+    end
+  end
+
   describe "delayed message exchange declaration" do
     dmx_args = AMQP::Client::Arguments.new({"x-delayed-type" => "topic", "test" => "hello"})
     illegal_dmx_args = AMQP::Client::Arguments.new({"test" => "hello"})
@@ -276,7 +288,7 @@ describe LavinMQ::Exchange do
         it "stop existing link" do
           with_amqp_server do |s|
             downstream_vhost = s.vhosts.create("downstream")
-            config = {"uri": JSON::Any.new("#{s.amqp_server.url}/upstream")}
+            config = {"uri": JSON::Any.new("#{remote_amqp_uri(s, "upstream")}")}
             downstream_vhost.upstreams.create_upstream("upstream", config)
             definition = {"federation-upstream" => JSON::Any.new("upstream")}
             downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
@@ -293,7 +305,7 @@ describe LavinMQ::Exchange do
       it "will start link" do
         with_amqp_server do |s|
           downstream_vhost = s.vhosts.create("downstream")
-          config = {"uri": JSON::Any.new("#{s.amqp_server.url}/upstream")}
+          config = {"uri": JSON::Any.new("#{remote_amqp_uri(s, "upstream")}")}
           downstream_vhost.upstreams.create_upstream("upstream", config)
           definition = {"federation-upstream" => JSON::Any.new("upstream")}
           downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
@@ -305,7 +317,7 @@ describe LavinMQ::Exchange do
         it "won't start link" do
           with_amqp_server do |s|
             downstream_vhost = s.vhosts.create("downstream")
-            config = {"uri": JSON::Any.new("#{s.amqp_server.url}/upstream")}
+            config = {"uri": JSON::Any.new("#{remote_amqp_uri(s, "upstream")}")}
             downstream_vhost.upstreams.create_upstream("upstream", config)
             definition = {"federation-upstream" => JSON::Any.new("upstream")}
             downstream_vhost.add_policy("fed", "^fed", "exchanges", definition, 1i8)

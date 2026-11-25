@@ -1,6 +1,7 @@
 require "uri"
 require "json"
 require "amq-protocol"
+require "../config"
 
 module LavinMQ
   # An Endpoint is one end of a shovel or federation link: a broker that
@@ -54,6 +55,24 @@ module LavinMQ
     def self.vhost_name(uri : URI) : String
       path = URI.decode(uri.path.lchop("/"))
       path.empty? ? "/" : path
+    end
+
+    # Why a URI with a host can't be used as it is, or nil. Such a URI is
+    # reached over AMQP with the credentials it carries, so it must carry
+    # some: the client would otherwise log in as the default user. And it
+    # can't carry the default user's while that user is only allowed from
+    # localhost, which the broker connecting to itself always is.
+    def self.check_credentials(uri : URI) : String?
+      return unless uri.scheme.in?("amqp", "amqps")
+      return if local?(uri)
+      user = uri.user.try { |u| URI.decode_www_form(u) }
+      if user.nil? || user.empty?
+        return "a URI with a host must include credentials, use amqp:///vhost for this broker"
+      end
+      config = Config.instance
+      if user == config.default_user && config.default_user_only_loopback?
+        "the default user can't be used in a URI with a host, use amqp:///vhost for this broker"
+      end
     end
 
     # The `uri` field of a shovel or federation upstream parameter: a URI or,

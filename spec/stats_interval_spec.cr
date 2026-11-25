@@ -1,16 +1,5 @@
 require "./spec_helper"
 
-private def with_stats_interval(ms : Int32, &)
-  cfg = LavinMQ::Config.instance
-  orig = cfg.stats_interval
-  begin
-    cfg.stats_interval = ms
-    yield
-  ensure
-    cfg.stats_interval = orig
-  end
-end
-
 module LavinMQ
   private class IntervalProbe
     include Stats
@@ -21,7 +10,7 @@ module LavinMQ
     end
 
     def x_rate
-      @x_rate
+      current_stats_details[:x_details][:rate]
     end
   end
 
@@ -36,6 +25,56 @@ module LavinMQ
               log.each &.finite?.should be_true
             end
           end
+        end
+      end
+    end
+  end
+
+  describe Server do
+    it "spans the time since the previous tick when a reload shortens the interval meanwhile" do
+      with_stats_interval(1000) do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+          with_channel(s) do |ch|
+            q = ch.queue("slept")
+            ticks = s.stats_ticks
+            wait_for { s.stats_ticks > ticks } # the loop is in its 1 s sleep
+            LavinMQ::Config.instance.stats_interval = 30
+            3.times { q.publish_confirm "m" }
+            size = vhost.stats_details[:publish_details][:log].size
+            wait_for { vhost.stats_details[:publish_details][:log].size > size }
+            # Three messages over the second it slept; the 30 ms ticks after it log 0
+            rate = vhost.stats_details[:publish_details][:log][size]
+            rate.should be > 0.0
+            rate.should be < 10.0 # over the 30 ms a reload set it would be 100
+          end
+        end
+      end
+    end
+
+    it "ends its stats loop on close without waiting out the interval" do
+      loops = -> { fibers = [] of Fiber; Fiber.list { |f| fibers << f if f.name == "Server#stats_loop" }; fibers }
+      before = loops.call
+      with_stats_interval(3_600_000) do
+        with_amqp_server do |s|
+          wait_for { s.stats_ticks > 0 }
+          stats_fiber = (loops.call - before).first
+          s.close
+          wait_for { stats_fiber.dead? }
+        end
+      end
+    end
+
+    it "keeps checking free disk space while out of file descriptors" do
+      with_stats_interval(50) do
+        with_amqp_server do |s|
+          without_free_file_descriptors do
+            # Publishers are stopped when the disk is about to fill up
+            size = s.disk_free_log.size
+            wait_for(timeout: 5.seconds) { s.disk_free_log.size > size }
+          end
+          size = s.rss_log.size
+          wait_for { s.rss_log.size > size }
         end
       end
     end

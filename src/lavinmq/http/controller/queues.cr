@@ -45,7 +45,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             consumer_limit = context.request.query_params["consumer_list_length"]?.try &.to_i || -1
-            JSON.build(context.response) do |json|
+            JSON.build(context.response.output) do |json|
               find_queue(context, params, vhost).to_json(json, consumer_limit)
             end
           end
@@ -94,8 +94,12 @@ module LavinMQ
 
         put "/api/queues/:vhost/:name/pause" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless user.can_config?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to pause queue '#{q.name}'")
+            end
             q.pause!
             context.response.status_code = 204
           end
@@ -103,22 +107,14 @@ module LavinMQ
 
         put "/api/queues/:vhost/:name/resume" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
+            unless user.can_config?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to resume queue '#{q.name}'")
+            end
             q.resume!
             context.response.status_code = 204
-          end
-        end
-
-        put "/api/queues/:vhost/:name/restart" do |context, params|
-          with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
-            q = find_queue(context, params, vhost)
-            if q.restart!
-              context.response.status_code = 204
-            else
-              bad_request(context, "Queue was not restarted")
-            end
           end
         end
 
@@ -129,6 +125,9 @@ module LavinMQ
             user = user(context)
             unless user.can_config?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to delete queue '#{q.name}'")
+            end
+            if q.internal?
+              access_refused(context, "Queue '#{q.name}' in vhost '#{vhost.name}' is an internal queue")
             end
             if context.request.query_params["if-unused"]? == "true"
               bad_request(context, "Queue #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
@@ -182,14 +181,14 @@ module LavinMQ
               forbidden(context, "Can't get from queue that is not in running state")
             end
             body = parse_body(context)
-            get_count = body["count"]?.try(&.as_i) || 1
+            get_count = int32_field?(context, body, "count") || 1
             ack_mode = (body["ack_mode"]? || body["ackmode"]?).try(&.as_s) || "get"
             encoding = body["encoding"]?.try(&.as_s) || "auto"
-            truncate = body["truncate"]?.try(&.as_i)
+            truncate = int32_field?(context, body, "truncate")
             requeue = body["requeue"]?.try(&.as_bool) || ack_mode == "reject_requeue_true"
             ack = ack_mode == "get"
             bad_request(context, "Cannot requeue message on get") if ack && requeue
-            JSON.build(context.response) do |j|
+            JSON.build(context.response.output) do |j|
               j.array do
                 sps = Array(SegmentPosition).new(get_count)
                 get_count.times do
@@ -253,17 +252,16 @@ module LavinMQ
               forbidden(context, "Can't read from stream that is not in running state")
             end
             body = parse_body(context)
-            count = body["count"]?.try(&.as_i) || 1
+            count = int32_field?(context, body, "count") || 1
             count = 0 if count < 0
-            offset = body["offset"]?.try(&.as_s) || "first"
-            offset = offset.to_i64 if /^\d+$/.match(offset)
+            offset = LavinMQ::AMQP::StreamOffset.parse(body["offset"]?.try(&.raw))
             encoding = body["encoding"]?.try(&.as_s) || "auto"
-            truncate = body["truncate"]?.try(&.as_i)
-            reader = q.reader(offset)
-            JSON.build(context.response) do |j|
+            truncate = int32_field?(context, body, "truncate")
+            JSON.build(context.response.output) do |j|
               j.array do
-                reader.each do |env|
-                  break if count.zero?
+                q.each_from(offset, count) do |env|
+                  vhost.event_tick(EventType::ClientGetNoAck)
+                  vhost.add_send_bytes(env.message.bodysize.to_u64)
                   payload_encoding = "string"
                   j.object do
                     j.field("payload_bytes", env.message.bodysize)
@@ -279,12 +277,25 @@ module LavinMQ
                     end
                     j.field("payload_encoding", payload_encoding)
                   end
-                  count -= 1
                 end
               end
             end
-          rescue e : LavinMQ::AMQP::StreamMessageStore::OffsetError
+          rescue e : LavinMQ::AMQP::StreamOffset::Error
             bad_request(context, e.message)
+          rescue e : LavinMQ::AMQP::Queue::ClosedError | LavinMQ::MessageStore::ClosedError | LavinMQ::MessageStore::Error
+            # Once flushed the response can't become an error: it stays a 200
+            # and ends with the JSON array unterminated, so the client fails
+            # when parsing it
+            raise e if context.response.wrote_headers?
+            # Discard the buffered partial array but keep the default headers
+            headers = context.response.headers.dup
+            context.response.reset
+            context.response.headers.merge!(headers)
+            if e.is_a?(LavinMQ::MessageStore::Error)
+              forbidden(context, "Stream paused during read, a message store error, see its state")
+            else
+              forbidden(context, "Stream closed during read")
+            end
           end
         end
       end

@@ -164,6 +164,15 @@ module LavinMQ
         @recv_oct_count.add(packet.bytesize, :relaxed)
         vhost.add_recv_bytes(packet.bytesize.to_u64)
 
+        # Packet id 0 is illegal [MQTT-2.3.1-1]. Handled like a packet that
+        # can't be decoded, as there is nothing valid to acknowledge.
+        case packet
+        when Protocol::Publish, Protocol::Subscribe, Protocol::Unsubscribe
+          if packet.packet_id == 0
+            raise Protocol::Error::PacketDecode.new("#{packet.class.name} with packet id 0")
+          end
+        end
+
         case packet
         when Protocol::Publish     then recieve_publish(packet)
         when Protocol::PubAck      then recieve_puback(packet)
@@ -176,10 +185,11 @@ module LavinMQ
         packet
       end
 
-      def send(packet)
+      # Over WebSocket every packet is flushed, one WebSocket frame per packet like the AMQP path
+      def send(packet, flush = true)
         @lock.synchronize do
           @io.write_packet(packet)
-          @io.flush
+          @io.flush if flush || websocket?
           @send_oct_count.add(packet.bytesize, :relaxed)
           vhost.add_send_bytes(packet.bytesize.to_u64)
         end
@@ -196,6 +206,14 @@ module LavinMQ
         end
       end
 
+      def flush
+        @lock.synchronize { @io.flush }
+      end
+
+      private def websocket?
+        @io.io.is_a?(LavinMQ::WebSocketIO)
+      end
+
       def receive_pingreq(packet : Protocol::PingReq)
         send Protocol::PingResp.new
       end
@@ -203,7 +221,7 @@ module LavinMQ
       def recieve_publish(packet : Protocol::Publish)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
-          close_socket
+          disconnect
           return
         end
         # A topic denial acks and drops, it never closes the connection.
@@ -215,7 +233,13 @@ module LavinMQ
           end
           return
         end
-        @broker.publish(packet, @publish_context)
+        # MQTT 3.1.1 has no negative PUBACK, so closing is the only way to
+        # tell the client its publish wasn't accepted
+        unless @broker.publish(packet, @publish_context)
+          @log.warn { "Publish refused, server low on disk space" }
+          disconnect
+          return
+        end
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
@@ -247,7 +271,11 @@ module LavinMQ
             send(Protocol::PubAck.new(pending.packet_id))
           end
         end
-      rescue ::IO::Error
+      rescue ex : ::IO::TimeoutError
+        @log.info { "Timeout while sending PUBACK (#{ex.inspect})" }
+        close_socket
+      rescue ::IO::Error | OpenSSL::SSL::Error
+        close_socket
       end
 
       private def next_puback(seq : UInt64) : PendingPubAck?
@@ -260,7 +288,7 @@ module LavinMQ
         # No session means we never delivered anything to ack
         unless session = @broker.sessions[@client_id]?
           @log.warn { "Received PubAck from client without a session" }
-          close_socket
+          disconnect
           return
         end
         session.ack(packet)
@@ -271,7 +299,7 @@ module LavinMQ
         if Config.instance.mqtt_permission_check_enabled?
           unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
-            close_socket
+            disconnect
             return
           end
         end
@@ -332,7 +360,7 @@ module LavinMQ
             Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return
           end
-          @broker.publish(Protocol::Publish.new(
+          published = @broker.publish(Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
@@ -340,6 +368,7 @@ module LavinMQ
             retain: will.retain?,
             dup: false,
           ), @publish_context)
+          @log.warn { "Will publish refused, server low on disk space" } unless published
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
@@ -359,6 +388,13 @@ module LavinMQ
       end
 
       def force_close
+        close_socket
+      end
+
+      # For closing from the read loop, which then doesn't log the close as
+      # unexpected (see #close for closing from elsewhere)
+      private def disconnect : Nil
+        @closed = true
         close_socket
       end
 

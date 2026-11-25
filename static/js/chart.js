@@ -1,10 +1,11 @@
 /* global ResizeObserver MutationObserver */
+import './locale.js'
 import UPlot from './lib/uplot.esm.js'
 import * as helpers from './helpers.js'
 import * as Poller from './poller.js'
 import { statsInterval } from './http.js'
 import {
-  buildLegend, addLegendItem, updateLegend, alignLegend,
+  buildLegend, addLegendItem, updateLegend, alignLegend, resetValueWidth,
   formatLabel, formatDigits, isByteUnit, timeFormatter
 } from './chart-legend.js'
 
@@ -22,9 +23,31 @@ function refreshLegend (handle) {
   updateLegend(handle, handle.uplot ? handle.uplot.legend.idx : null)
 }
 
+const COLLECTING_INTERVALS = 3
+
+function refreshCollecting (handle) {
+  if (!handle.collectingEl) return
+  handle.collectingEl.hidden = Poller.isPaused() || handle.samples >= 2 ||
+    Date.now() - handle.renderedAt >= COLLECTING_INTERVALS * statsInterval()
+}
+
 Poller.events.addEventListener('change', () => {
-  for (const h of handles) refreshLegend(h)
+  for (const h of handles) {
+    refreshLegend(h)
+    refreshCollecting(h)
+  }
 })
+
+// On an uncached load the legends can be measured before Inter has loaded.
+// WebKit doesn't fire loadingdone for CSS fonts, hence fonts.ready as well.
+function remeasureLegends () {
+  for (const h of handles) {
+    resetValueWidth(h)
+    refreshLegend(h)
+  }
+}
+document.fonts.ready.then(remeasureLegends)
+document.fonts.addEventListener('loadingdone', remeasureLegends)
 
 function toPoint (v) {
   if (v == null) return null
@@ -43,8 +66,11 @@ function makeSeriesDef (handle, key, color, filled) {
   }
 }
 
+// Below this a narrow card leaves too little plot for more than one y tick.
+const MIN_CHART_HEIGHT = 180
+
 function chartHeight (width) {
-  return Math.round(width / 2.5)
+  return Math.max(MIN_CHART_HEIGHT, Math.round(width / 2.5))
 }
 
 const SCALE_STEPS = [1, 1.5, 2, 3, 5, 7.5, 10]
@@ -177,14 +203,33 @@ function yAxisSize (u, values, axisIdx, cycleNum) {
   return Math.max(24, Math.ceil(size / 8) * 8)
 }
 
-const BYTE_INCRS = [0, 1, 2, 3, 4].flatMap(p =>
-  [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map(m => m * 1024 ** p))
+const BYTE_INCRS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5].concat([0, 1, 2, 3, 4].flatMap(p =>
+  [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map(m => m * 1024 ** p)))
 
-function fmtAxisBytes (v, perSec) {
+const COUNT_INCRS = [...Array(16).keys()].flatMap(p => [1, 2, 5].map(m => m * 10 ** p))
+
+function stepDecimals (incr) {
+  let decimals = 0
+  while (decimals < 20 && Math.abs(incr * 10 ** decimals - Math.round(incr * 10 ** decimals)) > 1e-9) decimals++
+  return decimals
+}
+
+function fmtTick (v, divisor, incr) {
+  return formatDigits(v / divisor, stepDecimals(incr / divisor))
+}
+
+const SI_PREFIXES = [[1e9, 'G'], [1e6, 'M'], [1e3, 'K']]
+
+function fmtAxisNumber (v, incr) {
+  const [divisor, prefix] = SI_PREFIXES.find(([d]) => Math.abs(v) >= d) ?? [1, '']
+  return fmtTick(v, divisor, incr) + prefix
+}
+
+function fmtAxisBytes (v, incr, perSec) {
   if (v === 0) return '0'
-  const { value, prefix } = helpers.scaleBytes(v)
-  const digits = formatDigits(value)
-  return digits + ' ' + prefix + (perSec ? '/s' : '')
+  const unitIdx = helpers.byteUnitIndex(v)
+  const { prefix } = helpers.scaleBytes(v, unitIdx)
+  return fmtTick(v, 1024 ** unitIdx, incr) + ' ' + prefix + (perSec ? '/s' : '')
 }
 
 function xAxisValues (u, vals) {
@@ -248,9 +293,10 @@ function initChart (handle) {
         grid: { stroke: gridColor, dash: [2, 4] },
         ticks: { stroke: gridColor, size: 3 },
         ...(bytes && { incrs: BYTE_INCRS }),
+        ...(config.unit === 'msgs' && { incrs: COUNT_INCRS }),
         values: bytes
-          ? (u, vals) => vals.map(v => fmtAxisBytes(v, config.unit === 'bytes/s'))
-          : (u, vals) => vals.map(helpers.nFormatter),
+          ? (u, vals, axisIdx, space, incr) => vals.map(v => fmtAxisBytes(v, incr, config.unit === 'bytes/s'))
+          : (u, vals, axisIdx, space, incr) => vals.map(v => fmtAxisNumber(v, incr)),
         size: yAxisSize,
         gap: 2
       }
@@ -268,7 +314,14 @@ function initChart (handle) {
   }
 
   handle.uplot = new UPlot(opts, data, el)
+  handle.collectingEl = document.createElement('div')
+  handle.collectingEl.className = 'chart-collecting'
+  handle.collectingEl.textContent = 'Collecting data'
+  handle.uplot.over.append(handle.collectingEl)
   el.append(handle.legendEl)
+  // uPlot's first legend update ran before the legend was in the page,
+  // too early to measure the value column.
+  updateLegend(handle, null)
   alignLegend(handle)
   initChartObservers(handle)
 }
@@ -304,6 +357,7 @@ function render (id, unit, fill = false) {
     scaleMax: 0,
     shrinkCount: 0,
     poll: 0,
+    renderedAt: Date.now(),
     config: { unit, fill }
   }
   handles.add(handle)
@@ -321,7 +375,8 @@ function rebuildFromLogs (handle, specs) {
   const now = Date.now() / 1000
   const byKey = new Map(specs.map(spec => [spec.key, spec]))
   const logs = handle.seriesKeys.map(key => (byKey.get(key) || {}).log || [])
-  const maxLen = Math.max(1, ...logs.map(log => log.length))
+  handle.samples = Math.max(0, ...logs.map(log => log.length))
+  const maxLen = Math.max(1, handle.samples)
 
   const timestamps = []
   for (let i = 0; i < maxLen; i++) {
@@ -362,6 +417,7 @@ function update (handle, data) {
     }
   }
   handle.uplot.setData(handle.data)
+  refreshCollecting(handle)
   refreshLegend(handle)
 }
 

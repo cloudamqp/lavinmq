@@ -57,6 +57,9 @@ module LavinMQ
 
         getter public_keys : PublicKeys
         getter oidc_config : OIDCConfiguration?
+        getter issuer_url : String
+        # Used when the JWKS response has no max-age, so a change applies at the next refresh
+        property default_cache_ttl : Time::Span
         @stopped = BoolChannel.new(false)
         @fetch_lock = Mutex.new
         @last_failed_fetch : Time?
@@ -94,6 +97,7 @@ module LavinMQ
           max_retry_delay = 5.minutes
           spawn do
             loop do
+              break if @stopped.value
               @fetch_lock.synchronize { update_keys }
               retry_delay = initial_retry_delay
               wait_time = calculate_wait_time

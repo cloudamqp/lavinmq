@@ -21,6 +21,10 @@ module LavinMQ
         "x-mqtt-topic"
       end
 
+      def routes_amqp_messages? : Bool
+        false
+      end
+
       # internal is forced: AMQP publishes can't enter this exchange, only
       # MQTT publishes reach it, through the subscription tree.
       def initialize(vhost : VHost, name : String, durable = false,
@@ -102,9 +106,9 @@ module LavinMQ
           case destination
           in AMQP::Queue
             case destination.publish(message)
-            in .ok?                 then count += 1
-            in .overflow?, .closed? then rejected = true
-            in .dropped?            then nil
+            in .ok?                           then count += 1
+            in .overflow?, .closed?, .failed? then rejected = true
+            in .dropped?                      then nil
             end
           in AMQP::Exchange
             count += 1 if destination.route_msg(message, ctx.queues, ctx.exchanges).routed?

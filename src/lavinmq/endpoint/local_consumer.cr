@@ -20,6 +20,8 @@ module LavinMQ
     class LocalConsumer < AMQP::QueueConsumer
       Log = LavinMQ::Log.for "endpoint.consumer"
       @handler : Proc(Delivery, Nil)?
+      # Signalled by the queue when it hands over to this consumer
+      @handover = ::Channel(Nil).new(1)
 
       def initialize(@session : LocalSession, queue : AMQP::Queue, tag : String,
                      no_ack : Bool, exclusive : Bool, prefetch_count : UInt16)
@@ -49,8 +51,25 @@ module LavinMQ
       end
 
       # The deliver loop is #run's, on the consuming fiber, and it wakes on
-      # the queue's signals by itself: there's never one to spawn
+      # the queue's signals by itself: there's never one to spawn. The queue
+      # also calls this when it hands over to this consumer, see
+      # #standby_consumer?
       def ensure_deliver_loop
+        @handover.try_send(nil)
+      end
+
+      # A loop on the consuming fiber can't exit and be restarted like a
+      # spawned one: it waits for the queue to hand over to this consumer
+      private def standby_consumer? : Bool
+        until @queue.deliver_to?(self)
+          @log.debug { "Waiting to become the single active consumer" }
+          select
+          when @handover.receive?
+          when @notify_closed.receive?
+            raise ClosedError.new
+          end
+        end
+        false
       end
 
       # Called by the queue when it's closed or deleted, and by the session
@@ -65,15 +84,13 @@ module LavinMQ
       end
 
       # The tag is registered atomically with the session's close: nil once
-      # the session (or this consumer) is closed, and the message is then
-      # returned to the queue, not delivered
+      # the session (or this consumer) is closed. The queue then puts the
+      # message back as never shifted, like for a channel that closed before
+      # recording the delivery.
       def deliver(msg, sp, redelivered = false, recover = false)
         handler = @handler || raise ClosedError.new
         tag = @session.next_delivery_tag(self, sp) unless @closed
-        unless tag
-          @queue.requeue(sp) unless @no_ack # a no-ack get requeues it itself
-          raise ClosedError.new
-        end
+        raise AMQP::Channel::UnrecordedError.new("Session #{@session.name} is closed") unless tag
         track_unacked unless @no_ack
         begin
           handler.call Delivery.new(tag, msg.exchange_name, msg.routing_key,
@@ -104,7 +121,7 @@ module LavinMQ
       end
 
       # No channel-wide prefetch, flow or stats: the session has none
-      private def global_capacity_signal : ::Channel(Nil)?
+      private def global_capacity : BoolChannel?
       end
 
       private def global_prefetch_full? : Bool

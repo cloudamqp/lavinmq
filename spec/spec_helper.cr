@@ -25,6 +25,8 @@ require "http/client"
 require "amqp-client"
 require "./support/*"
 
+LavinMQ::GCPauseRecorder.install
+
 # Applies the spec config defaults. Inherits the current per-example data dir
 # (set by the `around_each` hook below) rather than hardcoding one, so a custom
 # Config passed to `with_amqp_server`/mtls still ends up in the same dir that
@@ -82,7 +84,7 @@ class LavinMQ::Server
   def restart_stores_for_specs
     stop
     Dir.mkdir_p @data_dir
-    LavinMQ::Schema.migrate(@data_dir, @replicator)
+    LavinMQ::Schema.verify(@data_dir, @replicator)
     @persister = LavinMQ::Persister.new(@data_dir)
     @users = LavinMQ::Auth::UserStore.new(@data_dir, @replicator)
     @authenticator = LavinMQ::Auth::Chain.create(@config, @users)
@@ -132,6 +134,36 @@ private def rebind_tcp(address : String, port : Int32) : TCPServer
   end
 end
 
+# Lets a spec hold the publish confirm loop's drain, so what happens before
+# the data is durable can be observed
+class LavinMQ::Persister
+  class_property drain_gate : ::Channel(Nil)? = nil
+
+  private def drain : Nil
+    @@drain_gate.try &.receive?
+    previous_def
+  end
+end
+
+# Holds the persister's drains until the block returns or #release_drain is
+# called with the gate it yields
+def with_drain_held(&)
+  gate = ::Channel(Nil).new
+  LavinMQ::Persister.drain_gate = gate
+  begin
+    yield gate
+  ensure
+    release_drain(gate)
+  end
+end
+
+# A timed out example releases its gate when it ends, and must not release
+# the gate a later example holds
+def release_drain(gate : ::Channel(Nil)) : Nil
+  LavinMQ::Persister.drain_gate = nil if LavinMQ::Persister.drain_gate.same?(gate)
+  gate.close
+end
+
 def restart_server(server : LavinMQ::Server)
   # Read the raw ivars (not the lazy getters) so we don't build a frontend a
   # spec never had just to capture its state.
@@ -144,6 +176,17 @@ def restart_server(server : LavinMQ::Server)
   restore_protocol_listener(server.amqp_server, amqp_state, "amqp listener") if amqp_state
   restore_protocol_listener(server.mqtt_server, mqtt_state, "mqtt listener") if mqtt_state
   Fiber.yield
+end
+
+def with_stats_interval(ms : Int32, &)
+  cfg = LavinMQ::Config.instance
+  orig = cfg.stats_interval
+  begin
+    cfg.stats_interval = ms
+    yield
+  ensure
+    cfg.stats_interval = orig
+  end
 end
 
 def with_datadir(&)
@@ -164,6 +207,25 @@ ensure
   conn.try &.close(no_wait: false)
 end
 
+REMOTE_SPEC_USER     = "spec-remote"
+REMOTE_SPEC_PASSWORD = "spec-remote-pw"
+
+# A URI for connecting to the server itself over AMQP, the way a shovel or
+# federation link reaches a remote broker. Such a URI must carry credentials
+# of its own, and not the default user's while it's restricted to localhost
+# clients, as the specs configure it (see Endpoint.check_credentials). So this
+# creates a user for the purpose, with full permissions on `vhost`. The path
+# is left out for the default vhost.
+def remote_amqp_uri(s : LavinMQ::Server, vhost = "/", user = REMOTE_SPEC_USER) : String
+  s.users.create(user, REMOTE_SPEC_PASSWORD)
+  s.users.add_permission(user, vhost, /.*/, /.*/, /.*/)
+  uri = URI.parse(s.amqp_server.url)
+  uri.user = user
+  uri.password = REMOTE_SPEC_PASSWORD
+  uri.path = "/#{URI.encode_path_segment(vhost)}" unless vhost == "/"
+  uri.to_s
+end
+
 def amqp_port(s)
   s.amqp_server.@listeners.select(TCPServer).first.local_address.port
 end
@@ -173,7 +235,7 @@ def amqp_tls_port(s)
   tls_listeners.first.local_address.port
 end
 
-def with_raw_amqp_connection(s, &)
+def with_raw_amqp_connection(s, heartbeat = 0_u16, &)
   io = TCPSocket.new("localhost", amqp_port(s))
   io.read_timeout = 5.seconds
 
@@ -188,7 +250,7 @@ def with_raw_amqp_connection(s, &)
   io.flush
   tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
   io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
-    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
+    channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: heartbeat),
     IO::ByteFormat::NetworkEndian
   io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
   io.flush
@@ -252,8 +314,30 @@ def wait_for(timeout = WAIT_FOR_TIMEOUT, file = __FILE__, line = __LINE__, &)
   fail "Execution expired", file: file, line: line
 end
 
+# Lowers the soft limit on open files to 0 until the block returns, so that
+# opening another file or socket fails with EMFILE, while open ones still work.
+# Unlike a limit at the lowest free descriptor, it holds when a descriptor is
+# closed meanwhile, like a closed server's stats loop closing its statm file
+# when it wakes up. Waits in the block need a shorter timeout than the spec, as
+# a spec that times out never returns from the block, which would leave the
+# limit lowered for the specs after it.
+def without_free_file_descriptors(&)
+  rlimit = uninitialized LibC::Rlimit
+  raise RuntimeError.from_errno("getrlimit") unless LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) == 0
+  original = rlimit.rlim_cur
+  rlimit.rlim_cur = typeof(original).new(0)
+  raise RuntimeError.from_errno("setrlimit") unless LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) == 0
+  begin
+    yield
+  ensure
+    rlimit.rlim_cur = original
+    LibC.setrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit))
+  end
+end
+
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
+                     ktls = false,
                      authenticator : LavinMQ::Auth::Authenticator? = nil,
                      extra_tls_listener = false,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
@@ -266,6 +350,9 @@ def with_amqp_server(tls = false, replicator = nil,
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
+      {% if OpenSSL::SSL::Options.has_constant?(:ENABLE_KTLS) %}
+        ctx.add_options(OpenSSL::SSL::Options::ENABLE_KTLS) if ktls
+      {% end %}
       amqp_server.bind_tls(tcp_server, ctx)
     else
       amqp_server.bind_tcp(tcp_server)
@@ -406,6 +493,15 @@ def serve_metrics(amqp_server, &)
   end
 end
 
+# Overwrites a value in a file, also seen by a store that has it mapped. Used
+# to make message data unreadable, and readable again.
+def write_at(path : String, pos : Int, value) : Nil
+  File.open(path, "r+") do |f|
+    f.seek(pos)
+    f.write_bytes(value)
+  end
+end
+
 def with_metrics_server(file = __FILE__, line = __LINE__, &)
   with_amqp_server(file: file, line: line) do |s|
     serve_metrics(s) do |http|
@@ -538,6 +634,8 @@ end
 # (which previously caused "Invalid memory access"). On normal completion the
 # dir is removed.
 Spec.around_each do |example|
+  # A timed out example skips its ensure, and can leave the drains held
+  LavinMQ::Persister.drain_gate.try { |gate| release_drain(gate) }
   data_dir = File.tempname("lavinmq", "spec")
   Dir.mkdir_p data_dir
   config = init_config(LavinMQ::Config.new)
@@ -548,18 +646,4 @@ Spec.around_each do |example|
   ensure
     FileUtils.rm_rf data_dir
   end
-end
-
-# The flags (as in /proc/<pid>/smaps, e.g. "rr" for MADV_RANDOM) of the
-# mapping of the file at `path`
-def vm_flags(path : String) : Array(String)
-  in_mapping = false
-  File.each_line("/proc/self/smaps") do |line|
-    if line.matches?(/^[0-9a-f]+-[0-9a-f]+ /)
-      in_mapping = line.ends_with?(" #{path}")
-    elsif in_mapping && line.starts_with?("VmFlags:")
-      return line.split[1..]
-    end
-  end
-  fail "#{path} isn't mapped"
 end

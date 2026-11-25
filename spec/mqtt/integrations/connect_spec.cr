@@ -362,6 +362,17 @@ module MqttSpecs
           end
         end
 
+        it "refuses a CONNECT with a will topic longer than 255 bytes" do
+          with_server do |server|
+            with_client_io(server) do |io|
+              will = MQTT::Protocol::Will.new(topic: "a/#{"x" * 300}", payload: "dead".to_slice, qos: 0u8, retain: false)
+              expect_raises(IO::Error) do
+                connect(io, will: will)
+              end
+            end
+          end
+        end
+
         it "should not publish after disconnect" do
           with_server do |server|
             # Create a non-clean session with an active subscription

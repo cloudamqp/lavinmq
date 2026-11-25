@@ -52,7 +52,7 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
       internal.title = 'Internal'
       features.appendChild(internal)
     }
-    if (item.arguments['x-delayed-exchange']) {
+    if (item.arguments['x-delayed-exchange'] === true) {
       const delayed = document.createElement('span')
       delayed.textContent = ' d'
       delayed.title = 'Delayed'
@@ -96,6 +96,7 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
       exchangeTable.reload()
       DOM.toast('Exchange ' + exchange + ' created')
       evt.target.reset()
+      document.getElementById('add-exchange-dialog').close()
     })
     .catch(() => {})
 })

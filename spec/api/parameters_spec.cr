@@ -363,7 +363,7 @@ describe LavinMQ::HTTP::ParametersController do
       end
     end
 
-    it "should skip validation for external URIs" do
+    it "refuses external URIs without credentials" do
       with_http_server do |http, s|
         s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
         s.users.add_permission("limited", "/", /^$/, /^$/, /^$/)
@@ -379,7 +379,8 @@ describe LavinMQ::HTTP::ParametersController do
           }
           JSON
         response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
-        response.status_code.should eq 201
+        response.status_code.should eq 400
+        response.body.should contain "credentials"
       end
     end
 
@@ -412,7 +413,7 @@ describe LavinMQ::HTTP::ParametersController do
           {
             "value": {
               "src-uri": "amqp://",
-              "dest-uri": "amqp://external-host",
+              "dest-uri": "amqp://u:p@external-host",
               "src-exchange": "amq.topic",
               "src-exchange-key": "#",
               "dest-queue": "dest-queue"
@@ -691,6 +692,35 @@ describe LavinMQ::HTTP::ParametersController do
         response.status_code.should eq 400
       end
     end
+
+    it "should accept keys it doesn't support, of any type" do
+      with_http_server do |http, _|
+        body = %({"pattern": ".*", "definition": {"ha-mode": "exactly", "ha-params": 2, "ha-sync-batch-size": 5}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 201
+      end
+    end
+
+    it "should validate every delayed retry key" do
+      with_http_server do |http, s|
+        {"\"0\"", "0", "-1"}.each do |value|
+          body = %({"pattern": ".*", "definition": {"delayed-retry-min": #{value}}})
+          response = http.put("/api/policies/%2f/name", body: body)
+          response.status_code.should eq 400
+        end
+        # The invalid key follows a valid one, so validation must not stop at the first key
+        body = %({"pattern": ".*", "definition": {"delayed-retry-min": 1, "delayed-retry-max": 0}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 400
+        body = %({"pattern": ".*", "definition": {"delayed-retry-min": 1, "delayed-retry-multiplier": 3000000000}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 400
+        body = %({"pattern": ".*", "definition": {"delayed-retry-min": 1, "delayed-retry-multiplier": 2, "delayed-retry-max": 1000}})
+        response = http.put("/api/policies/%2f/name", body: body)
+        response.status_code.should eq 201
+        s.vhosts["/"].policies["name"].definition["delayed-retry-max"].as_i.should eq 1000
+      end
+    end
   end
 
   describe "PUT /api/operator-policies/vhost/name" do
@@ -706,6 +736,23 @@ describe LavinMQ::HTTP::ParametersController do
           JSON
         response = http.put("/api/operator-policies/%2f/name", body: body)
         response.status_code.should eq 400
+      end
+    end
+
+    it "should validate every definition key" do
+      with_http_server do |http, _|
+        body = %({"pattern": ".*", "definition": {"max-length": 10, "expires": "String"}})
+        response = http.put("/api/operator-policies/%2f/name", body: body)
+        response.status_code.should eq 400
+      end
+    end
+
+    it "should refuse keys not allowed in operator policies" do
+      with_http_server do |http, _|
+        body = %({"pattern": ".*", "definition": {"max-length": 100, "ha-params": 2}})
+        response = http.put("/api/operator-policies/%2f/name", body: body)
+        response.status_code.should eq 400
+        JSON.parse(response.body)["reason"].as_s.should contain "'ha-params'"
       end
     end
   end

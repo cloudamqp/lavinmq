@@ -26,6 +26,8 @@ Waiting for disk synchronization makes QoS 1 throughput depend on disk latency a
 
 A PUBACK acknowledges the broker's handling of a publish, not delivery to a subscriber. Session lifetime and subscriptions still determine whether messages are retained for later delivery; a publish denied by topic permissions is acknowledged and dropped as described below.
 
+A PUBLISH with QoS 1 or 2, a SUBSCRIBE or an UNSUBSCRIBE must carry a non-zero packet ID. One with packet ID 0 closes the connection, and the Will is published.
+
 ## Sessions
 
 Each MQTT session is implemented as an internal AMQP queue named `mqtt.<client_id>`. The queue holds the session's pending QoS 1 messages and tracks subscriptions as bindings. This is an implementation detail of how LavinMQ stores session state — MQTT clients never see the queue directly, but it explains why session names share the `mqtt.` prefix and why durability and lifetime follow the AMQP queue model.
@@ -113,10 +115,13 @@ queue.bind        queue=sensor-readings  exchange=sensors  routing_key=sensors/+
 Every MQTT publish whose topic matches `sensors/+/temp` is delivered to `sensor-readings`. The AMQP message has the exchange's name as exchange, the MQTT topic as routing key with its `/` separators intact, the MQTT payload as body and `delivery_mode` 2. The MQTT publisher needs no change; a QoS 1 PUBACK is sent once the message is persisted in the AMQP queue as well.
 
 - The exchange is always internal, so AMQP clients cannot publish into it
+- It only routes MQTT publishes. A message dead-lettered into it, as into `mqtt.default`, is dropped, and the queue logs a warning
+- It can't be delayed: MQTT publishes carry no `x-delay`, so `x-delayed-exchange` with any value but `false` is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API, and a definitions import containing it is refused as a whole
 - Binding keys use MQTT filter syntax and follow the same rules as a SUBSCRIBE: `#` only as the last level, `+` only as a whole level. A malformed filter is refused with `PRECONDITION_FAILED` over AMQP and `400` over the HTTP API
-- The AMQP user needs read permission on the exchange and write permission on the queue to bind. [Topic permissions](#topic-permissions) are not applied to AMQP destinations
+- An `x-mqtt-topic` exchange carries all MQTT traffic in the vhost, so declaring one also needs read permission on `mqtt.default`. Binding to it needs read permission on the exchange and write permission on the queue. [Topic permissions](#topic-permissions) are not applied to AMQP destinations: read on an `x-mqtt-topic` exchange gives all MQTT topics in the vhost, so grant it with care
 - [Retained messages](#retained-messages) are not replayed when a binding is created
 - Exchanges can be bound too, see [MQTT Topic Exchange](exchanges.md#mqtt-topic-exchange)
+- `mqtt.default`, the exchange MQTT publishes go through, can't be the source or destination of an exchange-to-exchange binding. Such a bind, or an unbind with `mqtt.default` as source, is refused with `ACCESS_REFUSED` over AMQP, which closes the channel, and `403` over the HTTP API. Bind an `x-mqtt-topic` exchange instead
 
 ## Configuration
 
@@ -270,4 +275,7 @@ Note that connecting with a client_id already in use takes over that session, so
 - QoS 2 is downgraded to QoS 1 — the full four-step QoS 2 handshake (PUBREC/PUBREL/PUBCOMP) is not implemented.
 - Federation and shovels operate at the AMQP layer. There is no MQTT-level bridging between brokers.
 - An AMQP publisher cannot reach MQTT subscribers within the same broker. The other direction is supported through the [`x-mqtt-topic` exchange](#consuming-mqtt-messages-over-amqp).
-- MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding).
+- MQTT topics are mapped to AMQP routing keys, so AMQP routing key constraints apply (length and encoding). Topics and topic filters can be at most 255 bytes, while MQTT allows 65535:
+  - A PUBLISH to a longer topic closes the connection, with a warning in the broker log. Such a publish can never succeed, and MQTT 3.1.1 has no way to reject a single PUBLISH, so the disconnect is the only signal the client can get.
+  - A CONNECT with a will topic longer than 255 bytes is refused: the connection is closed, with a warning in the broker log.
+  - A SUBSCRIBE with a longer topic filter gets return code `0x80` (failure) for that filter.

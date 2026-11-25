@@ -1,7 +1,7 @@
 ---
 openapi: 3.0.3
 info:
-  version: v2.11.0-rc.1
+  version: v2.12.0-rc.1
   title: LavinMQ HTTP API
   description: HTTP API to programmatically manage all aspects of LavinMQ.
   contact:
@@ -302,8 +302,6 @@ paths:
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1pause"
   "/queues/{vhost}/{name}/resume":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1resume"
-  "/queues/{vhost}/{name}/restart":
-    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1restart"
   "/queues/{vhost}/{name}/bindings":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1bindings"
   "/queues/{vhost}/{name}/contents":
