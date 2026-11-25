@@ -1822,6 +1822,41 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "keeps the stream running when a consumer reads past an empty segment [#2839]" do
+      queue_name = Random::Secure.hex
+      args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: args)
+          3.times { |i| q.publish_confirm "m#{i}" }
+        end
+        data_dir = s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).@data_dir
+        s.stop
+        # A crash right after a rollover leaves a segment with only the schema version
+        File.open(File.join(data_dir, "msgs.0000000002"), "w", &.write_bytes(LavinMQ::Schema::VERSION))
+        restart_server(s)
+        with_channel(s) do |ch|
+          q = ch.queue(queue_name, args: args)
+          # Larger than a segment: rolls over and leaves the empty segment behind
+          q.publish_confirm "x" * (LavinMQ::Config.instance.segment_size + 1)
+          ch.prefetch 10
+          offsets = Channel(Int64).new(10)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset" => "first"})) do |msg|
+            offsets.send StreamSpecHelpers.offset_from_headers(msg.properties.headers)
+            msg.ack
+          end
+          {1i64, 2i64, 3i64, 4i64, 5i64}.each do |offset|
+            q.publish_confirm "new" if offset == 5 # the consumer waits at the tail for it
+            select
+            when got = offsets.receive then got.should eq offset
+            when timeout(5.seconds) then fail "no message at offset #{offset}"
+            end
+          end
+        end
+        s.vhosts["/"].queue(queue_name).as(LavinMQ::AMQP::Stream).state.running?.should be_true
+      end
+    end
+
     it "loads when the trailing record is torn mid-body" do
       with_datadir do |data_dir|
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
