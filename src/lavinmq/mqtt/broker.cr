@@ -31,7 +31,8 @@ module LavinMQ
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
+        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator,
+          persister: @vhost.persister, on_dropped: ->@vhost.count_mqtt_retained_dropped(Int32))
         @exchange = @vhost.mqtt_exchange
       end
 
@@ -111,7 +112,8 @@ module LavinMQ
           raise TopicTooLong.new("topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
         end
         return false unless @vhost.flow?
-        if packet.retain? && !@retain_store.retain(packet, @vhost.max_retained_messages, @vhost.max_retained_bytes)
+        if packet.retain? && !@retain_store.retain(packet, @vhost.max_retained_messages,
+             @vhost.max_retained_bytes, @vhost.retained_overflow)
           retain_not_stored
         end
         @exchange.publish(packet, ctx)

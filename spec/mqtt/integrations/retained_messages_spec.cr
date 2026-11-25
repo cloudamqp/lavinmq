@@ -4,6 +4,29 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
   describe "retained messages" do
+    it "removes the oldest retained message at the limit with retained-overflow drop-head" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        vhost.max_retained_messages = 1_i64
+        vhost.retained_overflow = LavinMQ::MQTT::RetainStore::Overflow::DropHead
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          publish(io, topic: "a/b", qos: 1u8, retain: true)
+          publish(io, topic: "c/d", qos: 1u8, retain: true)
+          disconnect(io)
+        end
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: [subtopic("#")])
+          read_packet(io).as(MQTT::Protocol::Publish).topic.should eq("c/d")
+          disconnect(io)
+        end
+        vhost.mqtt_retained_messages.should eq 1
+        vhost.mqtt_retained_dropped_count.should eq 1
+        vhost.mqtt_retained_not_stored_count.should eq 0
+      end
+    end
+
     it "delivers but doesn't store a retained message over max-retained-messages" do
       with_server do |server|
         vhost = server.vhosts["/"]

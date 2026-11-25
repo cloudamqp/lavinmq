@@ -71,7 +71,7 @@ module LavinMQ
                         "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
                         "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
     MQTT_PUBLISHED_KEYS = {"mqtt_published_qos0", "mqtt_published_qos1", "mqtt_published_qos2"}
-    MQTT_RETAINED_KEYS  = {"mqtt_retained_not_stored"}
+    MQTT_RETAINED_KEYS  = {"mqtt_retained_not_stored", "mqtt_retained_dropped"}
     {% for key in DEAD_LETTER_KEYS + MQTT_PUBLISHED_KEYS + MQTT_RETAINED_KEYS %}
       @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
 
@@ -355,6 +355,19 @@ module LavinMQ
       end
     {% end %}
 
+    @retained_overflow = Atomic(MQTT::RetainStore::Overflow).new(MQTT::RetainStore::Overflow::Reject)
+
+    def retained_overflow : MQTT::RetainStore::Overflow
+      @retained_overflow.get(:relaxed)
+    end
+
+    def retained_overflow=(value : MQTT::RetainStore::Overflow) : Nil
+      @limits_lock.synchronize do
+        @retained_overflow.set(value, :relaxed)
+        store_limits
+      end
+    end
+
     private def load_limits
       File.open(File.join(@data_dir, "limits.json")) do |f|
         limits = JSON.parse(f)
@@ -362,6 +375,9 @@ module LavinMQ
         @max_connections = limits["max-connections"]?.try &.as_i?
         @max_retained_messages.set(limits["max-retained-messages"]?.try(&.as_i64?) || -1_i64, :relaxed)
         @max_retained_bytes.set(limits["max-retained-bytes"]?.try(&.as_i64?) || -1_i64, :relaxed)
+        if overflow = limits["retained-overflow"]?.try(&.as_s?).try { |s| MQTT::RetainStore::Overflow.from_setting?(s) }
+          @retained_overflow.set(overflow, :relaxed)
+        end
         @replicator.try &.register_file(f)
       end
     rescue File::NotFoundError
@@ -375,6 +391,7 @@ module LavinMQ
             json.field "max-connections", @max_connections if @max_connections
             json.field "max-retained-messages", max_retained_messages if max_retained_messages
             json.field "max-retained-bytes", max_retained_bytes if max_retained_bytes
+            json.field "retained-overflow", retained_overflow.to_setting if retained_overflow.drop_head?
           end
         end
       end
@@ -758,6 +775,10 @@ module LavinMQ
 
     def count_mqtt_retained_not_stored : Nil
       @mqtt_retained_not_stored_count.add(1, :relaxed)
+    end
+
+    def count_mqtt_retained_dropped(count : Int32) : Nil
+      @mqtt_retained_dropped_count.add(count.to_u64, :relaxed)
     end
 
     def mqtt_retained_messages : Int64

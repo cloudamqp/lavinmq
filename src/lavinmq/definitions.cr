@@ -32,7 +32,7 @@ module LavinMQ
             }.to_json(json)
           end
           # vhost-limits
-          limits = Hash(String, Int32 | Int64).new
+          limits = Hash(String, Int32 | Int64 | String).new
           if mq = vhost.max_queues
             limits["max-queues"] = mq
           end
@@ -44,6 +44,9 @@ module LavinMQ
           end
           if mrb = vhost.max_retained_bytes
             limits["max-retained-bytes"] = mrb
+          end
+          if vhost.retained_overflow.drop_head?
+            limits["retained-overflow"] = vhost.retained_overflow.to_setting
           end
           unless limits.empty?
             {
@@ -299,9 +302,13 @@ module LavinMQ
       end
     end
 
+    private def vhost_limits?(v) : Bool
+      !!(v.max_connections || v.max_queues || v.max_retained_messages || v.max_retained_bytes ||
+        v.retained_overflow.drop_head?)
+    end
+
     private def import_vhost_limits(v, value, skip_existing)
-      return if skip_existing && (v.max_connections || v.max_queues ||
-                v.max_retained_messages || v.max_retained_bytes)
+      return if skip_existing && vhost_limits?(v)
       if mc = value["max-connections"]?.try &.as_i?
         v.max_connections = mc
       end
@@ -313,6 +320,9 @@ module LavinMQ
       end
       if mrb = value["max-retained-bytes"]?.try &.as_i64?
         v.max_retained_bytes = mrb
+      end
+      if overflow = value["retained-overflow"]?.try(&.as_s?).try { |s| MQTT::RetainStore::Overflow.from_setting?(s) }
+        v.retained_overflow = overflow
       end
     end
 
