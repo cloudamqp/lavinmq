@@ -1316,13 +1316,15 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         relative = File.join(queue.@data_dir, "paused")[(s.data_dir.size + 1)..]
         follower_paused = File.join(cluster.follower_config.data_dir, relative)
 
+        # The followers have the change when the call returns, as a failover
+        # right after it must not lose it [#2847]
         queue.pause!
-        wait_for { File.exists?(follower_paused) }
+        File.exists?(follower_paused).should be_true
         queue.resume!
-        wait_for { !File.exists?(follower_paused) }
+        File.exists?(follower_paused).should be_false
 
         queue.pause!
-        wait_for { File.exists?(follower_paused) }
+        File.exists?(follower_paused).should be_true
         # A leader that starts with a paused queue has to offer the file in a full sync
         restart_server(s)
         cluster.replicator.with_file(relative) { |f, _size| f.should_not be_nil }
@@ -1389,13 +1391,13 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         follower_paused = File.join(cluster.follower_config.data_dir, relative)
 
         shovel.pause
-        wait_for { File.exists?(follower_paused) }
+        File.exists?(follower_paused).should be_true # replicated when it returns [#2847]
         # A shovel that starts paused has to offer the file in a full sync
         LavinMQ::Shovel::Runner.new(source, dest, "paused-shovel", vhost).state.paused?.should be_true
         cluster.replicator.with_file(relative) { |f, _size| f.should_not be_nil }
 
         shovel.resume
-        wait_for { !File.exists?(follower_paused) }
+        File.exists?(follower_paused).should be_false
         shovel.delete
       end
     end
