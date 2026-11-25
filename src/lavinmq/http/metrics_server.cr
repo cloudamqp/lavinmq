@@ -46,14 +46,10 @@ module LavinMQ
         broker.try { |s| self.broker = s }
       end
 
-      # Reports the broker's metrics from now on
-      def broker=(server : LavinMQ::Server) : Nil
-        @source.leader = PrometheusController.new(server, require_authentication: false, metrics: @metrics)
-      end
-
-      # Back to reporting as a follower, once this node stopped serving
-      def stop_reporting_broker : Nil
-        @source.leader = nil
+      # Reports the broker's metrics from now on, or with nil, once this node
+      # stopped serving, the runner's only
+      def broker=(server : LavinMQ::Server?) : Nil
+        @source.leader = server.try { |s| PrometheusController.new(s, require_authentication: false, metrics: @metrics) }
       end
 
       def bind_tcp(address, port)

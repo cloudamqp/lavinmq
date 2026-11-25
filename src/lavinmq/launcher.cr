@@ -152,7 +152,7 @@ module LavinMQ
       @role_lock.synchronize do
         return if @closed
         # Scrapes would get the closed broker's metrics until it's done
-        @metrics_server.try &.stop_reporting_broker
+        @metrics_server.try &.broker = nil
         close_listeners
         if server = @server
           # Keeps the replicator's checksums, which the replication client
