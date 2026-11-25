@@ -156,6 +156,19 @@ describe LavinMQ::HTTP::ConnectionsController do
         end
       end
     end
+
+    it "returns connections for a user named channels" do
+      with_http_server do |http, s|
+        s.users.create("channels", "pw")
+        s.users.add_permission("channels", "/", /.*/, /.*/, /.*/)
+        with_channel(s, user: "channels", password: "pw") do
+          response = http.get("/api/connections/username/channels")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body.as_a.size.should eq 1
+        end
+      end
+    end
   end
 
   describe "DELETE /api/connections/username/:username" do

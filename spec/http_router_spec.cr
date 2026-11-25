@@ -110,6 +110,36 @@ describe LavinMQ::HTTP::Router do
       routed_to.should eq "literal"
     end
 
+    it "prefers a literal segment over a param route registered before it" do
+      router = TestRouter.new
+      routed_to = nil
+      router.get "/a/:name/c" do |c, _params|
+        routed_to = "param"
+        c
+      end
+      router.get "/a/b/:id" do |c, _params|
+        routed_to = "literal"
+        c
+      end
+      router.call(create_request("GET", "/a/b/c"))
+      routed_to.should eq "literal"
+    end
+
+    it "prefers a param segment over a rest param route registered before it" do
+      router = TestRouter.new
+      routed_to = nil
+      router.get "/a/*rest" do |c, _params|
+        routed_to = "rest"
+        c
+      end
+      router.get "/a/:name" do |c, _params|
+        routed_to = "param"
+        c
+      end
+      router.call(create_request("GET", "/a/b"))
+      routed_to.should eq "param"
+    end
+
     it "does not treat an encoded slash as a segment separator" do
       router = TestRouter.new
       routed = false
