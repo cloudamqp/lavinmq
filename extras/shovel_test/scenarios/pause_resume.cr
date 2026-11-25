@@ -14,7 +14,7 @@ module ShovelTest
       src = queue("src")
       dest = queue("dest")
       broker.publish(src, COUNT)
-      name = shovel("shovel", shovel_config(src, dest_uri: cfg.amqp_url, dest_queue: dest))
+      name = shovel("shovel", shovel_config(src, dest_uri: cfg.shovel_amqp_url, dest_queue: dest))
       eventually("the first batch to be moved") { api.queue(dest).ready == COUNT }
 
       api.pause_shovel(name)

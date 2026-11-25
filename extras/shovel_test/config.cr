@@ -1,4 +1,5 @@
 require "option_parser"
+require "random/secure"
 require "uri"
 
 module ShovelTest
@@ -11,6 +12,12 @@ module ShovelTest
     property vhost = "shovel-test"
     # Set when the vhost came from the command line; it is then left in place.
     property? vhost_given = false
+    # The user the shovels connect with. A shovel URI with a host can't use
+    # the broker's default user, so one is created for the run, with full
+    # permissions on the vhost, unless given on the command line.
+    property shovel_user = "shovel-test"
+    property shovel_password = Random::Secure.urlsafe_base64(12)
+    property? shovel_user_given = false
     property messages = 10_000
     # How the broker reaches this process' HTTP endpoint. Change it when the
     # broker runs on another host.
@@ -35,6 +42,11 @@ module ShovelTest
           cfg.vhost = v
           cfg.vhost_given = true
         end
+        p.on("--shovel-user=USER", "User the shovels connect with; left in place when given (default shovel-test, created and deleted)") do |v|
+          cfg.shovel_user = v
+          cfg.shovel_user_given = true
+        end
+        p.on("--shovel-password=PASS", "Password of the shovels' user") { |v| cfg.shovel_password = v }
         p.on("--messages=N", "Messages published in the bulk scenarios (default 10000)") { |v| cfg.messages = v.to_i }
         p.on("--endpoint-host=HOST", "Host the broker uses to reach the HTTP endpoint served here (default localhost)") { |v| cfg.endpoint_host = v }
         p.on("--endpoint-port=PORT", "Port for the HTTP endpoint (default: any free port)") { |v| cfg.endpoint_port = v.to_i }
@@ -61,10 +73,16 @@ module ShovelTest
       @vhost_given = true
     end
 
-    # The URI the shovel (inside the broker) uses for its AMQP Source and
-    # Destination — the same server, seen from the outside as we see it.
+    # The URI this process connects to the server with
     def amqp_url : String
       "amqp://#{@user}:#{@password}@#{@host}:#{@amqp_port}/#{URI.encode_path_segment(@vhost)}"
+    end
+
+    # The URI the shovel (inside the broker) uses for its AMQP Source and
+    # Destination — the same server, seen from the outside as we see it,
+    # with the shovels' own user.
+    def shovel_amqp_url : String
+      "amqp://#{@shovel_user}:#{@shovel_password}@#{@host}:#{@amqp_port}/#{URI.encode_path_segment(@vhost)}"
     end
 
     def http_base : String
