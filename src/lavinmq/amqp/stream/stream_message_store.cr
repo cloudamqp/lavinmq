@@ -170,7 +170,7 @@ module LavinMQ::AMQP
       @segments[segment]?.try { |mfile| read_ahead(mfile) }
       loop do
         rfile = @segments[segment]?
-        if rfile.nil? || pos == rfile.size
+        while rfile.nil? || pos == rfile.size # a loop as a segment can be empty
           unmap_if_unused(segment)
           if segment = @segments.each_key.find { |sid| sid > segment }
             rfile = @segments[segment]
@@ -244,7 +244,8 @@ module LavinMQ::AMQP
       return if cursor.offset > @last_offset
       pin(cursor)
       rfile = @segments[cursor.segment]? || next_segment(cursor) || return
-      if cursor.pos == rfile.size # EOF
+      # EOF, a loop as a segment can be empty, e.g. one recreated at load
+      while cursor.pos == rfile.size
         return if rfile == @wfile
         rfile = next_segment(cursor) || return
       end
