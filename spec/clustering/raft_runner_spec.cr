@@ -214,7 +214,7 @@ private class RunnerCluster
     @closed.close
     @reserved_ports.each_value &.close
     @replication_listeners.each_value &.close
-    @runners.each &.stop
+    @runners.each { |r| r.shutdown { } }
     @runners.each &.close
     @dirs.each { |d| FileUtils.rm_rf d }
   end
@@ -291,7 +291,7 @@ describe LavinMQ::Clustering::RaftRunner do
         runner.node.leader_changed.send nil
         wait_for { logs.check(:warn, "No leader available") rescue nil }
       end
-      runner.stop
+      runner.shutdown { }
       returned.receive?
     end
   end
@@ -314,7 +314,7 @@ describe LavinMQ::Clustering::RaftRunner do
       cluster.start_all
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
-      first.stop
+      first.shutdown { }
       second = cluster.next_leader
       second.should_not eq first
       select
@@ -369,7 +369,7 @@ describe LavinMQ::Clustering::RaftRunner do
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
       started = Time.instant
-      spawn { first.stop }
+      spawn { first.shutdown { } }
       cluster.next_leader(timeout: 2.seconds)
       (Time.instant - started).should be < 1.second
     end
@@ -383,7 +383,7 @@ describe LavinMQ::Clustering::RaftRunner do
       others = cluster.runners.reject(first)
       in_sync = others.first
       first.coordinator.update_isr(Set{first.id, in_sync.id})
-      first.stop
+      first.shutdown { }
       cluster.next_leader.should eq in_sync
     end
   end
@@ -392,7 +392,7 @@ describe LavinMQ::Clustering::RaftRunner do
     with_runners do |cluster|
       cluster.start_all
       first = cluster.next_leader
-      first.stop
+      first.shutdown { }
       select
       when c = cluster.serving.receive
         fail "#{c.id} was elected without being in the ISR"
@@ -443,7 +443,7 @@ describe LavinMQ::Clustering::RaftRunner do
       wait_for { leader.node.membership.try(&.voters.size) == 3 }
       follower = cluster.runners.find! { |c| c != leader }
       old_id = follower.id
-      follower.stop
+      follower.shutdown { }
       File.delete(File.join(cluster.dirs[cluster.runners.index!(follower)], ".raft_state"))
       fresh = cluster.restart(follower)
       fresh.id.should_not eq old_id
@@ -559,12 +559,14 @@ describe LavinMQ::Clustering::RaftRunner do
       cluster.start_all
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
-      first.stopping
-      cluster.runners.reject(first).each(&.stop)
-      if demotion = receive_within(cluster.demotions, 2.seconds)
-        fail "stepped down to follow during a graceful shutdown (lost: #{demotion[1]})"
+      # Its peers shut down while it closes its broker
+      first.shutdown do
+        cluster.runners.reject(first).each { |r| r.shutdown { } }
+        if demotion = receive_within(cluster.demotions, 2.seconds)
+          fail "stepped down to follow during a graceful shutdown (lost: #{demotion[1]})"
+        end
+        should_not_have_exited(cluster)
       end
-      should_not_have_exited(cluster)
     end
   end
 
@@ -583,7 +585,7 @@ describe LavinMQ::Clustering::RaftRunner do
         })
         first = cluster.next_leader
         first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
-        cluster.runners.reject(first).each(&.stop)
+        cluster.runners.reject(first).each { |r| r.shutdown { } }
         receive_within(cluster.demotions, 5.seconds).should eq({first, true})
         should_not_have_exited(cluster)
       end
@@ -599,7 +601,7 @@ describe LavinMQ::Clustering::RaftRunner do
           # ISR, so once they're back it's elected again, in a later term.
           leader = cluster.runners.find!(&.node.leader?)
           others = cluster.runners.reject(leader)
-          others.each(&.stop)
+          others.each { |r| r.shutdown { } }
           wait_for(5.seconds) { !leader.node.serving.value }
           others.each { |c| cluster.restart(c) }
           wait_for(10.seconds) { leader.node.serving.value }
@@ -619,7 +621,7 @@ describe LavinMQ::Clustering::RaftRunner do
       cluster.start_all(-> { cluster.hang })
       first = cluster.next_leader
       first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
-      cluster.runners.reject(first).each(&.stop)
+      cluster.runners.reject(first).each { |r| r.shutdown { } }
       # Only the leader's exit counts, another node could have failed to bind
       # its reserved port
       deadline = Time.instant + 5.seconds
@@ -640,7 +642,7 @@ describe LavinMQ::Clustering::RaftRunner do
       first.coordinator.update_isr(cluster.runners.map(&.id).to_set)
       # Cut the leader off from its peers: it has to step down on its own
       others = cluster.runners.reject(first)
-      others.each(&.stop)
+      others.each { |r| r.shutdown { } }
       receive_within(cluster.demotions, 5.seconds).should eq({first, true})
       should_not_have_exited(cluster)
       first.node.leader?.should be_false
@@ -748,7 +750,7 @@ describe LavinMQ::Clustering::RaftRunner do
       leader = cluster.next_leader
       leader.coordinator.update_isr(cluster.runners.map(&.id).to_set)
       gone, other = cluster.runners.reject(leader)
-      gone.stop
+      gone.shutdown { }
       sleep 500.milliseconds # longer than the election timeout
       leader.request_transfer(cluster.address(gone)).as(String).should contain "answered"
       plan = leader.request_transfer.as(LavinMQ::Clustering::RaftRunner::Transfer)
@@ -762,7 +764,7 @@ describe LavinMQ::Clustering::RaftRunner do
       a = cluster.next_leader
       wait_for(10.seconds) { a.node.committed_isr == cluster.runners.map(&.id).to_set }
       b = cluster.runners.find! { |c| c != a }
-      b.stop
+      b.shutdown { }
       port = cluster.reserve_port
       config = cluster.configs[cluster.runners.index!(b)]
       config.clustering_raft_port = port

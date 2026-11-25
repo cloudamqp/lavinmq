@@ -151,7 +151,7 @@ class LavinMQ::Clustering::RaftRunner < LavinMQ::Clustering::Runner
     @stop_signal.receive?
   end
 
-  def stop
+  private def stop
     return if @stopped.swap(true)
     @stopping.set(true)
     @repli_client.get.try &.close

@@ -37,7 +37,7 @@ private def with_cluster_api(&)
         h.close
       end
     ensure
-      runner.stop
+      runner.shutdown { }
       runner.close
     end
   end
