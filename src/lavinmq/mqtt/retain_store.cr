@@ -53,6 +53,7 @@ module LavinMQ
         @dirty = false
         # Lines in the index file for topics that were deleted since it was written
         @dead_lines = 0
+        @closed = false
         # Written under @lock, read by the HTTP API and metrics from other fibers
         @count = Atomic(Int64).new(0_i64)
         @bytes = Atomic(Int64).new(0_i64)
@@ -79,6 +80,7 @@ module LavinMQ
         @lock.synchronize do
           write_index if @dirty
           @index_file.close
+          @closed = true
         end
       end
 
@@ -216,7 +218,7 @@ module LavinMQ
       # Rewrites the index file when most of it is dead lines, so the file
       # can't grow without limit and isn't rewritten for every delete either
       private def compact_index : Nil
-        write_index if @dead_lines > @count.get(:relaxed)
+        write_index if @dead_lines > @count.get(:relaxed) && !@closed
       end
 
       private def write_message(file_name : String, payload : Bytes, needs_sync : Bool) : Nil
@@ -290,15 +292,53 @@ module LavinMQ
         end
       end
 
-      def each(subscription : String, &block : String, ::IO, UInt64 -> Nil) : Nil
+      # Skips messages older than max_age seconds; #delete_expired removes them
+      def each(subscription : String, max_age : Int64? = nil, &block : String, ::IO, UInt64 -> Nil) : Nil
         @lock.synchronize do
+          now = RoughTime.unix_ms
           @index.each(subscription) do |topic, entry|
+            next if expired?(entry, max_age, now)
             File.open(File.join(@dir, entry.file_name)) do |f|
               f.read_buffering = false
               block.call(topic, f, f.size.to_u64)
             end
           end
         end
+      end
+
+      EXPIRE_BATCH_SIZE = 100
+
+      # Deletes in batches and lets go of @lock between them, so that publishes
+      # and subscribes don't wait for a run that has many files to delete
+      def delete_expired(max_age : Int64) : Int32
+        expired = Array(String).new
+        @lock.synchronize do
+          now = RoughTime.unix_ms
+          @index.each { |topic, entry| expired << topic if expired?(entry, max_age, now) }
+        end
+        deleted = 0
+        expired.each_slice(EXPIRE_BATCH_SIZE) do |topics|
+          @lock.synchronize do
+            return deleted if @closed
+            now = RoughTime.unix_ms
+            topics.each do |topic|
+              # It can have been published again since the scan
+              entry = @index[topic]? || next
+              next unless expired?(entry, max_age, now)
+              delete_from_index(topic)
+              deleted += 1
+            end
+          end
+          Fiber.yield
+        end
+        @lock.synchronize { compact_index }
+        deleted
+      end
+
+      # The one place that decides when a retained message expires
+      private def expired?(entry : Entry, max_age : Int64?, now : Int64) : Bool
+        return false unless max_age
+        (now - entry.published_at) // 1000 >= max_age
       end
 
       @hasher = Digest::MD5.new

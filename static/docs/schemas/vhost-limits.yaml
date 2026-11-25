@@ -21,6 +21,9 @@ vhost-limits:
         max-retained-bytes:
           type: integer
           description: Maximum total payload size, in bytes, of the retained MQTT messages in the vhost.
+        retained-message-ttl:
+          type: integer
+          description: Maximum age, in seconds, of a retained MQTT message in the vhost.
         retained-overflow:
           type: string
           enum:

@@ -13,7 +13,7 @@ HTTP.request('GET', vhostUrl).then(item => {
   document.getElementById('messages_total').textContent = item.messages.toLocaleString()
 }).catch(() => {})
 
-const RETAINED_LIMITS = ['max-retained-messages', 'max-retained-bytes']
+const RETAINED_LIMITS = ['max-retained-messages', 'max-retained-bytes', 'retained-message-ttl']
 
 async function fetchLimits () {
   const arr = await HTTP.request('GET', HTTP.url`api/vhost-limits/${vhost}`)

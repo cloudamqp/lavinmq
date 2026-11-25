@@ -233,6 +233,82 @@ module MqttSpecs
       end
     end
 
+    describe "expiry" do
+      it "doesn't yield an expired message, and delete_expired removes it" do
+        dir = "tmp/retain_store"
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+        store.retain(publish_packet(topic: "old", payload: "1234".to_slice, retain: true))
+        store.retain(publish_packet(topic: "new", payload: "12".to_slice, retain: true))
+        store.close
+        # The publish time of a restored message is the time of its file
+        File.touch(File.join(dir, "#{Digest::MD5.hexdigest("old")}.msg"), 1.hour.ago)
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+
+        topics = Array(String).new
+        store.each("#", 60_i64) { |topic, _, _| topics << topic }
+        topics.should eq ["new"]
+        store.each("#") { |topic, _, _| topics << topic }
+        topics.sort.should eq ["new", "new", "old"]
+
+        store.delete_expired(7200_i64).should eq 0
+        store.delete_expired(60_i64).should eq 1
+        store.message_count.should eq 1
+        store.bytesize.should eq 2
+        File.exists?(File.join(dir, "#{Digest::MD5.hexdigest("old")}.msg")).should be_false
+      ensure
+        store.try &.close
+      end
+
+      it "removes more than one batch and compacts the index file" do
+        dir = "tmp/retain_store"
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+        250.times { |i| store.retain(publish_packet(topic: "t/#{i}", payload: "x".to_slice, retain: true)) }
+        # 0 seconds: every stored message is expired
+        store.delete_expired(0_i64).should eq 250
+        store.message_count.should eq 0
+        Dir.glob(File.join(dir, "*.msg")).should be_empty
+        File.read(File.join(dir, "index")).should be_empty
+      ensure
+        store.try &.close
+      end
+
+      it "doesn't rewrite the index file while most of its lines are live" do
+        dir = "tmp/retain_store"
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+        10.times { |i| store.retain(publish_packet(topic: "t/#{i}", payload: "x".to_slice, retain: true)) }
+        store.close
+        File.touch(File.join(dir, "#{Digest::MD5.hexdigest("t/0")}.msg"), 1.hour.ago)
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+        store.delete_expired(60_i64).should eq 1
+        File.read_lines(File.join(dir, "index")).size.should eq 10
+        store.close
+        File.read_lines(File.join(dir, "index")).size.should eq 9
+      end
+
+      it "removes nothing after the store is closed" do
+        dir = "tmp/retain_store"
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+        store.retain(publish_packet(topic: "a", payload: "x".to_slice, retain: true))
+        store.close
+        store.delete_expired(0_i64).should eq 0
+        Dir.glob(File.join(dir, "*.msg")).size.should eq 1
+      end
+
+      it "counts the age from the last publish to the topic" do
+        dir = "tmp/retain_store"
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+        store.retain(publish_packet(topic: "a", payload: "1234".to_slice, retain: true))
+        store.close
+        File.touch(File.join(dir, "#{Digest::MD5.hexdigest("a")}.msg"), 1.hour.ago)
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+        store.retain(publish_packet(topic: "a", payload: "12".to_slice, retain: true))
+        store.delete_expired(60_i64).should eq 0
+        retained_body(store, "a").should eq "12"
+      ensure
+        store.try &.close
+      end
+    end
+
     describe "each" do
       it "can be called multiple times" do
         index = IndexTree.new

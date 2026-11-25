@@ -52,6 +52,10 @@
             <td id="max-retained-bytes"></td>
           </tr>
           <tr>
+            <th>Retained message TTL (s)</th>
+            <td id="retained-message-ttl"></td>
+          </tr>
+          <tr>
             <th>Retained overflow</th>
             <td id="retained-overflow"></td>
           </tr>
@@ -117,6 +121,10 @@
         <label>
           <span>Max retained bytes</span>
           <input type="number" name="max-retained-bytes" class="right">
+        </label>
+        <label>
+          <span>Retained message TTL (s)</span>
+          <input type="number" name="retained-message-ttl" class="right">
         </label>
         <label>
           <span>Retained overflow</span>

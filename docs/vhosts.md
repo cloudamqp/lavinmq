@@ -27,11 +27,12 @@ Vhost limits cap resource consumption per vhost. They are stored as part of the 
 | `max-queues` | Maximum number of queues in this vhost. [MQTT sessions](mqtt.md#session-limits) count towards the same cap. `queue.declare` fails when the cap is reached, and an MQTT SUBSCRIBE that would create a new session is refused. Existing queues are unaffected if the limit is later lowered below the current count. |
 | `max-retained-messages` | Maximum number of [retained MQTT messages](mqtt.md#retained-message-limits) in this vhost. A retained publish to a new topic beyond the cap is delivered to subscribers but not stored. Replacing or clearing the retained message of a topic that already has one still works. Stored messages are unaffected if the limit is later lowered below the current count. |
 | `max-retained-bytes` | Maximum total payload size, in bytes, of the retained MQTT messages in this vhost. A retained publish that would take the total over the cap is delivered to subscribers but not stored, and a topic that already has a retained message keeps it. Stored messages are unaffected if the limit is later lowered below the current size. |
+| `retained-message-ttl` | Maximum age, in seconds, of a [retained MQTT message](mqtt.md#retained-message-expiry) in this vhost, counted from the last publish to its topic. Older messages are not delivered to new subscribers and are removed. A change also applies to messages that are already stored. |
 | `retained-overflow` | What a retained MQTT publish over `max-retained-messages` or `max-retained-bytes` does: `reject` (default) delivers the message without storing it, `drop-head` removes the [oldest retained messages](mqtt.md#retained-message-overflow) to make room for it. |
 
 Limits are optional. When not set, there is no cap. Setting a limit to a negative value removes it.
 
-Limits are managed via `PUT /api/vhost-limits/:vhost/:type` (where `:type` is `max-connections`, `max-queues`, `max-retained-messages`, `max-retained-bytes` or `retained-overflow`) or the `lavinmqctl set_vhost_limits` command.
+Limits are managed via `PUT /api/vhost-limits/:vhost/:type` (where `:type` is `max-connections`, `max-queues`, `max-retained-messages`, `max-retained-bytes`, `retained-message-ttl` or `retained-overflow`) or the `lavinmqctl set_vhost_limits` command.
 
 ## Management
 

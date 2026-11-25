@@ -27,6 +27,40 @@ module MqttSpecs
       end
     end
 
+    it "doesn't deliver a retained message older than retained-message-ttl, and removes it" do
+      with_server do |server|
+        vhost = server.vhosts["/"]
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          publish(io, topic: "a/b", qos: 1u8, retain: true)
+          disconnect(io)
+        end
+        vhost.retained_message_ttl = 3600_i64
+        with_client_io(server) do |io|
+          connect(io, client_id: "in-time")
+          subscribe(io, topic_filters: [subtopic("a/b")])
+          read_packet(io).as(MQTT::Protocol::Publish).topic.should eq("a/b")
+          disconnect(io)
+        end
+        vhost.mqtt_broker.expire_retained
+        vhost.mqtt_retained_messages.should eq 1
+
+        # 0 seconds: every stored message is expired
+        vhost.retained_message_ttl = 0_i64
+        with_client_io(server) do |io|
+          connect(io, client_id: "too-late")
+          subscribe(io, topic_filters: [subtopic("a/b")])
+          publish(io, topic: "live", qos: 0u8)
+          ping(io)
+          read_packet(io).should be_a(MQTT::Protocol::PingResp)
+          disconnect(io)
+        end
+        vhost.mqtt_broker.expire_retained
+        vhost.mqtt_retained_messages.should eq 0
+        vhost.mqtt_retained_expired_count.should eq 1
+      end
+    end
+
     it "delivers but doesn't store a retained message over max-retained-messages" do
       with_server do |server|
         vhost = server.vhosts["/"]

@@ -54,6 +54,7 @@ module LavinMQ
         when "max-queues"            then vhost.max_queues = value.try &.to_i32
         when "max-retained-messages" then vhost.max_retained_messages = value
         when "max-retained-bytes"    then vhost.max_retained_bytes = value
+        when "retained-message-ttl"  then vhost.retained_message_ttl = value
         when "retained-overflow"
           return false if value
           vhost.retained_overflow = MQTT::RetainStore::Overflow::Reject
@@ -71,7 +72,7 @@ module LavinMQ
         def self_if_limited : VHostLimitsView?
           self if @vhost.max_connections || @vhost.max_queues ||
                   @vhost.max_retained_messages || @vhost.max_retained_bytes ||
-                  @vhost.retained_overflow.drop_head?
+                  @vhost.retained_message_ttl || @vhost.retained_overflow.drop_head?
         end
 
         def details_tuple
@@ -87,6 +88,9 @@ module LavinMQ
           end
           if max = @vhost.max_retained_bytes
             value = value.merge({"max-retained-bytes": max})
+          end
+          if ttl = @vhost.retained_message_ttl
+            value = value.merge({"retained-message-ttl": ttl})
           end
           if @vhost.retained_overflow.drop_head?
             value = value.merge({"retained-overflow": @vhost.retained_overflow.to_setting})

@@ -45,6 +45,9 @@ module LavinMQ
           if mrb = vhost.max_retained_bytes
             limits["max-retained-bytes"] = mrb
           end
+          if ttl = vhost.retained_message_ttl
+            limits["retained-message-ttl"] = ttl
+          end
           if vhost.retained_overflow.drop_head?
             limits["retained-overflow"] = vhost.retained_overflow.to_setting
           end
@@ -304,7 +307,7 @@ module LavinMQ
 
     private def vhost_limits?(v) : Bool
       !!(v.max_connections || v.max_queues || v.max_retained_messages || v.max_retained_bytes ||
-        v.retained_overflow.drop_head?)
+        v.retained_message_ttl || v.retained_overflow.drop_head?)
     end
 
     private def import_vhost_limits(v, value, skip_existing)
@@ -320,6 +323,9 @@ module LavinMQ
       end
       if mrb = value["max-retained-bytes"]?.try &.as_i64?
         v.max_retained_bytes = mrb
+      end
+      if ttl = value["retained-message-ttl"]?.try &.as_i64?
+        v.retained_message_ttl = ttl
       end
       if overflow = value["retained-overflow"]?.try(&.as_s?).try { |s| MQTT::RetainStore::Overflow.from_setting?(s) }
         v.retained_overflow = overflow
