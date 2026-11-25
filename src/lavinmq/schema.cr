@@ -4,19 +4,24 @@ module LavinMQ
   module Schema
     VERSION = 4
 
+    Log = LavinMQ::Log.for "schema"
+
     # Data directories written before LavinMQ 1.0 had no schema_version file
-    # and have to be migrated by LavinMQ 2.11 or earlier first.
+    # and have to be migrated by LavinMQ 2.11 or earlier first. A later data
+    # directory can have lost the file, or have it empty, after a power loss:
+    # it's written again.
     def self.verify(data_dir, replicator) : Nil
       path = File.join(data_dir, "schema_version")
       case v = version(path)
       when VERSION
       when nil
+        raise UnsupportedSchemaVersion.new(path) if pre_v4?(data_dir)
         if File.exists?(File.join(data_dir, "vhosts.json"))
-          raise UnsupportedSchemaVersion.new(path)
+          Log.warn { "#{path} was missing or empty in a data directory with the current layout, writing it again" }
         end
         # Written durably: a confirm doesn't sync the whole data dir, so
         # nothing else makes this file durable, and a power loss could
-        # leave it empty, which stops every later start
+        # leave it empty
         FileSystem.replace(path, &.print(VERSION))
       else
         raise UnsupportedSchemaVersion.new(v, path)
@@ -25,9 +30,24 @@ module LavinMQ
     end
 
     private def self.version(path) : Int32?
-      File.read(path).to_i32
+      content = File.read(path).strip
+      return if content.empty?
+      content.to_i32? || raise UnsupportedSchemaVersion.new(content, path)
     rescue File::NotFoundError
       nil
+    end
+
+    # Before schema version 4 every queue directory had an enq and an ack
+    # index, and the messages were in the vhost directory
+    private def self.pre_v4?(data_dir) : Bool
+      Dir.each_child(data_dir) do |vhost|
+        vhost_dir = File.join(data_dir, vhost)
+        next unless File.directory?(vhost_dir)
+        Dir.each_child(vhost_dir) do |queue|
+          return true if File.exists?(File.join(vhost_dir, queue, "enq"))
+        end
+      end
+      false
     end
   end
 
@@ -87,8 +107,12 @@ module LavinMQ
       super "Unsupported schema version #{@version} for #{path}"
     end
 
+    def initialize(content : String, path)
+      super "Invalid schema version #{content.inspect} in #{path}"
+    end
+
     def initialize(path)
-      super "Missing #{path}, the data directory was created by LavinMQ < 1.0. " \
+      super "Missing #{path}, and the data directory has the message indexes of LavinMQ < 1.0. " \
             "Upgrade it with LavinMQ 2.11 before upgrading to this version."
     end
   end

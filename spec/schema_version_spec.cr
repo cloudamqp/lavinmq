@@ -77,6 +77,9 @@ describe LavinMQ::SchemaVersion do
     it "refuses a pre 1.0 data directory without schema_version" do
       with_datadir do |data_dir|
         File.write(File.join(data_dir, "vhosts.json"), "[]")
+        queue_dir = File.join(data_dir, "vhost", "queue")
+        Dir.mkdir_p(queue_dir)
+        File.write(File.join(queue_dir, "enq"), "")
         expect_raises(LavinMQ::UnsupportedSchemaVersion, /LavinMQ < 1.0/) do
           LavinMQ::Schema.verify(data_dir, nil)
         end
@@ -84,10 +87,39 @@ describe LavinMQ::SchemaVersion do
       end
     end
 
+    it "restores a lost schema_version in a data directory with the current layout" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "vhosts.json"), "[]")
+        queue_dir = File.join(data_dir, "vhost", "queue")
+        Dir.mkdir_p(queue_dir)
+        File.write(File.join(queue_dir, "msgs.0000000001"), "")
+        LavinMQ::Schema.verify(data_dir, nil)
+        File.read(File.join(data_dir, "schema_version")).should eq LavinMQ::Schema::VERSION.to_s
+      end
+    end
+
+    it "restores an empty schema_version, as a power loss can leave it" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "vhosts.json"), "[]")
+        File.write(File.join(data_dir, "schema_version"), "")
+        LavinMQ::Schema.verify(data_dir, nil)
+        File.read(File.join(data_dir, "schema_version")).should eq LavinMQ::Schema::VERSION.to_s
+      end
+    end
+
     it "refuses an unknown schema version" do
       with_datadir do |data_dir|
         File.write(File.join(data_dir, "schema_version"), "5")
         expect_raises(LavinMQ::UnsupportedSchemaVersion) do
+          LavinMQ::Schema.verify(data_dir, nil)
+        end
+      end
+    end
+
+    it "refuses a schema_version that isn't a number" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "schema_version"), "four")
+        expect_raises(LavinMQ::UnsupportedSchemaVersion, /four/) do
           LavinMQ::Schema.verify(data_dir, nil)
         end
       end
