@@ -75,6 +75,71 @@ module ClientReconnectSpec
     acked
   end
 
+  # A port that nothing listens on, so connecting to it is refused
+  def self.closed_port : Int32
+    TCPServer.open("127.0.0.1", 0, &.local_address.port)
+  end
+
+  # Holds the follow loop at a gate, either before it binds anything or after
+  # it bound the control socket, so a close can run at that point
+  class GatedClient < ClusteringSpecHelper::TestClient
+    getter gate = Channel(Nil).new
+    property? hold_before_bind = true
+
+    private def follow_loop(leader : LavinMQ::Clustering::Client::Leader)
+      @gate.receive if hold_before_bind?
+      super
+    end
+
+    private def hash_local_files : Nil
+      @gate.receive unless hold_before_bind?
+      super
+    end
+  end
+
+  # Follows a non-loopback leader, so the loop binds the control socket, closes
+  # while the loop is held at the gate, and checks that close unbound the socket
+  def self.close_while_held(data_dir, socket_path, hold_before_bind)
+    config = LavinMQ::Config.instance.dup
+    config.data_dir = data_dir
+    config.sync = false
+    config.metrics_http_port = -1
+    client = GatedClient.new(config, 1, "password", proxy: false)
+    client.hold_before_bind = hold_before_bind
+    spawn { client.follow("192.0.2.1", closed_port) }
+    Fiber.yield # the loop runs up to the gate
+    File.exists?(socket_path).should eq !hold_before_bind
+    closed = Channel(Exception?).new
+    spawn do
+      client.close
+      closed.send nil
+    rescue ex
+      closed.send ex
+    end
+    Fiber.yield # close waits for the loop
+    client.gate.send nil
+    select
+    when ex = closed.receive then raise ex if ex
+    when timeout(5.seconds) then fail "close didn't return"
+    end
+    expect_raises(Socket::ConnectError) { UNIXSocket.new(socket_path) }
+  ensure
+    if (server = client.try &.@internal_http_server) && !server.closed?
+      server.close
+    end
+  end
+
+  def self.with_control_socket_path(&)
+    config = LavinMQ::Config.instance
+    original_path = config.control_unix_path
+    socket_path = File.tempname("lavinmqctl-spec", ".sock")
+    config.control_unix_path = socket_path
+    yield socket_path
+  ensure
+    LavinMQ::Config.instance.control_unix_path = original_path if original_path
+    File.delete?(socket_path) if socket_path
+  end
+
   def self.framing(filename) : Int64
     (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
   end
@@ -108,7 +173,6 @@ module ClientReconnectSpec
         end
         File.read(path).should eq "AAAABBBBCCCC"
 
-        spawn { client.@follower_done.send(nil) }
         client.close
       end
     end
@@ -144,8 +208,46 @@ module ClientReconnectSpec
           File.exists?(path).should be_false
         end
 
-        spawn { client.@follower_done.send(nil) }
         client.close
+      end
+    end
+
+    it "closes at once when it never started following, and doesn't follow after" do
+      with_datadir do |data_dir|
+        client = make_client(data_dir, sync: false)
+        Time.measure { client.close }.should be < 1.second
+
+        followed = Channel(Nil).new
+        spawn { client.follow("127.0.0.1", closed_port); followed.send nil }
+        select
+        when followed.receive
+        when timeout(1.second) then fail "follow didn't return after close"
+        end
+      end
+    end
+
+    it "unbinds the control socket when closed after the follow loop bound it" do
+      with_datadir do |data_dir|
+        with_control_socket_path do |socket_path|
+          close_while_held(data_dir, socket_path, hold_before_bind: false)
+        end
+      end
+    end
+
+    it "unbinds the control socket when closed before the follow loop bound it" do
+      with_datadir do |data_dir|
+        with_control_socket_path do |socket_path|
+          close_while_held(data_dir, socket_path, hold_before_bind: true)
+        end
+      end
+    end
+
+    it "cuts the reconnect backoff short when closed" do
+      with_datadir do |data_dir|
+        client = make_client(data_dir, sync: false)
+        spawn { client.follow("127.0.0.1", closed_port) }
+        sleep 100.milliseconds # the connect is refused at once, then it backs off for 1s
+        Time.measure { client.close }.should be < 500.milliseconds
       end
     end
   end
