@@ -64,7 +64,7 @@ module ShovelTest
     # keys are given as `dest_uri:`, `dest_queue:` etc. and become kebab-case.
     private def shovel_config(src_queue : String, **fields) : ShovelConfig
       config = ShovelConfig{
-        "src-uri"         => cfg.amqp_url,
+        "src-uri"         => cfg.shovel_amqp_url,
         "src-queue"       => src_queue,
         "reconnect-delay" => 1,
       }

@@ -71,6 +71,18 @@ module ShovelTest
       request!("DELETE", "/api/vhosts/#{@vhost}")
     end
 
+    # -------- users --------
+
+    def create_user(name : String, password : String) : Nil
+      user = URI.encode_path_segment(name)
+      request!("PUT", "/api/users/#{user}", {password: password, tags: ""}.to_json)
+      request!("PUT", "/api/permissions/#{@vhost}/#{user}", {configure: ".*", write: ".*", read: ".*"}.to_json)
+    end
+
+    def delete_user(name : String) : Nil
+      request!("DELETE", "/api/users/#{URI.encode_path_segment(name)}")
+    end
+
     # -------- queues --------
 
     def declare_queue(name : String, arguments : Hash) : Nil

@@ -22,7 +22,7 @@ module ShovelTest
       src = queue("src")
       dest = queue("dest", {"x-max-length" => MAX_LENGTH, "x-overflow" => "reject-publish"})
       broker.publish(src, total)
-      name = shovel("shovel", shovel_config(src, dest_uri: cfg.amqp_url, dest_queue: dest))
+      name = shovel("shovel", shovel_config(src, dest_uri: cfg.shovel_amqp_url, dest_queue: dest))
 
       eventually("the destination to fill up to its max-length") { api.queue(dest).ready == MAX_LENGTH }
       # From here every publish is nacked. The source must keep what is left,
