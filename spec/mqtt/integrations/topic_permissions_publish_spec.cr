@@ -84,6 +84,55 @@ module MqttSpecs
       end
     end
 
+    it "delivers but doesn't store a retained publish without retain permission" do
+      with_server do |server|
+        server.users.create("alice", "alice")
+        server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        service = server.vhosts["/"].mqtt_permission_service
+
+        # Stored while the default group still grants retain everywhere
+        with_client_io(server) do |io|
+          connect(io, client_id: "setup", username: "alice", password: "alice".to_slice)
+          publish(io, topic: "game/chat", payload: "kept".to_slice, qos: 1u8, retain: true)
+          disconnect(io)
+        end
+
+        service.delete("default")
+        service.put(LavinMQ::MQTT::PermissionGroup.new("players", "/", ["alice"], [
+          LavinMQ::MQTT::PermissionGroup::Rule.new("game", "game/#", read: true, write: true, retain: false),
+          LavinMQ::MQTT::PermissionGroup::Rule.new("saves", "game/saves/#", write: true),
+        ]))
+
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "live", username: "alice", password: "alice".to_slice)
+          subscribe(sub_io, topic_filters: mk_topic_filters({"game/moves", 0}))
+
+          with_client_io(server) do |io|
+            connect(io, client_id: "player", username: "alice", password: "alice".to_slice)
+            publish(io, topic: "game/moves", payload: "e4".to_slice, qos: 1u8, retain: true)
+            # An empty payload would clear the retained message with permission
+            publish(io, topic: "game/chat", payload: Bytes.empty, qos: 1u8, retain: true)
+            publish(io, topic: "game/saves/1", payload: "save".to_slice, qos: 1u8, retain: true)
+            disconnect(io)
+          end
+
+          read_packet(sub_io).as(MQTT::Protocol::Publish).payload.should eq("e4".to_slice)
+        end
+
+        retained = Hash(String, String).new
+        with_client_io(server) do |io|
+          connect(io, client_id: "late", username: "alice", password: "alice".to_slice)
+          subscribe(io, topic_filters: mk_topic_filters({"game/#", 0}))
+          2.times do
+            pub = read_packet(io).as(MQTT::Protocol::Publish)
+            retained[pub.topic] = String.new(pub.payload)
+          end
+          disconnect(io)
+        end
+        retained.should eq({"game/chat" => "kept", "game/saves/1" => "save"})
+      end
+    end
+
     it "acks a denied qos>0 publish but does not deliver it, keeping connection open" do
       with_server do |server|
         server.users.create("alice", "alice")

@@ -100,6 +100,21 @@ describe LavinMQ::HTTP::PermissionGroupsController do
       end
     end
 
+    it "sets the retain flag of a rule, true when it is left out" do
+      with_http_server do |http, _|
+        http.put("/api/mqtt/permission-groups/%2f/game").status_code.should eq 201
+        no_retain = {pattern: "game/#", write: true, retain: false}.to_json
+        http.put("/api/mqtt/permission-groups/%2f/game/rules/game", body: no_retain).status_code.should eq 201
+        default = {pattern: "game/saves/#", write: true}.to_json
+        http.put("/api/mqtt/permission-groups/%2f/game/rules/saves", body: default).status_code.should eq 201
+        bad = {pattern: "x/#", write: true, retain: "no"}.to_json
+        http.put("/api/mqtt/permission-groups/%2f/game/rules/bad", body: bad).status_code.should eq 400
+
+        rules = JSON.parse(http.get("/api/mqtt/permission-groups/%2f/game/rules").body).as_a
+        rules.to_h { |r| {r["identifier"].as_s, r["retain"].as_bool} }.should eq({"game" => false, "saves" => true})
+      end
+    end
+
     it "lists groups as summaries with pagination and filtering" do
       with_http_server do |http, _|
         http.put("/api/mqtt/permission-groups/%2f/chat").status_code.should eq 201

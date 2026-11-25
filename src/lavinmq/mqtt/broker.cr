@@ -105,13 +105,14 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      # Returns false, without storing or routing the packet, during a disk alarm
-      def publish(packet : Protocol::Publish, ctx : PublishContext) : Bool
+      # Returns false, without storing or routing the packet, during a disk alarm.
+      # With store_retained false a retained publish is routed like any other
+      def publish(packet : Protocol::Publish, ctx : PublishContext, store_retained : Bool = true) : Bool
         if packet.topic.bytesize > MAX_TOPIC_BYTESIZE
           raise TopicTooLong.new("topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
         end
         return false unless @vhost.flow?
-        @retain_store.retain(packet) if packet.retain?
+        @retain_store.retain(packet) if packet.retain? && store_retained
         @exchange.publish(packet, ctx)
         true
       end

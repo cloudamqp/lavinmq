@@ -375,7 +375,7 @@
       '204':
         description: An existing rule was replaced
       '400':
-        description: Invalid identifier or topic filter, missing or non-string `pattern`, a non-boolean `read` or `write`, or a body that is not a JSON object
+        description: Invalid identifier or topic filter, missing or non-string `pattern`, a non-boolean `read`, `write` or `retain`, or a body that is not a JSON object
         content:
           application/json:
             schema:

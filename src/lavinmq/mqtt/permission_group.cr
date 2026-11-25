@@ -18,8 +18,12 @@ module LavinMQ
         getter pattern : String
         getter? read : Bool = false
         getter? write : Bool = false
+        # Whether a publish the rule lets through may also be retained. True
+        # when absent, so rules stored before the flag existed keep retaining
+        getter? retain : Bool = true
 
-        def initialize(@identifier : String, @pattern : String, @read : Bool = false, @write : Bool = false)
+        def initialize(@identifier : String, @pattern : String, @read : Bool = false, @write : Bool = false,
+                       @retain : Bool = true)
         end
       end
 

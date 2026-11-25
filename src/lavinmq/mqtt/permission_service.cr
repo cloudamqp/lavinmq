@@ -24,7 +24,15 @@ module LavinMQ
       record CompiledRule,
         chain : TopicRuleSegment,
         read : Bool,
-        write : Bool
+        write : Bool,
+        retain : Bool
+
+      enum Access
+        Read
+        Write
+        # Write, with the right to store the message as retained
+        Retain
+      end
 
       # What a check knows about the connection. The username selects the
       # member rules, the client id feeds the {client_id} substitution. The
@@ -139,11 +147,15 @@ module LavinMQ
       end
 
       def can_write?(context : Context, topic : String) : Bool
-        matches?(context, topic, write: true)
+        matches?(context, topic, Access::Write)
       end
 
       def can_read?(context : Context, topic : String) : Bool
-        matches?(context, topic, write: false)
+        matches?(context, topic, Access::Read)
+      end
+
+      def can_retain?(context : Context, topic : String) : Bool
+        matches?(context, topic, Access::Retain)
       end
 
       def to_json(json : JSON::Builder)
@@ -151,18 +163,23 @@ module LavinMQ
       end
 
       # Read @compiled once so a concurrent rebuild is never observed halfway.
-      private def matches?(context : Context, topic : String, write : Bool) : Bool
+      private def matches?(context : Context, topic : String, access : Access) : Bool
         compiled = @compiled
         client_id = context.client_id
-        return true if rules_match?(compiled.global_rules, client_id, topic, write)
+        return true if rules_match?(compiled.global_rules, client_id, topic, access)
         return false unless username = context.username
         return false unless own = compiled.by_member[username]?
-        rules_match?(own, client_id, topic, write)
+        rules_match?(own, client_id, topic, access)
       end
 
-      private def rules_match?(rules : Array(CompiledRule), client_id : String, topic : String, write : Bool) : Bool
+      private def rules_match?(rules : Array(CompiledRule), client_id : String, topic : String, access : Access) : Bool
         rules.each do |rule|
-          next unless write ? rule.write : rule.read
+          granted = case access
+                    in .read?   then rule.read
+                    in .write?  then rule.write
+                    in .retain? then rule.write && rule.retain
+                    end
+          next unless granted
           return true if TopicRuleSegment.matches?(rule.chain, topic, client_id)
         end
         false
@@ -181,7 +198,7 @@ module LavinMQ
               Log.warn { "Ignoring invalid topic filter #{rule.pattern.inspect} in permission group #{group.name.inspect}" }
               next
             end
-            compiled_rules << CompiledRule.new(chain, rule.read?, rule.write?)
+            compiled_rules << CompiledRule.new(chain, rule.read?, rule.write?, rule.retain?)
           end
           # A group with no valid rule grants nothing, so its members need no entry.
           next if compiled_rules.empty?

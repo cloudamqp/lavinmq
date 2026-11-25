@@ -48,6 +48,40 @@ describe LavinMQ::MQTT::PermissionService do
     end
   end
 
+  describe "#can_retain?" do
+    it "needs a rule that grants write and retain" do
+      with_service do |service|
+        rules = [
+          LavinMQ::MQTT::PermissionGroup::Rule.new("game", "game/#", write: true, retain: false),
+          LavinMQ::MQTT::PermissionGroup::Rule.new("saves", "game/saves/#", write: true),
+          LavinMQ::MQTT::PermissionGroup::Rule.new("read-only", "news/#", read: true, retain: true),
+        ]
+        service.put(group("g", ["c1"], rules))
+        service.can_write?(ctx("c1"), "game/chat").should be_true
+        service.can_retain?(ctx("c1"), "game/chat").should be_false
+        service.can_retain?(ctx("c1"), "game/saves/1").should be_true
+        service.can_retain?(ctx("c1"), "news/today").should be_false
+        service.can_retain?(ctx("c2"), "game/saves/1").should be_false
+      end
+    end
+
+    it "is granted by a rule stored without the flag" do
+      json = %({"name":"g","vhost":"/","members":["c1"],"rules":[{"identifier":"r","pattern":"a/#","write":true}]})
+      with_service do |service|
+        service.put(LavinMQ::MQTT::PermissionGroup.from_json(json))
+        service.can_retain?(ctx("c1"), "a/b").should be_true
+      end
+      LavinMQ::MQTT::PermissionGroup.from_json(json).to_json.should contain %("retain":true)
+    end
+
+    it "is granted by the default group" do
+      with_data_dir do |data_dir|
+        service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)
+        service.can_retain?(ctx("c1"), "a/b").should be_true
+      end
+    end
+  end
+
   it "keeps the default group's grant next to a narrower group" do
     with_data_dir do |data_dir|
       service = LavinMQ::MQTT::PermissionService.new("/", data_dir, nil)

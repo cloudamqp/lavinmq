@@ -54,6 +54,10 @@ permission-group-rule:
       type: boolean
       description: Allow publishing to matching topics.
       example: true
+    retain:
+      type: boolean
+      description: Allow a publish that `write` lets through to be stored as a retained message.
+      example: true
 PutRuleRequestBody:
   type: object
   properties:
@@ -69,6 +73,10 @@ PutRuleRequestBody:
       type: boolean
       description: Allow publishing to matching topics.
       default: false
+    retain:
+      type: boolean
+      description: Allow a publish that `write` lets through to be stored as a retained message.
+      default: true
   required:
   - pattern
 permission-groups:

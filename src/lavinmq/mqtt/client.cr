@@ -235,7 +235,7 @@ module LavinMQ
         end
         # MQTT 3.1.1 has no negative PUBACK, so closing is the only way to
         # tell the client its publish wasn't accepted
-        unless @broker.publish(packet, @publish_context)
+        unless @broker.publish(packet, @publish_context, store_retained: retain_allowed?(packet))
           @log.warn { "Publish refused, server low on disk space" }
           disconnect
           return
@@ -356,6 +356,15 @@ module LavinMQ
           value === @user.name
       end
 
+      # Without retain permission the publish is still delivered, but it
+      # neither stores nor clears a retained message
+      private def retain_allowed?(packet : Protocol::Publish) : Bool
+        return true unless packet.retain?
+        return true if @broker.permission_service.can_retain?(@permission_context, packet.topic)
+        Log.debug { "Retain refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to retain on topic '#{packet.topic}'" }
+        false
+      end
+
       private def publish_will
         if will = @will
           if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
@@ -366,14 +375,15 @@ module LavinMQ
             Log.debug { "Will publish refused: no topic permission rule allows user '#{@user.name}' (client '#{@client_id}') to write topic '#{will.topic}'" }
             return
           end
-          published = @broker.publish(Protocol::Publish.new(
+          packet = Protocol::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          ), @publish_context)
+          )
+          published = @broker.publish(packet, @publish_context, store_retained: retain_allowed?(packet))
           @log.warn { "Will publish refused, server low on disk space" } unless published
         end
       rescue ex
