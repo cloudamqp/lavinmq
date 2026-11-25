@@ -13,7 +13,7 @@
       schema:
         type: string
       description: Only return queues in the given state(s), comma separated. Valid
-        states are running, paused, flow, closed and deleted.
+        states are running, paused, failed, flow, closed and deleted.
     responses:
       '200':
         description: OK
@@ -54,7 +54,7 @@
       schema:
         type: string
       description: Only return queues in the given state(s), comma separated. Valid
-        states are running, paused, flow, closed and deleted.
+        states are running, paused, failed, flow, closed and deleted.
     responses:
       '200':
         description: OK
