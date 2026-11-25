@@ -1796,6 +1796,32 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "reads past an empty segment that isn't the write segment" do
+      with_datadir do |data_dir|
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        StreamSpecHelpers.push(store, 3, LavinMQ::Config.instance.segment_size // 2)
+        store.@segments.size.should eq 3
+        store.close
+        # A crash right after a rollover leaves a segment with only the schema version
+        File.open(File.join(data_dir, "msgs.0000000004"), "w", &.write_bytes(LavinMQ::Schema::VERSION))
+
+        store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        # Larger than a segment: rolls over and leaves the empty segment behind
+        StreamSpecHelpers.push(store, 1, LavinMQ::Config.instance.segment_size + 1)
+        store.@segments.last_key.should eq 5
+        cursor = store.cursor(LavinMQ::AMQP::StreamOffset::First.new)
+        offsets = Array(Int64).new
+        while env = store.shift?(cursor)
+          offsets << StreamSpecHelpers.offset_from_headers(env.message.properties.headers)
+        end
+        offsets.should eq [1, 2, 3, 4]
+        # Finding an offset walks the segments too
+        store.find_offset(LavinMQ::AMQP::StreamOffset::Absolute.new(4)).should eq({4i64, 5u32, 4u32})
+        store.find_offset(LavinMQ::AMQP::StreamOffset::Timestamp.new(StreamSpecHelpers::T0 + 1.hour)).should eq({5i64, 5u32, store.@segments[5u32].size.to_u32})
+        store.close
+      end
+    end
+
     it "loads when the trailing record is torn mid-body" do
       with_datadir do |data_dir|
         store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
