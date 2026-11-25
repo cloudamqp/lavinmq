@@ -65,6 +65,12 @@ Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits),
 - QoS 1 messages are stored in the session queue and tracked with packet IDs
 - Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over, and keep their packet IDs for the redelivery. For clean sessions, unacknowledged messages are discarded.
 
+### Pausing a Session
+
+A session can be paused and resumed like a [queue](queues.md#queue-states), through `PUT /api/queues/:vhost/mqtt.<client_id>/pause` and `/resume`, the management UI and `lavinmqctl`. Both need `configure` permission on `mqtt.<client_id>`. A paused session delivers nothing, but its client stays connected and messages routed to it are still stored. The pause is kept when the broker restarts.
+
+A session whose message store fails is handled like a [queue's](queues.md#message-store-errors). After a temporary error it's paused, with the `paused_reason` `store_error`: fix the cause and resume it. If its message data can't be read, its state is `failed` and a resume is refused. Messages routed to a failed session are dropped, and their publishers still get a PUBACK. Delete the session to recover; its client then has to reconnect and subscribe again.
+
 ## Connection Limits
 
 The `max-connections` vhost limit applies to MQTT connections as well as AMQP ones. When the vhost is at its cap, a CONNECT is answered with a CONNACK carrying return code 3 (server unavailable) and the socket is closed. A client reconnecting with a client ID that already has an active connection is still accepted, because [session takeover](#session-takeover) replaces that connection instead of adding one. See [Connections](connections.md#connection-limits).
