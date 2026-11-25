@@ -111,7 +111,7 @@ module LavinMQ
           raise TopicTooLong.new("topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
         end
         return false unless @vhost.flow?
-        if packet.retain? && !@retain_store.retain(packet, @vhost.max_retained_messages, @vhost.max_retained_bytes)
+        if packet.retain? && !@retain_store.retain(packet, @vhost.max_retained_messages, @vhost.max_retained_message_size)
           retain_not_stored
         end
         @exchange.publish(packet, ctx)
@@ -135,9 +135,9 @@ module LavinMQ
         count = @not_stored_unlogged.swap(0_u64, :relaxed)
         Log.warn do
           "#{count} retained messages delivered but not stored in vhost '#{@vhost.name}', " \
-          "limit reached (max-retained-messages=#{@vhost.max_retained_messages || "unset"}, " \
-          "max-retained-bytes=#{@vhost.max_retained_bytes || "unset"}). " \
-          "Topics that already have a retained message keep it. Raise the limit to store more"
+          "over a limit (max-retained-messages=#{@vhost.max_retained_messages || "unset"}, " \
+          "max-retained-message-size=#{@vhost.max_retained_message_size || "unset"}). " \
+          "Topics that already have a retained message keep it. Raise the limit to store them"
         end
       end
 

@@ -48,8 +48,8 @@
             <td id="max-retained-messages"></td>
           </tr>
           <tr>
-            <th>Max retained bytes</th>
-            <td id="max-retained-bytes"></td>
+            <th>Max retained message size</th>
+            <td id="max-retained-message-size"></td>
           </tr>
         </table>
       </section>
@@ -111,8 +111,8 @@
           <input type="number" name="max-retained-messages" class="right">
         </label>
         <label>
-          <span>Max retained bytes</span>
-          <input type="number" name="max-retained-bytes" class="right">
+          <span>Max retained message size</span>
+          <input type="number" name="max-retained-message-size" class="right">
         </label>
         <button type="submit" class="btn btn-green">Set limits</button>
       </form>

@@ -72,9 +72,9 @@ test.describe("vhost", _ => {
   test('keeps a retained limit of 0 when another limit is changed', async ({ page }) => {
     const sent = {}
     await page.route(url => url.pathname === `/api/vhost-limits/${vhostName}`, async route => {
-      await route.fulfill({ json: [{ value: { 'max-retained-messages': 0, 'max-retained-bytes': 5 } }] })
+      await route.fulfill({ json: [{ value: { 'max-retained-messages': 0, 'max-retained-message-size': 5 } }] })
     })
-    for (const name of ['max-connections', 'max-queues', 'max-retained-messages', 'max-retained-bytes']) {
+    for (const name of ['max-connections', 'max-queues', 'max-retained-messages', 'max-retained-message-size']) {
       await page.route(url => url.pathname === `/api/vhost-limits/${vhostName}/${name}`, async route => {
         sent[name] = route.request().postDataJSON().value
         await route.fulfill({ status: 204 })
@@ -89,7 +89,7 @@ test.describe("vhost", _ => {
     await form.getByRole('button').click()
 
     await expect.poll(() => sent).toEqual({
-      'max-connections': 200, 'max-queues': -1, 'max-retained-messages': 0, 'max-retained-bytes': 5
+      'max-connections': 200, 'max-queues': -1, 'max-retained-messages': 0, 'max-retained-message-size': 5
     })
   })
 

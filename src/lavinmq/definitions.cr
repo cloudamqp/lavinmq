@@ -42,8 +42,8 @@ module LavinMQ
           if mrm = vhost.max_retained_messages
             limits["max-retained-messages"] = mrm
           end
-          if mrb = vhost.max_retained_bytes
-            limits["max-retained-bytes"] = mrb
+          if mrb = vhost.max_retained_message_size
+            limits["max-retained-message-size"] = mrb
           end
           unless limits.empty?
             {
@@ -301,7 +301,7 @@ module LavinMQ
 
     private def import_vhost_limits(v, value, skip_existing)
       return if skip_existing && (v.max_connections || v.max_queues ||
-                v.max_retained_messages || v.max_retained_bytes)
+                v.max_retained_messages || v.max_retained_message_size)
       if mc = value["max-connections"]?.try &.as_i?
         v.max_connections = mc
       end
@@ -311,8 +311,8 @@ module LavinMQ
       if mrm = value["max-retained-messages"]?.try &.as_i64?
         v.max_retained_messages = mrm
       end
-      if mrb = value["max-retained-bytes"]?.try &.as_i64?
-        v.max_retained_bytes = mrb
+      if mrb = value["max-retained-message-size"]?.try &.as_i64?
+        v.max_retained_message_size = mrb
       end
     end
 
