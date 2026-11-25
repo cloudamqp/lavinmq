@@ -30,6 +30,38 @@ module MqttSpecs
       end
     end
 
+    it "publishes but doesn't retain a will without retain permission" do
+      with_server do |server|
+        server.users.create("alice", "alice")
+        server.users.add_permission("alice", "/", /.*/, /.*/, /.*/)
+        service = server.vhosts["/"].mqtt_permission_service
+        service.delete("default")
+        service.put(LavinMQ::MQTT::PermissionGroup.new("g", "/", ["alice"], [
+          LavinMQ::MQTT::PermissionGroup::Rule.new("all", "#", read: true, write: true, retain: false),
+        ]))
+
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub", username: "alice", password: "alice".to_slice)
+          subscribe(sub_io, topic_filters: mk_topic_filters({"#", 0}))
+
+          with_client_io(server) do |will_io|
+            will = MQTT::Protocol::Will.new(
+              topic: "chat/willy/last", payload: "dead".to_slice, qos: 0u8, retain: true)
+            connect(will_io, client_id: "willy", username: "alice", password: "alice".to_slice,
+              will: will, keepalive: 1u16)
+          end
+
+          read_packet(sub_io).as(MQTT::Protocol::Publish).topic.should eq("chat/willy/last")
+        end
+
+        with_client_io(server) do |io|
+          connect(io, client_id: "late", username: "alice", password: "alice".to_slice)
+          subscribe(io, topic_filters: mk_topic_filters({"#", 0}))
+          read_packet(io).should be_nil
+        end
+      end
+    end
+
     it "drops a will on a topic the client may not write" do
       with_server do |server|
         grant_own_writes(server)

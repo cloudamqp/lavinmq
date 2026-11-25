@@ -165,7 +165,8 @@ module LavinMQ
               bad_request(context, "Field 'pattern' is required") unless pattern
               rule = MQTT::PermissionGroup::Rule.new(params["identifier"], pattern,
                 read: rule_flag(context, body, "read"),
-                write: rule_flag(context, body, "write"))
+                write: rule_flag(context, body, "write"),
+                retain: rule_flag(context, body, "retain", default: true))
               existing = false
               found = vhost.mqtt_permission_service.update(params["name"]) do |group|
                 existing = group.rules.any?(&.identifier.== rule.identifier)
@@ -200,9 +201,9 @@ module LavinMQ
       # An absent flag is false. A present flag must be a boolean: coercing
       # "true" to false would create a rule that grants nothing and report
       # success.
-      private def rule_flag(context, body : JSON::Any, field : String) : Bool
+      private def rule_flag(context, body : JSON::Any, field : String, default = false) : Bool
         value = body[field]?
-        return false if value.nil?
+        return default if value.nil?
         case flag = value.as_bool?
         in Bool then flag
         in Nil  then bad_request(context, "Field '#{field}' must be a boolean")

@@ -168,7 +168,8 @@ A permission group has a name, a list of members and a list of rules.
 - The member `"*"` applies the group to every authenticated user
 - A user in several groups gets the rules of all of them
 - A member name must match the user name as shown in the connections list. For OAuth users that is the claim selected by `preferred_username_claims`
-- Each rule has an identifier, a topic filter pattern and `read` and `write` flags
+- Each rule has an identifier, a topic filter pattern and `read`, `write` and `retain` flags
+- `retain` says whether a publish that the rule lets through can also be stored as a [retained message](#retained-messages). It only has an effect together with `write`, and it is `true` when it is left out
 - Rule identifiers consist of alphanumerics and hyphens and are unique within the group. The HTTP API addresses a rule by its identifier
 
 ### Patterns
@@ -186,9 +187,21 @@ The client ID has no other role. Membership is decided by the authenticated user
 ### Enforcement
 
 - Publish: the connection needs a write rule for the topic. A denied publish is dropped, a QoS 1 publish is still acknowledged, and the connection stays open
+- Retain: a publish with the retain flag is stored only if a matching rule has both `write` and `retain`. Otherwise it is delivered to the current subscribers as a normal message, and it neither stores nor clears a retained message. A QoS 1 publish is still acknowledged
 - Subscribe: always accepted. Read is enforced when a message is accepted into the session, so a subscription to a filter the user cannot read receives no messages. This matches Mosquitto
-- Will: the connection needs a write rule for the will topic, otherwise the will is dropped
+- Will: the connection needs a write rule for the will topic, otherwise the will is dropped. A will with the retain flag follows the retain rule above
 - Denials are logged at debug level
+
+For example, a game where every player uses the same user can let players retain their save files but nothing else:
+
+```json
+"rules": [
+  { "identifier": "game", "pattern": "game/#", "read": true, "write": true, "retain": false },
+  { "identifier": "saves", "pattern": "game/saves/#", "write": true, "retain": true }
+]
+```
+
+A user gets the rules of all matching patterns, so `game/saves/1` can be retained and every other topic under `game/` cannot.
 - Changes to groups take effect immediately, also for connected clients
 
 Read is checked once per message, when the message is accepted into the session, not when it is delivered to the client. A message accepted before read was revoked is still delivered after the revocation. Messages published after the revocation are not.
@@ -214,14 +227,14 @@ A session is checked with the username of the client that last attached to it. T
 | PUT | `/api/mqtt/permission-groups/{vhost}/{name}/members/{username}` | Add a member |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/members/{username}` | Remove a member |
 | GET | `/api/mqtt/permission-groups/{vhost}/{name}/rules` | List the rules of a group |
-| PUT | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool}` |
+| PUT | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Add or replace a rule; body `{"pattern": "...", "read": bool, "write": bool, "retain": bool}` |
 | DELETE | `/api/mqtt/permission-groups/{vhost}/{name}/rules/{identifier}` | Remove a rule |
 
 - All routes require the administrator tag
 - A group summary has `name`, `vhost`, `member_count` and `rule_count`
 - The members route returns one object per member: `{"username": "..."}`
 - The group list routes and the members route accept `page`, `page_size`, `name` with optional `use_regex=true`, `sort`, `sort_reverse` and `columns`, like the other list endpoints
-- The rules route returns the full rule list with `identifier`, `pattern`, `read` and `write` per rule
+- The rules route returns the full rule list with `identifier`, `pattern`, `read`, `write` and `retain` per rule
 
 Example: allow every user to use only its own device subtrees under `chat/`.
 
