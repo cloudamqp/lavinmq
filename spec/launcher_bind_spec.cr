@@ -108,11 +108,11 @@ private class EarlyReturnRunner < LavinMQ::Runner
     @stopping.receive?
   end
 
-  def stopping : Nil
+  private def stopping : Nil
     @stopping.close
   end
 
-  def stop
+  private def stop
     sleep 200.milliseconds
     @stopped = true
   end

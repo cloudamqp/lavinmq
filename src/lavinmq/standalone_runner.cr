@@ -2,13 +2,13 @@ require "./runner"
 
 module LavinMQ
   class StandaloneRunner < Runner
-    # Yields to the block immediately, then blocks until stop is called.
+    # Yields to the block immediately, then blocks until #shutdown.
     def run(& : Clustering::Replicator? -> _)
       yield nil
       @stop_channel.receive?
     end
 
-    def stop
+    private def stop
       @stop_channel.close
     end
 

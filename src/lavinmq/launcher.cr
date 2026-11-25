@@ -176,21 +176,23 @@ module LavinMQ
     end
 
     def stop
-      stopping = false
-      @role_lock.synchronize do
-        return if @closed
-        stopping = @closed = true
-        Log.warn { "Stopping" }
-        SystemD.notify_stopping
-        @runner.stopping
-        # A startup that's running closes what it opens once it's done, see #start
-        close_listeners unless @starting
-        @client_listeners.close
-        @control_socket.close
-        @server.try(&.close) rescue nil unless @starting
-        @metrics_server.try &.close rescue nil
+      stopping = @role_lock.synchronize do
+        next false if @closed
+        @closed = true
       end
-      @runner.stop
+      return unless stopping
+      Log.warn { "Stopping" }
+      SystemD.notify_stopping
+      @runner.shutdown do
+        @role_lock.synchronize do
+          # A startup that's running closes what it opens once it's done, see #start
+          close_listeners unless @starting
+          @client_listeners.close
+          @control_socket.close
+          @server.try(&.close) rescue nil unless @starting
+          @metrics_server.try &.close rescue nil
+        end
+      end
     ensure
       @stopped.close if stopping
     end
