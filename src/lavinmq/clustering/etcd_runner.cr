@@ -145,7 +145,7 @@ class LavinMQ::Clustering::EtcdRunner < LavinMQ::Clustering::Runner
   # doesn't take that for a lost lease
   @stepping_down = Atomic(Bool).new(false)
 
-  def stop
+  private def stop
     client = @follow_lock.synchronize do
       @stopping.set(true)
       @repli_client.swap(nil)

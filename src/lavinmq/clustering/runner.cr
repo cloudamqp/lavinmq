@@ -101,12 +101,10 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
   # The method is blocking.
   abstract def run(& : Replicator? -> _)
 
-  abstract def stop
-
-  # Called when a graceful shutdown starts, before client connections are
-  # closed. Peers may be shutting down at the same time, so losing leadership
-  # from here on is expected and not a reason to exit with an error.
-  def stopping : Nil
+  # A graceful shutdown starts, before client connections are closed, see
+  # #shutdown. Peers may be shutting down at the same time, so losing
+  # leadership from here on is expected and not a reason to exit with an error.
+  private def stopping : Nil
     @stopping.set(true)
   end
 
