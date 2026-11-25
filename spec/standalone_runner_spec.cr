@@ -14,7 +14,7 @@ describe LavinMQ::StandaloneRunner do
 
     Fiber.yield
     yielded.should be_true
-    runner.stop
+    runner.shutdown { }
   end
 
   it "stops when stop is called" do
@@ -29,7 +29,7 @@ describe LavinMQ::StandaloneRunner do
     Fiber.yield
     stopped.should be_false
 
-    runner.stop
+    runner.shutdown { }
     Fiber.yield
     stopped.should be_true
   end

@@ -100,13 +100,13 @@ module LavinMQ
       begin
         Log.warn { "Stopping" }
         SystemD.notify_stopping
-        @runner.stopping
-        @http_server.try &.close rescue nil
-        @amqp_server.try &.close rescue nil
-        @mqtt_server.try &.close rescue nil
-        @server.try &.close rescue nil
-        @metrics_server.try &.close rescue nil
-        @runner.stop
+        @runner.shutdown do
+          @http_server.try &.close rescue nil
+          @amqp_server.try &.close rescue nil
+          @mqtt_server.try &.close rescue nil
+          @server.try &.close rescue nil
+          @metrics_server.try &.close rescue nil
+        end
       ensure
         @stopped.close
       end

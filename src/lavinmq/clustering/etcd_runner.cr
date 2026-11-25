@@ -83,7 +83,7 @@ class LavinMQ::Clustering::EtcdRunner < LavinMQ::Clustering::Runner
   # Set when the leader_elected hook runs, so leader_lost only follows it
   @announced_leader = Atomic(Bool).new(false)
 
-  def stop
+  private def stop
     client = @follow_lock.synchronize do
       @stopping.set(true)
       @repli_client.swap(nil)
