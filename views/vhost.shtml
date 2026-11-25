@@ -43,6 +43,14 @@
             <th>Max queues</th>
             <td id="max-queues"></td>
           </tr>
+          <tr>
+            <th>Max retained messages</th>
+            <td id="max-retained-messages"></td>
+          </tr>
+          <tr>
+            <th>Max retained bytes</th>
+            <td id="max-retained-bytes"></td>
+          </tr>
         </table>
       </section>
       <section class="card">
@@ -97,6 +105,14 @@
         <label>
           <span>Max queues</span>
           <input type="number" name="max-queues" class="right">
+        </label>
+        <label>
+          <span>Max retained messages</span>
+          <input type="number" name="max-retained-messages" class="right">
+        </label>
+        <label>
+          <span>Max retained bytes</span>
+          <input type="number" name="max-retained-bytes" class="right">
         </label>
         <button type="submit" class="btn btn-green">Set limits</button>
       </form>

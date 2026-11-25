@@ -24,13 +24,19 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             if body = context.request.body
               json = JSON.parse(body)
-              if value = json["value"]?.try &.as_i?
+              if value = json["value"]?.try &.as_i64?
                 case params["type"]
                 when "max-connections"
-                  vhost.max_connections = value
+                  vhost.max_connections = value.to_i32
                   context.response.status_code = 204
                 when "max-queues"
-                  vhost.max_queues = value
+                  vhost.max_queues = value.to_i32
+                  context.response.status_code = 204
+                when "max-retained-messages"
+                  vhost.max_retained_messages = value
+                  context.response.status_code = 204
+                when "max-retained-bytes"
+                  vhost.max_retained_bytes = value
                   context.response.status_code = 204
                 end
               end
@@ -50,6 +56,12 @@ module LavinMQ
             when "max-queues"
               context.response.status_code = 204
               vhost.max_queues = nil
+            when "max-retained-messages"
+              context.response.status_code = 204
+              vhost.max_retained_messages = nil
+            when "max-retained-bytes"
+              context.response.status_code = 204
+              vhost.max_retained_bytes = nil
             end
           end
           context
@@ -63,7 +75,8 @@ module LavinMQ
         end
 
         def self_if_limited : VHostLimitsView?
-          self if @vhost.max_connections || @vhost.max_queues
+          self if @vhost.max_connections || @vhost.max_queues ||
+                  @vhost.max_retained_messages || @vhost.max_retained_bytes
         end
 
         def details_tuple
@@ -73,6 +86,12 @@ module LavinMQ
           end
           if max = @vhost.max_queues
             value = value.merge({"max-queues": max})
+          end
+          if max = @vhost.max_retained_messages
+            value = value.merge({"max-retained-messages": max})
+          end
+          if max = @vhost.max_retained_bytes
+            value = value.merge({"max-retained-bytes": max})
           end
           {
             vhost: @vhost.name,

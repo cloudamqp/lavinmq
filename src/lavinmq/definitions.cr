@@ -32,12 +32,18 @@ module LavinMQ
             }.to_json(json)
           end
           # vhost-limits
-          limits = Hash(String, Int32).new
+          limits = Hash(String, Int32 | Int64).new
           if mq = vhost.max_queues
             limits["max-queues"] = mq
           end
           if mc = vhost.max_connections
             limits["max-connections"] = mc
+          end
+          if mrm = vhost.max_retained_messages
+            limits["max-retained-messages"] = mrm
+          end
+          if mrb = vhost.max_retained_bytes
+            limits["max-retained-bytes"] = mrb
           end
           unless limits.empty?
             {
@@ -294,12 +300,19 @@ module LavinMQ
     end
 
     private def import_vhost_limits(v, value, skip_existing)
-      return if skip_existing && (v.max_connections || v.max_queues)
+      return if skip_existing && (v.max_connections || v.max_queues ||
+                v.max_retained_messages || v.max_retained_bytes)
       if mc = value["max-connections"]?.try &.as_i?
         v.max_connections = mc
       end
       if mq = value["max-queues"]?.try &.as_i?
         v.max_queues = mq
+      end
+      if mrm = value["max-retained-messages"]?.try &.as_i64?
+        v.max_retained_messages = mrm
+      end
+      if mrb = value["max-retained-bytes"]?.try &.as_i64?
+        v.max_retained_bytes = mrb
       end
     end
 

@@ -24,10 +24,21 @@ module LavinMQ
         # Set when the index file has lines the index doesn't, by
         # #restore_index or a delete, so it is compacted (see #write_index)
         @dirty = false
+        # Written under @lock, read by the HTTP API and metrics from other fibers
+        @count = Atomic(Int64).new(0_i64)
+        @bytes = Atomic(Int64).new(0_i64)
         if @index.empty?
           restore_index
           write_index if @dirty
         end
+      end
+
+      def message_count : Int64
+        @count.get(:relaxed)
+      end
+
+      def bytesize : Int64
+        @bytes.get(:relaxed)
       end
 
       def close
@@ -66,6 +77,8 @@ module LavinMQ
             next
           end
           @index.insert(topic, msg_file_name)
+          @count.add(1_i64, :relaxed)
+          @bytes.add(stored_size(msg_file_name), :relaxed)
           @replicator.try &.register_file(File.join(dir, msg_file_name))
           Log.debug { "restored #{topic}" }
           msg_count += 1
@@ -81,7 +94,9 @@ module LavinMQ
         @dirty = torn || lines != @index.size
       end
 
-      def retain(packet : Protocol::Publish) : Nil
+      # Returns false, without storing the message, when it would take the
+      # store over a limit. A delete is always allowed
+      def retain(packet : Protocol::Publish, max_messages : Int64? = nil, max_bytes : Int64? = nil) : Bool
         @lock.synchronize do
           topic = packet.topic
           payload = packet.payload
@@ -93,32 +108,59 @@ module LavinMQ
           if payload.empty?
             delete_from_index(topic)
             @persister.try &.mark_dirty(@dir) if needs_sync
-            return
+            return true
           end
 
-          unless msg_file_name = @index[topic]?
+          msg_file_name = @index[topic]?
+          old_size = msg_file_name ? stored_size(msg_file_name) : 0_i64
+          new_size = payload.bytesize.to_i64
+          return false if over_limit?(msg_file_name.nil?, old_size, new_size, max_messages, max_bytes)
+
+          # The file is written before a new topic is indexed, so a failed
+          # write leaves no topic without a message
+          if msg_file_name
+            write_message(msg_file_name, payload, needs_sync)
+          else
             msg_file_name = make_file_name(topic)
+            write_message(msg_file_name, payload, needs_sync)
             add_to_index(topic, msg_file_name)
             @persister.try &.mark_dirty(@index_file_name) if needs_sync
           end
+          @bytes.add(new_size - old_size, :relaxed)
+          true
+        end
+      end
 
-          file = File.new(File.join(@dir, "#{msg_file_name}.tmp"), "w+")
+      private def write_message(file_name : String, payload : Bytes, needs_sync : Bool) : Nil
+        tmp_file_path = File.join(@dir, "#{file_name}.tmp")
+        final_file_path = File.join(@dir, file_name)
+        File.open(tmp_file_path, "w+") do |file|
           file.sync = true
           file.read_buffering = false
           # sync = true, so this writes the payload straight to the fd, no
           # intermediate buffer and no copy
           file.write payload
-          final_file_path = File.join(@dir, msg_file_name)
           file.rename(final_file_path)
-          @replicator.try &.replace_file(final_file_path)
-          # Synced by the persister before the PUBACK, not inline on the read
-          # loop while holding @lock
-          if needs_sync
-            @persister.try &.mark_dirty(final_file_path)
-            @persister.try &.mark_dirty(@dir)
-          end
-          file.close
+        rescue ex
+          File.delete?(tmp_file_path)
+          raise ex
         end
+        @replicator.try &.replace_file(final_file_path)
+        # Synced by the persister before the PUBACK, not inline on the read
+        # loop while holding @lock
+        if needs_sync
+          @persister.try &.mark_dirty(final_file_path)
+          @persister.try &.mark_dirty(@dir)
+        end
+      end
+
+      # A replacement that doesn't grow is stored also when a lowered limit has
+      # left the store over it
+      private def over_limit?(new_topic : Bool, old_size : Int64, new_size : Int64,
+                              max_messages : Int64?, max_bytes : Int64?) : Bool
+        return true if new_topic && max_messages && @count.get(:relaxed) >= max_messages
+        return false unless max_bytes && new_size > old_size
+        @bytes.get(:relaxed) - old_size + new_size > max_bytes
       end
 
       # Closes current index file, writes the inmemory index to a tmp file
@@ -138,6 +180,7 @@ module LavinMQ
 
       private def add_to_index(topic : String, file_name : String) : Nil
         @index.insert topic, file_name
+        @count.add(1_i64, :relaxed)
         line = "#{topic}\n".to_slice
         offset = @index_file.size.to_i64
         @index_file.write line
@@ -150,6 +193,8 @@ module LavinMQ
           @dirty = true
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
           file_path = File.join(@dir, file_name)
+          @count.sub(1_i64, :relaxed)
+          @bytes.sub(stored_size(file_name), :relaxed)
           File.delete? file_path
           @replicator.try &.delete_file(file_path)
         end
@@ -164,6 +209,10 @@ module LavinMQ
             end
           end
         end
+      end
+
+      private def stored_size(file_name : String) : Int64
+        File.info?(File.join(@dir, file_name)).try(&.size) || 0_i64
       end
 
       @hasher = Digest::MD5.new

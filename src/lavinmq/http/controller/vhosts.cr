@@ -12,7 +12,10 @@ module LavinMQ
       end
 
       def details_tuple
-        @vhost.details_tuple.merge(@vhost.message_details)
+        @vhost.details_tuple.merge(@vhost.message_details).merge({
+          mqtt_retained_messages: @vhost.mqtt_retained_messages,
+          mqtt_retained_bytes:    @vhost.mqtt_retained_bytes,
+        })
       end
     end
 

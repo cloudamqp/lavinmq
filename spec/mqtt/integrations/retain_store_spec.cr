@@ -16,6 +16,12 @@ def open_msg_fds(dir : String) : Int32
   {% end %}
 end
 
+def retained_body(store : LavinMQ::MQTT::RetainStore, topic : String) : String?
+  body = nil
+  store.each(topic) { |_, io, _| body = io.gets_to_end }
+  body
+end
+
 module MqttSpecs
   extend MqttHelpers
   alias IndexTree = LavinMQ::MQTT::TopicTree(String)
@@ -52,6 +58,101 @@ module MqttSpecs
         store.retain(publish_packet(topic: "a", payload: Bytes.empty, retain: true))
         index.size.should eq(0)
         File.exists?(File.join("tmp/retain_store", entry)).should be_false
+      ensure
+        store.try &.close
+      end
+    end
+
+    describe "limits" do
+      it "doesn't store a new topic over max_messages" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true), max_messages: 1_i64).should be_true
+        store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true), max_messages: 1_i64).should be_false
+        store.message_count.should eq 1
+        store.bytesize.should eq 4
+        topics = Array(String).new
+        store.each("#") { |topic, _, _| topics << topic }
+        topics.should eq ["a"]
+      ensure
+        store.try &.close
+      end
+
+      it "replaces a topic at max_messages" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.retain(publish_packet(topic: "a", payload: "old".to_slice, retain: true), max_messages: 1_i64)
+        store.retain(publish_packet(topic: "a", payload: "new".to_slice, retain: true), max_messages: 1_i64).should be_true
+        retained_body(store, "a").should eq "new"
+        store.message_count.should eq 1
+      ensure
+        store.try &.close
+      end
+
+      it "doesn't store a new topic over max_bytes" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.retain(publish_packet(topic: "a", payload: "1234".to_slice, retain: true), max_bytes: 6_i64).should be_true
+        store.retain(publish_packet(topic: "b", payload: "123".to_slice, retain: true), max_bytes: 6_i64).should be_false
+        store.retain(publish_packet(topic: "b", payload: "12".to_slice, retain: true), max_bytes: 6_i64).should be_true
+        store.message_count.should eq 2
+        store.bytesize.should eq 6
+      ensure
+        store.try &.close
+      end
+
+      it "keeps the old message when a larger replacement goes over max_bytes" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.retain(publish_packet(topic: "a", payload: "old".to_slice, retain: true), max_bytes: 4_i64)
+        store.retain(publish_packet(topic: "a", payload: "larger".to_slice, retain: true), max_bytes: 4_i64).should be_false
+        retained_body(store, "a").should eq "old"
+        store.bytesize.should eq 3
+        store.retain(publish_packet(topic: "a", payload: "new!".to_slice, retain: true), max_bytes: 4_i64).should be_true
+        retained_body(store, "a").should eq "new!"
+        store.bytesize.should eq 4
+      ensure
+        store.try &.close
+      end
+
+      it "keeps what is stored when a limit is lowered" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.retain(publish_packet(topic: "a", payload: "1234".to_slice, retain: true))
+        store.retain(publish_packet(topic: "b", payload: "1234".to_slice, retain: true))
+        store.retain(publish_packet(topic: "c", payload: "1".to_slice, retain: true), 1_i64, 2_i64).should be_false
+        store.message_count.should eq 2
+        # A replacement that doesn't grow is stored, a delete always works
+        store.retain(publish_packet(topic: "a", payload: "12".to_slice, retain: true), 1_i64, 2_i64).should be_true
+        store.retain(publish_packet(topic: "b", payload: Bytes.empty, retain: true), 1_i64, 2_i64).should be_true
+        store.message_count.should eq 1
+        store.bytesize.should eq 2
+      ensure
+        store.try &.close
+      end
+
+      it "doesn't count a new topic whose message file couldn't be written" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        # A directory where the tmp file goes makes the write fail
+        blocker = File.join("tmp/retain_store", "#{Digest::MD5.hexdigest("a")}.msg.tmp")
+        Dir.mkdir(blocker)
+        expect_raises(File::Error) do
+          store.retain(publish_packet(topic: "a", payload: "body".to_slice, retain: true), max_messages: 1_i64)
+        end
+        Dir.delete(blocker)
+        store.message_count.should eq 0
+        store.retain(publish_packet(topic: "b", payload: "body".to_slice, retain: true), max_messages: 1_i64).should be_true
+        topics = Array(String).new
+        store.each("#") { |topic, _, _| topics << topic }
+        topics.should eq ["b"]
+      ensure
+        store.try &.close
+      end
+
+      it "restores the message count and size" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.retain(publish_packet(topic: "a", payload: "1234".to_slice, retain: true))
+        store.retain(publish_packet(topic: "b", payload: "12".to_slice, retain: true))
+        store.close
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.message_count.should eq 2
+        store.bytesize.should eq 6
+        store.retain(publish_packet(topic: "c", payload: "1".to_slice, retain: true), max_bytes: 6_i64).should be_false
       ensure
         store.try &.close
       end

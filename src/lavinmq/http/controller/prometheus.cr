@@ -442,6 +442,28 @@ module LavinMQ
                       help: "Total number of unroutable messages returned to publishers"})
         dead_lettered_metrics(writer, deleted_stats)
         mqtt_published_metrics(writer, deleted_stats)
+        mqtt_retained_metrics(writer, deleted_stats)
+      end
+
+      private def mqtt_retained_metrics(writer, deleted_stats)
+        vhosts = @server.vhosts
+        messages = vhosts.sum { |_, v| v.mqtt_retained_messages }
+        # Retained messages survive a restart, so they are there before a client is
+        return unless vhosts.mqtt_client_connected? || messages > 0
+        writer.write({name:  "global_mqtt_retained_messages",
+                      value: messages,
+                      type:  "gauge",
+                      help:  "Number of retained MQTT messages"})
+        writer.write({name:  "global_mqtt_retained_bytes",
+                      value: vhosts.sum { |_, v| v.mqtt_retained_bytes },
+                      type:  "gauge",
+                      help:  "Total payload size of retained MQTT messages"})
+        return unless vhosts.mqtt_client_connected?
+        writer.write({name:  "global_mqtt_retained_not_stored_total",
+                      value: deleted_stats.mqtt_retained_not_stored +
+                             vhosts.sum { |_, v| v.mqtt_retained_not_stored_count },
+                      type: "counter",
+                      help: "Total number of retained MQTT messages not stored because of a vhost limit"})
       end
 
       # Written from the first MQTT connection on, zeros included, so rate() sees each counter start
@@ -779,6 +801,27 @@ module LavinMQ
         vhosts.each do |vhost|
           labels = {vhost: vhost.name}
           writer.write_value("detailed_vhost_queues", vhost.queues_size + vhost.sessions_size, labels)
+        end
+
+        writer.write_header("detailed_vhost_mqtt_retained_messages", "gauge",
+          "Number of retained MQTT messages on a vhost")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_vhost_mqtt_retained_messages", vhost.mqtt_retained_messages, labels)
+        end
+
+        writer.write_header("detailed_vhost_mqtt_retained_bytes", "gauge",
+          "Total payload size of retained MQTT messages on a vhost")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_vhost_mqtt_retained_bytes", vhost.mqtt_retained_bytes, labels)
+        end
+
+        writer.write_header("detailed_vhost_mqtt_retained_not_stored_total", "counter",
+          "Total retained MQTT messages not stored on a vhost because of a limit")
+        vhosts.each do |vhost|
+          labels = {vhost: vhost.name}
+          writer.write_value("detailed_vhost_mqtt_retained_not_stored_total", vhost.mqtt_retained_not_stored_count, labels)
         end
       end
 
