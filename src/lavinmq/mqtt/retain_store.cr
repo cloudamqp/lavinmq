@@ -19,7 +19,30 @@ module LavinMQ
 
       alias IndexTree = TopicTree(Entry)
 
-      def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new, @persister : Persister? = nil)
+      # What a retained publish over a limit does: it is not stored, or the
+      # oldest retained messages are removed to make room for it
+      enum Overflow
+        Reject
+        DropHead
+
+        def self.from_setting?(value : String) : self?
+          case value
+          when "reject"    then Reject
+          when "drop-head" then DropHead
+          end
+        end
+
+        def to_setting : String
+          drop_head? ? "drop-head" : "reject"
+        end
+      end
+
+      # Topics in publish order for drop-head, built on its first use. An entry
+      # is stale when its topic was published again or deleted since
+      @publish_order : Deque({Int64, String})?
+
+      def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new,
+                     @persister : Persister? = nil, @on_dropped : Proc(Int32, Nil)? = nil)
         FileSystem.mkdir_p @dir
         @index_file_name = File.join(@dir, INDEX_FILE_NAME)
         @index_file = File.new(@index_file_name, "a+")
@@ -110,7 +133,8 @@ module LavinMQ
 
       # Returns false, without storing the message, when it would take the
       # store over a limit. A delete is always allowed
-      def retain(packet : Protocol::Publish, max_messages : Int64? = nil, max_bytes : Int64? = nil) : Bool
+      def retain(packet : Protocol::Publish, max_messages : Int64? = nil, max_bytes : Int64? = nil,
+                 overflow : Overflow = Overflow::Reject) : Bool
         @lock.synchronize do
           topic = packet.topic
           payload = packet.payload
@@ -128,7 +152,10 @@ module LavinMQ
           old = @index[topic]?
           old_size = old.try(&.size) || 0_i64
           new_size = payload.bytesize.to_i64
-          return false if over_limit?(old.nil?, old_size, new_size, max_messages, max_bytes)
+          if over_limit?(old.nil?, old_size, new_size, max_messages, max_bytes)
+            return false unless overflow.drop_head?
+            return false unless make_room(topic, old.nil?, old_size, new_size, max_messages, max_bytes)
+          end
 
           # The file is written before a new topic is indexed, so a failed
           # write leaves no topic without a message
@@ -141,8 +168,57 @@ module LavinMQ
             @persister.try &.mark_dirty(@index_file_name) if needs_sync
           end
           @bytes.add(new_size - old_size, :relaxed)
+          track_publish_order(topic, entry.published_at)
           true
         end
+      end
+
+      # Removes the oldest retained messages of other topics until the new
+      # message fits. Removes nothing for a message that can never fit
+      private def make_room(topic : String, new_topic : Bool, old_size : Int64, new_size : Int64,
+                            max_messages : Int64?, max_bytes : Int64?) : Bool
+        return false if max_bytes && new_size > max_bytes
+        return false if new_topic && max_messages == 0
+        dropped = 0
+        while over_limit?(new_topic, old_size, new_size, max_messages, max_bytes)
+          oldest = oldest_topic(except: topic) || break
+          delete_from_index(oldest)
+          dropped += 1
+        end
+        if dropped > 0
+          @on_dropped.try &.call(dropped)
+          compact_index
+        end
+        !over_limit?(new_topic, old_size, new_size, max_messages, max_bytes)
+      end
+
+      private def oldest_topic(except : String) : String?
+        order = @publish_order ||= build_publish_order
+        while first = order.first?
+          published_at, topic = first
+          entry = @index[topic]?
+          return topic if topic != except && entry && entry.published_at == published_at
+          order.shift
+        end
+      end
+
+      private def build_publish_order : Deque({Int64, String})
+        order = Array({Int64, String}).new(@count.get(:relaxed).to_i32)
+        @index.each { |topic, entry| order << {entry.published_at, topic} }
+        Deque.new(order.sort!)
+      end
+
+      private def track_publish_order(topic : String, published_at : Int64) : Nil
+        order = @publish_order || return
+        order.push({published_at, topic})
+        # Mostly stale entries, from topics that are published again and again
+        @publish_order = nil if order.size > 2 * @count.get(:relaxed) + 1024
+      end
+
+      # Rewrites the index file when most of it is dead lines, so the file
+      # can't grow without limit and isn't rewritten for every delete either
+      private def compact_index : Nil
+        write_index if @dead_lines > @count.get(:relaxed) && !@closed
       end
 
       private def write_message(file_name : String, payload : Bytes, needs_sync : Bool) : Nil
@@ -255,9 +331,7 @@ module LavinMQ
           end
           Fiber.yield
         end
-        # Compacted when most of the index file is dead lines, so the file
-        # can't grow without limit and isn't rewritten on every run either
-        @lock.synchronize { write_index if @dead_lines > @count.get(:relaxed) && !@closed }
+        @lock.synchronize { compact_index }
         deleted
       end
 

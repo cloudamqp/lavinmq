@@ -24,3 +24,9 @@ vhost-limits:
         retained-message-ttl:
           type: integer
           description: Maximum age, in seconds, of a retained MQTT message in the vhost.
+        retained-overflow:
+          type: string
+          enum:
+          - reject
+          - drop-head
+          description: What a retained MQTT publish over a limit does. Only present when it is `drop-head`.

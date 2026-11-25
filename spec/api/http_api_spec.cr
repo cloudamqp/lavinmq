@@ -342,6 +342,23 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "sets, persists and resets retained-overflow" do
+      with_http_server do |http, s|
+        http.put("/api/vhost-limits/%2f/retained-overflow", body: %({"value": "sideways"})).status_code.should eq 400
+        http.put("/api/vhost-limits/%2f/retained-overflow", body: %({"value": 1})).status_code.should eq 400
+        http.put("/api/vhost-limits/%2f/retained-overflow", body: %({"value": "drop-head"})).status_code.should eq 204
+        JSON.parse(http.get("/api/vhost-limits/%2f").body)[0]["value"]["retained-overflow"].should eq "drop-head"
+        definitions = http.get("/api/definitions").body
+        restart_server(s)
+        s.vhosts["/"].retained_overflow.drop_head?.should be_true
+        http.delete("/api/vhost-limits/%2f/retained-overflow").status_code.should eq 204
+        s.vhosts["/"].retained_overflow.reject?.should be_true
+        JSON.parse(http.get("/api/vhost-limits/%2f").body).as_a.should be_empty
+        http.post("/api/definitions", body: definitions).status_code.should eq 200
+        s.vhosts["/"].retained_overflow.drop_head?.should be_true
+      end
+    end
+
     it "clears a limit with a negative value or a delete" do
       with_http_server do |http, s|
         s.vhosts["/"].max_retained_bytes = 100_i64

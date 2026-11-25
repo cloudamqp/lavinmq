@@ -158,6 +158,81 @@ module MqttSpecs
       end
     end
 
+    describe "drop-head overflow" do
+      drop_head = LavinMQ::MQTT::RetainStore::Overflow::DropHead
+
+      it "removes the oldest message to make room for a new topic" do
+        dropped = 0
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, on_dropped: ->(n : Int32) { dropped += n; nil })
+        store.retain(publish_packet(topic: "a", payload: "1".to_slice, retain: true), 2_i64, nil, drop_head)
+        sleep 2.milliseconds
+        store.retain(publish_packet(topic: "b", payload: "2".to_slice, retain: true), 2_i64, nil, drop_head)
+        sleep 2.milliseconds
+        # Published again, so "b" is now the oldest
+        store.retain(publish_packet(topic: "a", payload: "3".to_slice, retain: true), 2_i64, nil, drop_head)
+        sleep 2.milliseconds
+        store.retain(publish_packet(topic: "c", payload: "4".to_slice, retain: true), 2_i64, nil, drop_head).should be_true
+        topics = Array(String).new
+        store.each("#") { |topic, _, _| topics << topic }
+        topics.sort.should eq ["a", "c"]
+        store.message_count.should eq 2
+        dropped.should eq 1
+      ensure
+        store.try &.close
+      end
+
+      it "removes as many of the oldest messages as the new one needs" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        {"a", "b", "c"}.each do |topic|
+          store.retain(publish_packet(topic: topic, payload: "1234".to_slice, retain: true), nil, 12_i64, drop_head)
+          sleep 2.milliseconds
+        end
+        store.retain(publish_packet(topic: "d", payload: "12345678".to_slice, retain: true), nil, 12_i64, drop_head).should be_true
+        topics = Array(String).new
+        store.each("#") { |topic, _, _| topics << topic }
+        topics.sort.should eq ["c", "d"]
+        store.bytesize.should eq 12
+      ensure
+        store.try &.close
+      end
+
+      it "doesn't remove the topic that is replaced" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.retain(publish_packet(topic: "a", payload: "1234".to_slice, retain: true), nil, 10_i64, drop_head)
+        sleep 2.milliseconds
+        store.retain(publish_packet(topic: "b", payload: "1234".to_slice, retain: true), nil, 10_i64, drop_head)
+        store.retain(publish_packet(topic: "a", payload: "12345678".to_slice, retain: true), nil, 10_i64, drop_head).should be_true
+        retained_body(store, "a").should eq "12345678"
+        retained_body(store, "b").should be_nil
+      ensure
+        store.try &.close
+      end
+
+      it "removes nothing for a message that can never fit" do
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
+        store.retain(publish_packet(topic: "a", payload: "1234".to_slice, retain: true), nil, 10_i64, drop_head)
+        store.retain(publish_packet(topic: "b", payload: "12345678901".to_slice, retain: true), nil, 10_i64, drop_head).should be_false
+        store.retain(publish_packet(topic: "c", payload: "1".to_slice, retain: true), 0_i64, nil, drop_head).should be_false
+        retained_body(store, "a").should eq "1234"
+        store.message_count.should eq 1
+      ensure
+        store.try &.close
+      end
+
+      it "keeps the index file small when new topics push out old ones" do
+        dir = "tmp/retain_store"
+        store = LavinMQ::MQTT::RetainStore.new(dir, nil)
+        200.times do |i|
+          store.retain(publish_packet(topic: "t/#{i}", payload: "x".to_slice, retain: true), 5_i64, nil, drop_head).should be_true
+        end
+        store.message_count.should eq 5
+        Dir.glob(File.join(dir, "*.msg")).size.should eq 5
+        File.read_lines(File.join(dir, "index")).size.should be <= 11
+      ensure
+        store.try &.close
+      end
+    end
+
     describe "expiry" do
       it "doesn't yield an expired message, and delete_expired removes it" do
         dir = "tmp/retain_store"

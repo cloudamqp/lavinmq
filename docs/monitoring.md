@@ -61,6 +61,7 @@ Aggregate broker, queue, runtime, and clustering metrics.
 | `global_mqtt_retained_bytes` | gauge | Total payload size of retained MQTT messages. Exported once an MQTT client has connected since startup, or when there are retained messages |
 | `global_mqtt_retained_not_stored_total` | counter | Total retained MQTT messages delivered but not stored because of the `max-retained-messages` or `max-retained-bytes` [vhost limit](mqtt.md#retained-message-limits). Exported once an MQTT client has connected since startup |
 | `global_mqtt_retained_expired_total` | counter | Total retained MQTT messages removed because they were older than the `retained-message-ttl` [vhost limit](mqtt.md#retained-message-expiry). Exported once an MQTT client has connected since startup |
+| `global_mqtt_retained_dropped_total` | counter | Total retained MQTT messages removed to make room for a newer one, with `retained-overflow` set to [`drop-head`](mqtt.md#retained-message-overflow). Exported once an MQTT client has connected since startup |
 | `global_messages_dead_lettered_delivery_limit_total` | counter | Total messages dead-lettered because the queue's delivery limit was exceeded (labeled by `dead_letter_strategy`) |
 | `global_messages_dead_lettered_expired_total` | counter | Total messages dead-lettered because their TTL expired (labeled by `dead_letter_strategy`) |
 | `global_messages_dead_lettered_maxlen_total` | counter | Total messages dead-lettered by `max-length` or `max-length-bytes` with `drop-head` overflow (labeled by `dead_letter_strategy`) |
@@ -159,7 +160,7 @@ Per-resource metrics selected via the `family` query parameter (repeatable). Wit
 | `queue_coarse_metrics` | Per-queue ready, unacked, and total message counts; deduplication cache size; delivered and acknowledged message totals |
 | `queue_consumer_count` | Per-queue consumer count |
 | `exchange_metrics` | Per-exchange deduplication cache size |
-| `vhost_message_stats` | Per-vhost published and delivered message totals and queue count; retained MQTT message count and size, and totals of retained messages not stored and expired |
+| `vhost_message_stats` | Per-vhost published and delivered message totals and queue count; retained MQTT message count and size, and totals of retained messages not stored, expired and dropped |
 
 ## Event Types
 

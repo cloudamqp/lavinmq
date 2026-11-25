@@ -29,6 +29,9 @@ async function fetchLimits () {
     document.getElementById(name).textContent = value.toLocaleString()
     document.forms.setLimits[name].value = value
   })
+  const overflow = limits.value['retained-overflow'] || 'reject'
+  document.getElementById('retained-overflow').textContent = overflow
+  document.forms.setLimits['retained-overflow'].value = overflow
 }
 fetchLimits().catch(() => {})
 
@@ -115,7 +118,8 @@ document.forms.setLimits.addEventListener('submit', function (evt) {
     ...RETAINED_LIMITS.map(name => {
       const body = { value: this[name].value === '' ? -1 : Number(this[name].value) }
       return HTTP.request('PUT', HTTP.url`api/vhost-limits/${vhost}/${name}`, { body }).catch(() => {})
-    })
+    }),
+    HTTP.request('PUT', HTTP.url`api/vhost-limits/${vhost}/retained-overflow`, { body: { value: this['retained-overflow'].value } }).catch(() => {})
   ])
     .then(fetchLimits)
     .catch(() => {})

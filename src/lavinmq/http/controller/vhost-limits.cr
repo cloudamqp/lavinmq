@@ -24,7 +24,12 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             if body = context.request.body
               json = JSON.parse(body)
-              if (value = json["value"]?.try &.as_i64?) && set_limit(vhost, params["type"], value)
+              if params["type"] == "retained-overflow"
+                if overflow = json["value"]?.try(&.as_s?).try { |s| MQTT::RetainStore::Overflow.from_setting?(s) }
+                  vhost.retained_overflow = overflow
+                  context.response.status_code = 204
+                end
+              elsif (value = json["value"]?.try &.as_i64?) && set_limit(vhost, params["type"], value)
                 context.response.status_code = 204
               end
             end
@@ -50,7 +55,10 @@ module LavinMQ
         when "max-retained-messages" then vhost.max_retained_messages = value
         when "max-retained-bytes"    then vhost.max_retained_bytes = value
         when "retained-message-ttl"  then vhost.retained_message_ttl = value
-        else                              return false
+        when "retained-overflow"
+          return false if value
+          vhost.retained_overflow = MQTT::RetainStore::Overflow::Reject
+        else return false
         end
         true
       end
@@ -64,7 +72,7 @@ module LavinMQ
         def self_if_limited : VHostLimitsView?
           self if @vhost.max_connections || @vhost.max_queues ||
                   @vhost.max_retained_messages || @vhost.max_retained_bytes ||
-                  @vhost.retained_message_ttl
+                  @vhost.retained_message_ttl || @vhost.retained_overflow.drop_head?
         end
 
         def details_tuple
@@ -83,6 +91,9 @@ module LavinMQ
           end
           if ttl = @vhost.retained_message_ttl
             value = value.merge({"retained-message-ttl": ttl})
+          end
+          if @vhost.retained_overflow.drop_head?
+            value = value.merge({"retained-overflow": @vhost.retained_overflow.to_setting})
           end
           {
             vhost: @vhost.name,
