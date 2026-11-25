@@ -48,8 +48,8 @@
             <td id="max-retained-messages"></td>
           </tr>
           <tr>
-            <th>Max retained message size</th>
-            <td id="max-retained-message-size"></td>
+            <th>Max retained bytes</th>
+            <td id="max-retained-bytes"></td>
           </tr>
           <tr>
             <th>Retained message TTL (s)</th>
@@ -115,8 +115,8 @@
           <input type="number" name="max-retained-messages" class="right">
         </label>
         <label>
-          <span>Max retained message size</span>
-          <input type="number" name="max-retained-message-size" class="right">
+          <span>Max retained bytes</span>
+          <input type="number" name="max-retained-bytes" class="right">
         </label>
         <label>
           <span>Retained message TTL (s)</span>

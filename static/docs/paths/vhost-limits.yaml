@@ -3,7 +3,7 @@
   get:
     tags:
     - vhost-limits
-    description: List all vhosts with their limits (max-connections, max-queues, max-retained-messages, max-retained-message-size, retained-message-ttl).
+    description: List all vhosts with their limits (max-connections, max-queues, max-retained-messages, max-retained-bytes, retained-message-ttl).
     summary: List vhost limits
     operationId: GetVhostLimits
     responses:
@@ -77,13 +77,13 @@
       - max-connections
       - max-queues
       - max-retained-messages
-      - max-retained-message-size
+      - max-retained-bytes
       - retained-message-ttl
       description: Type of limit to set or delete.
   put:
     tags:
     - vhost-limits
-    description: Set a specific limit (max-connections, max-queues, max-retained-messages, max-retained-message-size or retained-message-ttl) for a vhost.
+    description: Set a specific limit (max-connections, max-queues, max-retained-messages, max-retained-bytes or retained-message-ttl) for a vhost.
     summary: Set vhost limit
     operationId: PutVhostLimit
     requestBody:
@@ -114,7 +114,7 @@
   delete:
     tags:
     - vhost-limits
-    description: Remove a specific limit (max-connections, max-queues, max-retained-messages, max-retained-message-size or retained-message-ttl) for a vhost.
+    description: Remove a specific limit (max-connections, max-queues, max-retained-messages, max-retained-bytes or retained-message-ttl) for a vhost.
     summary: Delete vhost limit
     operationId: DeleteVhostLimit
     responses:

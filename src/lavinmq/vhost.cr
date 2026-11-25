@@ -339,7 +339,7 @@ module LavinMQ
     end
 
     # Read by every retained MQTT publish, set over HTTP. Negative is no limit
-    {% for limit in {"max_retained_messages", "max_retained_message_size", "retained_message_ttl"} %}
+    {% for limit in {"max_retained_messages", "max_retained_bytes", "retained_message_ttl"} %}
       @{{ limit.id }} = Atomic(Int64).new(-1_i64)
 
       def {{ limit.id }} : Int64?
@@ -361,7 +361,7 @@ module LavinMQ
         @max_queues = limits["max-queues"]?.try &.as_i?
         @max_connections = limits["max-connections"]?.try &.as_i?
         @max_retained_messages.set(limits["max-retained-messages"]?.try(&.as_i64?) || -1_i64, :relaxed)
-        @max_retained_message_size.set(limits["max-retained-message-size"]?.try(&.as_i64?) || -1_i64, :relaxed)
+        @max_retained_bytes.set(limits["max-retained-bytes"]?.try(&.as_i64?) || -1_i64, :relaxed)
         @retained_message_ttl.set(limits["retained-message-ttl"]?.try(&.as_i64?) || -1_i64, :relaxed)
         @replicator.try &.register_file(f)
       end
@@ -375,7 +375,7 @@ module LavinMQ
             json.field "max-queues", @max_queues if @max_queues
             json.field "max-connections", @max_connections if @max_connections
             json.field "max-retained-messages", max_retained_messages if max_retained_messages
-            json.field "max-retained-message-size", max_retained_message_size if max_retained_message_size
+            json.field "max-retained-bytes", max_retained_bytes if max_retained_bytes
             json.field "retained-message-ttl", retained_message_ttl if retained_message_ttl
           end
         end

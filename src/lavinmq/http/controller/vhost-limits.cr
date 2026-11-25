@@ -45,12 +45,12 @@ module LavinMQ
       # Returns false for an unknown limit type
       private def set_limit(vhost : VHost, type : String, value : Int64?) : Bool
         case type
-        when "max-connections"           then vhost.max_connections = value.try &.to_i32
-        when "max-queues"                then vhost.max_queues = value.try &.to_i32
-        when "max-retained-messages"     then vhost.max_retained_messages = value
-        when "max-retained-message-size" then vhost.max_retained_message_size = value
-        when "retained-message-ttl"      then vhost.retained_message_ttl = value
-        else                                  return false
+        when "max-connections"       then vhost.max_connections = value.try &.to_i32
+        when "max-queues"            then vhost.max_queues = value.try &.to_i32
+        when "max-retained-messages" then vhost.max_retained_messages = value
+        when "max-retained-bytes"    then vhost.max_retained_bytes = value
+        when "retained-message-ttl"  then vhost.retained_message_ttl = value
+        else                              return false
         end
         true
       end
@@ -63,7 +63,7 @@ module LavinMQ
 
         def self_if_limited : VHostLimitsView?
           self if @vhost.max_connections || @vhost.max_queues ||
-                  @vhost.max_retained_messages || @vhost.max_retained_message_size ||
+                  @vhost.max_retained_messages || @vhost.max_retained_bytes ||
                   @vhost.retained_message_ttl
         end
 
@@ -78,8 +78,8 @@ module LavinMQ
           if max = @vhost.max_retained_messages
             value = value.merge({"max-retained-messages": max})
           end
-          if max = @vhost.max_retained_message_size
-            value = value.merge({"max-retained-message-size": max})
+          if max = @vhost.max_retained_bytes
+            value = value.merge({"max-retained-bytes": max})
           end
           if ttl = @vhost.retained_message_ttl
             value = value.merge({"retained-message-ttl": ttl})
