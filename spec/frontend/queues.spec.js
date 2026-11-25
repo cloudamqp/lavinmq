@@ -151,7 +151,8 @@ test.describe('queues with automatic retries', _ => {
 })
 
 test.describe('queue states', _ => {
-  const states = ['running', 'flow', 'paused', 'closed', 'failed']
+  const marks = { running: '●', flow: '●', paused: '||', closed: '●', failed: '✕' }
+  const states = Object.keys(marks)
   const stateQueues = states.map(state => qHelpers.queue(`q-${state}`, { state }))
 
   test.beforeEach(async ({ apimap, page }) => {
@@ -164,7 +165,7 @@ test.describe('queue states', _ => {
     for (const state of states) {
       const row = page.locator('#table tbody tr').filter({ has: page.getByRole('link', { name: `q-${state}`, exact: true }) })
       const mark = await row.locator(`td.state-${state}`).evaluate(td => getComputedStyle(td, '::after').content)
-      expect(mark, state).not.toBe('none')
+      expect(mark, state).toBe(`"${marks[state]}"`)
     }
   })
 })
