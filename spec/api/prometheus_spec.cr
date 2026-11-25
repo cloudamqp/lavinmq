@@ -645,7 +645,7 @@ describe LavinMQ::HTTP::FollowerPrometheusController do
       begin
         HTTP::Client.get("http://#{addr}/metrics").body.should_not contain "lavinmq_uptime"
         # What the Launcher does once this node serves
-        metrics.amqp_server = s
+        metrics.broker = s
         HTTP::Client.get("http://#{addr}/metrics").body.should contain "lavinmq_uptime"
       ensure
         metrics.close

@@ -10,7 +10,7 @@ require "./controller/prometheus"
 module LavinMQ
   module HTTP
     # Serves Prometheus metrics for the whole life of the process. It reports
-    # the broker's metrics once this node serves (see #amqp_server=), and
+    # the broker's metrics once this node serves (see #broker=), and
     # *metrics*, the runner's own (see Runner#write_metrics), throughout.
     class MetricsServer
       Log = LavinMQ::Log.for "metrics.server"
@@ -33,7 +33,7 @@ module LavinMQ
         end
       end
 
-      def initialize(amqp_server : LavinMQ::Server? = nil, @metrics : Proc(PrometheusWriter, Nil)? = nil)
+      def initialize(broker : LavinMQ::Server? = nil, @metrics : Proc(PrometheusWriter, Nil)? = nil)
         @closed = false
         @source = Source.new(FollowerPrometheusController.new(@metrics))
         handlers = [
@@ -43,17 +43,13 @@ module LavinMQ
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)
-        amqp_server.try { |s| self.amqp_server = s }
+        broker.try { |s| self.broker = s }
       end
 
-      # Reports the broker's metrics from now on
-      def amqp_server=(server : LavinMQ::Server) : Nil
-        @source.leader = PrometheusController.new(server, require_authentication: false, metrics: @metrics)
-      end
-
-      # Back to reporting as a follower, once this node stopped serving
-      def stop_reporting_broker : Nil
-        @source.leader = nil
+      # Reports the broker's metrics from now on, or with nil, once this node
+      # stopped serving, the runner's only
+      def broker=(server : LavinMQ::Server?) : Nil
+        @source.leader = server.try { |s| PrometheusController.new(s, require_authentication: false, metrics: @metrics) }
       end
 
       def bind_tcp(address, port)

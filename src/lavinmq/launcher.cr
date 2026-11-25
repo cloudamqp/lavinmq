@@ -99,7 +99,7 @@ module LavinMQ
       # node on this machine had it
       @control_socket.bind
       @control_socket.api = http_server.handler
-      @metrics_server.try &.amqp_server = server
+      @metrics_server.try &.broker = server
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
@@ -152,7 +152,7 @@ module LavinMQ
       @role_lock.synchronize do
         return if @closed
         # Scrapes would get the closed broker's metrics until it's done
-        @metrics_server.try &.stop_reporting_broker
+        @metrics_server.try &.broker = nil
         close_listeners
         if server = @server
           # Keeps the replicator's checksums, which the replication client
