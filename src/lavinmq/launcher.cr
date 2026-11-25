@@ -71,7 +71,7 @@ module LavinMQ
       @mqtt_server = mqtt_server = LavinMQ::MQTT::Server.new(server, @config)
       @http_server = http_server = LavinMQ::HTTP::Server.new(server, amqp_server, mqtt_server, metrics: runner_metrics)
       start_listeners(amqp_server, mqtt_server, http_server)
-      @metrics_server.try &.amqp_server = server
+      @metrics_server.try &.broker = server
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
