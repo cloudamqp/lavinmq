@@ -89,6 +89,7 @@ test.describe('shovels', _ => {
   })
 
   test('show publication fields for postgres sources only', async ({ page }) => {
+    await helpers.openDialog(page, 'add-shovel-dialog')
     const form = page.locator('#createShovel')
     const publication = form.locator('[name=src-publication]')
     await expect(publication).toBeHidden()
@@ -121,6 +122,8 @@ test.describe('shovels', _ => {
     await page.locator(`#table tr[data-name='"${pgShovelName}"']`).getByRole('button', { name: /^edit$/i }).click()
     await expect(form.locator('[name=src-publication]')).toBeVisible()
     await form.getByRole('button', { name: /cancel/i }).click()
+    // Cancel closes the dialog; adding a shovel afterwards starts from the AMQP fields
+    await helpers.openDialog(page, 'add-shovel-dialog')
     await expect(form.locator('[name=src-publication]')).toBeHidden()
     await expect(form.locator('[name=src-endpoint]')).toBeVisible()
     await expect(form.locator('[name=src-endpoint]')).toBeEnabled()
