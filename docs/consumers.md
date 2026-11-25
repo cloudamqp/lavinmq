@@ -8,7 +8,7 @@ Consumers receive messages from queues. A consumer is created by calling `basic.
 2. Messages are pushed to the consumer as they become available
 3. `basic.cancel` — unregisters the consumer
 
-The consumer tag is a client-chosen string that identifies the consumer. If not provided, the server generates one.
+The consumer tag identifies an active consumer on its channel. If you omit it, the server generates one. You can reuse a tag after cancellation or on another channel. Registering a tag twice on the same channel closes the connection with AMQP error 530 (`NOT_ALLOWED`).
 
 ## Acknowledgment Modes
 

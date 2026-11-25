@@ -37,7 +37,7 @@ module LavinMQ
               context.response.status_code = 404
               break
             end
-            consumer = channel.find_consumer(&.tag.==(consumer_tag))
+            consumer = channel.consumer?(consumer_tag)
             unless consumer
               context.response.status_code = 404
               break

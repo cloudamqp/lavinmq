@@ -998,8 +998,8 @@ describe LavinMQ::AMQP::Stream do
         ch.flow(false) # the spec drives the redeliveries
         ch.prefetch 1
         q.subscribe(no_ack: false) { }
-        wait_for { stream.@consumers.size == 1 }
-        consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
+        wait_for { stream.consumers_size == 1 }
+        consumer = stream.consumers.first.as(LavinMQ::AMQP::StreamConsumer)
         # The cursor pins its segment from its first read
         stream.@msg_store_lock.synchronize { store.shift?(consumer.cursor) }.should_not be_nil
         {offsets.keys, offsets.keys.shuffle!}.each do |sps|
@@ -2069,11 +2069,12 @@ describe LavinMQ::AMQP::Stream do
             frame = AMQ::Protocol::Frame::Basic::Consume.new(server_ch.id, 0_u16, queue_name, "requeue-race",
               false, false, false, false, AMQ::Protocol::Table.new({"x-stream-offset" => "first"}))
             consumer = LavinMQ::AMQP::StreamConsumer.new(server_ch, stream, frame)
-            server_ch.@consumers << consumer # so that it is closed with the channel
             ctx = Fiber::ExecutionContext::Parallel.new("stream-requeue-race", 4)
             wg = WaitGroup.new(1)
             ctx.spawn do
-              stream.add_consumer(consumer) # its deliver loop runs in ctx
+              stream.add_consumer(consumer) do # its deliver loop runs in ctx
+                server_ch.@consumers_lock.synchronize { server_ch.@consumers[consumer.tag] = consumer }
+              end
             ensure
               wg.done
             end
@@ -2125,7 +2126,7 @@ describe LavinMQ::AMQP::Stream do
               msgs.send msg
             end
             6.times { msgs.receive.ack }
-            consumer = stream.@consumers.first.as(LavinMQ::AMQP::StreamConsumer)
+            consumer = stream.consumers.first.as(LavinMQ::AMQP::StreamConsumer)
             wait_for { consumer.cursor.segment != first_seg }
             # Stop the deliver loop so the spec drives the redeliveries
             ch.flow(false)

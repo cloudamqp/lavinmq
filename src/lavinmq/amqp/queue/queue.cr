@@ -113,10 +113,11 @@ module LavinMQ::AMQP
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     # Mutated, and decided on (exclusivity, auto-delete), under @consumers_lock
-    @consumers = Array(Client::Channel::Consumer).new
+    @consumers = Set(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
     # @consumers.size, readable without the lock (e.g. on the delivery path)
     @consumer_count = Atomic(Int32).new(0)
+    @priority_consumer_count = Atomic(Int32).new(0)
     # Set under @consumers_lock when the queue is going away (closed,
     # auto-deleted or expired), so no consumer can be added after that decision
     @consumers_closed = false
@@ -130,7 +131,7 @@ module LavinMQ::AMQP
     # Consumer accessors
 
     def consumers : Array(Client::Channel::Consumer)
-      @consumers_lock.synchronize { @consumers.dup }
+      @consumers_lock.synchronize { @consumers.to_a }
     end
 
     def consumers_size : Int32
@@ -971,7 +972,7 @@ module LavinMQ::AMQP
         @consumers.clear
         @consumer_count.set(0, :relaxed)
         @exclusive_consumer = false
-        @has_priority_consumers = false
+        @priority_consumer_count.set(0, :relaxed)
       end
       Fiber.yield           # Let deliver_loop fibers start and react to closed channels
       @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
@@ -1600,18 +1601,24 @@ module LavinMQ::AMQP
     # with the add. Returns false if the consumer was refused for that reason,
     # raises ClosedError if the queue is closed or about to be deleted.
     def add_consumer(consumer : Client::Channel::Consumer) : Bool
-      raise ClosedError.new if closed?
+      add_consumer(consumer) { }
+    end
+
+    # Register on the channel after the queue accepts the consumer. A channel
+    # close can then always find it and remove it under this same queue lock.
+    def add_consumer(consumer : Client::Channel::Consumer, &) : Bool
       active = false
       consumers_size = @consumers_lock.synchronize do
         # close and delete set the state before tear_down clears the consumers
         # under this lock
         raise ClosedError.new if @consumers_closed || closed?
         return false if in_exclusive_use?(consumer.exclusive?)
+        yield
         was_empty = @consumers.empty?
-        @consumers << consumer
+        return true unless @consumers.add?(consumer)
         @consumer_count.set(@consumers.size, :relaxed)
         @exclusive_consumer = true if consumer.exclusive?
-        @has_priority_consumers = true unless consumer.priority.zero?
+        @priority_consumer_count.add(1, :relaxed) unless consumer.priority.zero?
         if was_empty
           @single_active_consumer = consumer if @single_active_consumer_queue
           notify_consumers_empty(false)
@@ -1626,16 +1633,17 @@ module LavinMQ::AMQP
       true
     end
 
-    getter? has_priority_consumers = false
+    def has_priority_consumers? : Bool
+      @priority_consumer_count.get(:relaxed) > 0
+    end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       return if closed?
       now_empty = delete_queue = false
       @consumers_lock.synchronize do
-        deleted = @consumers.delete consumer
-        @consumer_count.set(@consumers.size, :relaxed)
-        @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
-        if deleted
+        if @consumers.delete(consumer)
+          @consumer_count.set(@consumers.size, :relaxed)
+          @priority_consumer_count.sub(1, :relaxed) unless consumer.priority.zero?
           @exclusive_consumer = false if consumer.exclusive?
           @log.debug { "Removing consumer with #{consumer.unacked} unacked messages (#{@consumers.size} consumers left)" }
           if @single_active_consumer == consumer

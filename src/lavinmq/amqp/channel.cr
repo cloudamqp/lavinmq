@@ -23,23 +23,35 @@ module LavinMQ
       getter id, name, client
       property? running = true
       getter? flow = true
-      @consumers = Array(AMQP::Consumer).new
+      @consumers = Hash(String, AMQP::Consumer).new
+      # Queue registration and cancellation can take this lock under the queue's
+      # consumers lock. Release it before calling back into a queue or doing IO.
+      @consumers_lock = Mutex.new
 
       def consumers : Array(AMQP::Consumer)
-        @consumers.dup
+        @consumers_lock.synchronize { @consumers.values }
       end
 
       def consumers_size : Int32
-        @consumers.size
+        @consumers_lock.synchronize { @consumers.size }
       end
 
-      def find_consumer(& : AMQP::Consumer -> Bool) : AMQP::Consumer?
-        @consumers.find { |c| yield c }
+      def consumer?(tag : String) : AMQP::Consumer?
+        @consumers_lock.synchronize { @consumers[tag]? }
+      end
+
+      private def consumer_tag_in_use?(tag : String) : Bool
+        @consumers_lock.synchronize { @consumers.has_key?(tag) || @direct_reply_consumer == tag }
       end
 
       def cancel_consumer(consumer : AMQP::Consumer) : Nil
-        send AMQP::Frame::Basic::Cancel.new(@id, consumer.tag, no_wait: true)
-        if @consumers.delete(consumer)
+        @consumers_lock.synchronize do
+          return unless @consumers[consumer.tag]?.same?(consumer)
+          @consumers.delete(consumer.tag)
+        end
+        begin
+          send AMQP::Frame::Basic::Cancel.new(@id, consumer.tag, no_wait: true)
+        ensure
           consumer.close
           consumer.queue.rm_consumer(consumer)
         end
@@ -91,7 +103,7 @@ module LavinMQ
           name:                    @name,
           vhost:                   @client.vhost.name,
           user:                    @client.user.name,
-          consumer_count:          @consumers.size,
+          consumer_count:          consumers_size,
           prefetch_count:          @prefetch_count,
           global_prefetch_count:   @global_prefetch_count,
           confirm:                 @confirm,
@@ -112,7 +124,7 @@ module LavinMQ
 
       def flow(active : Bool)
         @flow = active
-        @consumers.each &.flow(active)
+        consumers.each &.flow(active)
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
@@ -173,7 +185,7 @@ module LavinMQ
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if frame.class_id != 60
         valid_expiration?(frame) || return
         if direct_reply_to?(frame.properties.reply_to)
-          if drc = @direct_reply_consumer
+          if drc = @consumers_lock.synchronize { @direct_reply_consumer }
             frame.properties.reply_to = "amq.direct.reply-to.#{drc}"
           else
             @client.send_precondition_failed(frame, "Direct reply consumer does not exist")
@@ -421,24 +433,18 @@ module LavinMQ
       end
 
       def consume(frame)
-        if @consumers.size >= Config.instance.max_consumers_per_channel > 0
+        if frame.consumer_tag.empty?
+          frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
+        elsif consumer_tag_in_use?(frame.consumer_tag)
+          @client.send_not_allowed(frame, "Consumer tag '#{frame.consumer_tag}' is already in use")
+          return
+        end
+        if consumers_size >= Config.instance.max_consumers_per_channel > 0
           @client.send_resource_error(frame, "Max #{Config.instance.max_consumers_per_channel} consumers per channel reached")
           return
         end
-        if frame.consumer_tag.empty?
-          frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
-        end
         if direct_reply_to?(frame.queue)
-          unless frame.no_ack
-            @client.send_precondition_failed(frame, "Direct replys must be consumed in no-ack mode")
-            return
-          end
-          @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
-          @direct_reply_consumer = frame.consumer_tag
-          @client.vhost.direct_reply_consumer_set(frame.consumer_tag, self)
-          unless frame.no_wait
-            send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
-          end
+          return unless add_direct_reply_consumer(frame)
         elsif q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
@@ -454,28 +460,41 @@ module LavinMQ
                 AMQP::Consumer.new(self, q, frame)
               end
           return unless add_consumer(q, c, frame)
-          unless frame.no_wait
-            send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
-          end
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
+          return
         end
+        send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag) unless frame.no_wait
         Fiber.yield # Notify :add_consumer observers
+      end
+
+      private def add_direct_reply_consumer(frame) : Bool
+        unless frame.no_ack
+          @client.send_precondition_failed(frame, "Direct replys must be consumed in no-ack mode")
+          return false
+        end
+        @consumers_lock.synchronize do
+          return false unless @running
+          @direct_reply_consumer = frame.consumer_tag
+          @client.vhost.direct_reply_consumer_set(frame.consumer_tag, self)
+        end
+        true
       end
 
       # The exclusivity check is made atomically with the add, so that
       # concurrent consumes on other connections can't both pass it
       private def add_consumer(q, c, frame) : Bool
-        @consumers.push(c)
-        if q.add_consumer(c)
-          true
-        else
-          @consumers.delete(c)
-          @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
-          false
+        accepted = q.add_consumer(c) do
+          @consumers_lock.synchronize do
+            return false unless @running
+            @consumers[c.tag] = c
+          end
         end
+        unless accepted
+          @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+        end
+        accepted
       rescue Queue::ClosedError
-        @consumers.delete(c)
         @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         false
       end
@@ -741,7 +760,7 @@ module LavinMQ
       end
 
       def prefetch_count=(value)
-        @consumers.each(&.prefetch_count = value)
+        consumers.each(&.prefetch_count = value)
         @prefetch_count = value
       end
 
@@ -823,17 +842,20 @@ module LavinMQ
       end
 
       def close : Bool
-        return false unless @running
-        @running = false
+        to_close = @consumers_lock.synchronize do
+          return false unless @running
+          @running = false
+          if drc = @direct_reply_consumer
+            @client.vhost.direct_reply_consumer_delete(drc)
+            @direct_reply_consumer = nil
+          end
+          @consumers.values.tap { @consumers.clear }
+        end
         @confirm_ack_mailbox.try &.close
-        @consumers.each_with_index(1) do |consumer, i|
+        to_close.each_with_index(1) do |consumer, i|
           consumer.close
           consumer.queue.rm_consumer(consumer)
           Fiber.yield if (i % 128) == 0
-        end
-        @consumers.clear
-        if drc = @direct_reply_consumer
-          @client.vhost.direct_reply_consumer_delete(drc)
         end
         @unack_lock.synchronize do
           @unacked.each do |unack|
@@ -919,13 +941,16 @@ module LavinMQ
 
       def cancel_consumer(frame)
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
-        if consumer = @consumers.find { |cons| cons.tag == frame.consumer_tag }
-          @consumers.delete(consumer)
+        consumer = @consumers_lock.synchronize do
+          if @direct_reply_consumer == frame.consumer_tag
+            @client.vhost.direct_reply_consumer_delete(frame.consumer_tag)
+            @direct_reply_consumer = nil
+          end
+          @consumers.delete(frame.consumer_tag)
+        end
+        if consumer
           consumer.close
           consumer.queue.rm_consumer(consumer)
-        elsif @direct_reply_consumer == frame.consumer_tag
-          @direct_reply_consumer = nil
-          @client.vhost.direct_reply_consumer_delete(frame.consumer_tag)
         end
         unless frame.no_wait
           send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)

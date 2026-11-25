@@ -1,44 +1,42 @@
 require "wait_group"
+require "sync/exclusive"
 require "./client/client"
 require "./logger"
 
 module LavinMQ
   class ConnectionStore
-    def initialize
-      @connections = Array(Client).new(512)
-    end
+    @connections = Sync::Exclusive(Set(Client)).new(Set(Client).new(512), :unchecked)
 
-    def add(client : Client)
-      @connections << client
+    def add(client : Client) : Nil
+      @connections.lock &.add(client)
     end
 
     def delete(client : Client)
-      @connections.delete client
+      @connections.lock &.delete(client)
     end
 
     def each(& : Client ->) : Nil
-      @connections.each { |c| yield c }
+      # A callback can close a client, which removes itself from this store.
+      to_a.each { |c| yield c }
     end
 
     def to_a : Array(Client)
-      @connections.dup
+      @connections.lock &.to_a
     end
 
     def size : Int32
-      @connections.size
+      @connections.lock &.size
     end
 
     def empty? : Bool
-      @connections.empty?
+      @connections.lock &.empty?
     end
 
     def close_all(reason : String, log : Logger) : Nil
       WaitGroup.wait do |wg|
         to_close = Channel(Client).new
         fiber_count = 0
-        # A copy, as a closed client deletes itself, which would skip the
-        # next one in the iteration
-        @connections.dup.each do |client|
+        each do |client|
           select
           when to_close.send client
           else
