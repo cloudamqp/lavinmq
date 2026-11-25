@@ -40,11 +40,11 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
   abstract def coordinator : Coordinator
 
   # The replication server of the term this node leads, from #run's fiber
-  # until #broker_closed
+  # until it's closed, see #close
   @replicator = Atomic(Server?).new(nil)
 
   # The replication server for a term this node leads, which #run yields to
-  # the broker. See #listen and #broker_closed.
+  # the broker. See #listen and #close.
   private def new_replicator : Server
     Server.new(@config, coordinator, @id).tap { |r| @replicator.set(r) }
   end
@@ -62,9 +62,12 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
   end
 
   # Disconnects the followers and stores the checksums, after the broker's
-  # last writes. The Launcher calls it after #run returns, and when it stops
-  # serving, see #on_demote.
-  def broker_closed : Nil
+  # last writes
+  def close : Nil
+    close_replicator
+  end
+
+  private def close_replicator : Nil
     @replicator.swap(nil).try &.close
   end
 
@@ -111,8 +114,8 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
   # leader, without exiting: this node then follows the new leader. When
   # leadership is handed over the block gets the handover to call once
   # clients are disconnected, while the followers are still connected (the
-  # target has to stay in the ISR). When it was lost, it gets nil. Once the
-  # broker is closed it calls #broker_closed.
+  # target has to stay in the ISR). When it was lost, it gets nil. The
+  # broker is closed once the block returns.
   def on_demote(&block : Proc(Nil)? ->) : Nil
     @demote = block
   end
@@ -142,15 +145,15 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
     spawn(watchdog(done, "Stopping to serve took longer than #{@demotion_timeout.total_seconds.to_i}s, exiting"),
       name: "Demotion watchdog")
     begin
-      # Nothing more is confirmed. Closed once the broker is, see
-      # #broker_closed, it writes files until then.
+      # Nothing more is confirmed. Closed once the broker is, it writes files
+      # until then.
       @replicator.get.try &.fence unless hand_over
       if demote = @demote
         demote.call(hand_over)
       else
         hand_over.try &.call
-        broker_closed
       end
+      close_replicator
     rescue ex
       Log.fatal(exception: ex) { "Failed to stop serving, exiting" }
       exit 3
