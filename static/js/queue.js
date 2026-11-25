@@ -86,10 +86,13 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
 })
 
 function handleQueueState (state, pausedReason) {
-  document.getElementById('q-state').textContent = state
+  const badge = document.createElement('span')
+  badge.className = `state-badge state-badge-${state}`
+  badge.textContent = state
+  document.getElementById('q-state').replaceChildren(badge)
   Helpers.showStateReason(state, pausedReason)
   // A failed queue can't be purged either
-  document.getElementById('purgeQueue').classList.toggle('hide', state === 'failed')
+  document.getElementById('purge-queue-box').classList.toggle('hide', state === 'failed')
   switch (state) {
     case 'paused':
       pauseQueueForm.classList.add('hide')
