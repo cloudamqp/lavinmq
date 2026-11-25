@@ -18,6 +18,7 @@ module ShovelTest
     property shovel_user = "shovel-test"
     property shovel_password = Random::Secure.urlsafe_base64(12)
     property? shovel_user_given = false
+    property? shovel_password_given = false
     property messages = 10_000
     # How the broker reaches this process' HTTP endpoint. Change it when the
     # broker runs on another host.
@@ -46,7 +47,10 @@ module ShovelTest
           cfg.shovel_user = v
           cfg.shovel_user_given = true
         end
-        p.on("--shovel-password=PASS", "Password of the shovels' user") { |v| cfg.shovel_password = v }
+        p.on("--shovel-password=PASS", "Password of the shovels' user (required with --shovel-user)") do |v|
+          cfg.shovel_password = v
+          cfg.shovel_password_given = true
+        end
         p.on("--messages=N", "Messages published in the bulk scenarios (default 10000)") { |v| cfg.messages = v.to_i }
         p.on("--endpoint-host=HOST", "Host the broker uses to reach the HTTP endpoint served here (default localhost)") { |v| cfg.endpoint_host = v }
         p.on("--endpoint-port=PORT", "Port for the HTTP endpoint (default: any free port)") { |v| cfg.endpoint_port = v.to_i }
@@ -57,6 +61,10 @@ module ShovelTest
           puts p
           exit 0
         end
+      end
+      if cfg.shovel_user_given? && !cfg.shovel_password_given?
+        STDERR.puts "--shovel-user needs --shovel-password"
+        exit 2
       end
       cfg
     end
