@@ -730,9 +730,7 @@ describe LavinMQ::AMQP::Queue do
           Log.capture("lmq.queue", :error) do |logs|
             msgs.each &.ack
             should_eventually(be_true) { queue.state.paused? }
-            # The acks are handled in order, the last one after the pause
             should_eventually(eq 0) { queue.unacked_count }
-            # Only the pause, not one per failed ack
             logs.next(:error, /Paused due to a temporary message store error/).empty
           end
         end

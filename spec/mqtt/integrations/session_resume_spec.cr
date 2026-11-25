@@ -448,7 +448,6 @@ module MqttSpecs
             pubs.each { |pub| puback(io, pub.packet_id) }
             wait_for { session.unacked_count == 0 }
             session.state.paused?.should be_true
-            # Only the pause, not one per failed ack
             logs.next(:error, /Paused due to a temporary message store error/).empty
           end
           disconnect(io)

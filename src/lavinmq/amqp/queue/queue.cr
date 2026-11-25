@@ -765,7 +765,6 @@ module LavinMQ::AMQP
     private def delete_moved(sp : SegmentPosition) : Nil
       delete_message(sp)
     rescue ex : MessageStore::Error
-      # The error is logged by #pause_on_store_error, once per pause
       @log.debug(ex) { "Failed to delete #{sp}" }
       pause_on_store_error(ex)
     end
