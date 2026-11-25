@@ -480,6 +480,40 @@ describe LavinMQ::HTTP::QueuesController do
         end
       end
 
+      it "should return each unacked message once when consumers share a channel" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            2.times { q.publish "m1" }
+            2.times { q.subscribe(no_ack: false) { } }
+
+            wait_for { s.vhosts["/"].queue("unacked_q").unacked_count == 2 }
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 2
+          end
+        end
+      end
+
+      it "should return the unacked messages of a cancelled consumer when consumers share a channel" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            q.publish "m1"
+            tag = q.subscribe(no_ack: false) { }
+            wait_for { s.vhosts["/"].queue("unacked_q").unacked_count == 1 }
+            q.subscribe(no_ack: false) { }
+            ch.basic_cancel(tag)
+
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 1
+          end
+        end
+      end
+
       it "should not return if acked" do
         with_http_server do |http, s|
           with_channel(s) do |ch|

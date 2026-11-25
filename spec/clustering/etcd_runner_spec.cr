@@ -111,6 +111,69 @@ private class StaleOnDemandCoordinator < LavinMQ::Clustering::EtcdCoordinator
   end
 end
 
+# Records the exit code instead of exiting, from whichever fiber exits, and
+# parks that fiber like a real exit would
+private class ExitRecordingRunner < LavinMQ::Clustering::EtcdRunner
+  getter exit_codes = Channel(Int32).new(1)
+
+  def exit(code : Int32) : NoReturn
+    @exit_codes.send code
+    loop { sleep 1.hour }
+  end
+
+  # Whether the leader_lost hook from `lease_spec_config` has run
+  def leader_lost_hook_ran? : Bool
+    File.exists?(File.join(@config.data_dir, "leader_lost"))
+  end
+end
+
+private def lease_spec_config(data_dir : String, port : Int32, ttl = 10) : LavinMQ::Config
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  config.clustering_etcd_endpoints = "localhost:12379"
+  config.clustering_advertised_uri = "tcp://localhost:#{port}"
+  config.clustering_etcd_lease_ttl = ttl
+  # A follower's proxies bind them
+  config.amqp_bind = config.http_bind = config.mqtt_bind = "127.0.0.1"
+  config.amqp_port = config.mqtt_port = config.http_port = 0
+  config.clustering_port = 0 # a leader listens for followers on it
+  # Quiet when a runner stopped during cleanup runs it after its dir is gone
+  config.clustering_on_leader_lost = "touch #{File.join(data_dir, "leader_lost")} 2>/dev/null"
+  config
+end
+
+# Starts a leader and a candidate queued in the election behind it
+private def with_leader_and_candidate(name : String, candidate_ttl = 10, &)
+  with_datadir do |leader_dir|
+    with_datadir do |candidate_dir|
+      leader = ExitRecordingRunner.new(lease_spec_config(leader_dir, 5686))
+      candidate = ExitRecordingRunner.new(lease_spec_config(candidate_dir, 5687, ttl: candidate_ttl))
+      begin
+        etcd = LavinMQ::Etcd.new("localhost:12379")
+        spawn(name: "#{name} leader") { leader.run { } }
+        wait_for { etcd.get("lavinmq/leader/#{leader.id.to_s(16)}") }
+        spawn(name: "#{name} candidate") { candidate.run { } }
+        wait_for { etcd.get("lavinmq/leader/#{candidate.id.to_s(16)}") }
+        yield leader, candidate, etcd
+      ensure
+        leader.stop rescue nil
+        leader.close
+        candidate.stop rescue nil
+        candidate.close
+      end
+    end
+  end
+end
+
+# Exit code of *runner* within *within*, or nil
+private def exit_code(runner : ExitRecordingRunner, within : Time::Span) : Int32?
+  select
+  when code = runner.exit_codes.receive
+    code
+  when timeout(within)
+  end
+end
+
 # Test-only seam: drive the SIGTERM shutdown path without raising the signal.
 class LavinMQ::Launcher
   def shutdown_for_spec
@@ -635,6 +698,66 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     end
   end
 
+  describe "lease loss" do
+    it "exits when its lease expires while following the leader" do
+      with_leader_and_candidate("lease-follow", candidate_ttl: 3) do |_leader, candidate, etcd|
+        # Like a keepalive that hit "etcdserver: no leader" on 2.10.x: the
+        # lease is gone while the node follows as if nothing happened
+        etcd.lease_revoke(candidate.id)
+        exit_code(candidate, within: 5.seconds).should eq 3
+      end
+    end
+
+    it "exits once when it steps down for not being in the ISR" do
+      with_leader_and_candidate("lease-isr") do |leader, candidate, etcd|
+        etcd.put("lavinmq/isr", leader.id.to_s(36))
+        leader.stop
+        exit_code(candidate, within: 5.seconds).should eq 3
+        # Stepping down releases the lease, which the lease watcher mustn't
+        # take for a lost lease
+        exit_code(candidate, within: 1.second).should be_nil
+        # The stopped leader lost its leadership, the candidate never led
+        wait_for { leader.leader_lost_hook_ran? }
+        candidate.leader_lost_hook_ran?.should be_false
+      end
+    end
+
+    it "does not exit when a follower is stopped" do
+      with_leader_and_candidate("lease-stop") do |_leader, candidate, _etcd|
+        candidate.stop
+        exit_code(candidate, within: 1.second).should be_nil
+        candidate.leader_lost_hook_ran?.should be_false
+      end
+    end
+
+    # It would stop serving and follow again once the startup stops
+    it "exits when its lease expires while its startup hangs" do
+      with_datadir do |data_dir|
+        runner = ExitRecordingRunner.new(lease_spec_config(data_dir, 5690, ttl: 3))
+        runner.demotion_timeout = 1.second
+        started = Channel(Nil).new
+        spawn(name: "lease startup runner") do
+          runner.run do
+            started.send nil
+            sleep # like a startup stuck in flush_isr
+          end
+        end
+        begin
+          select
+          when started.receive
+          when timeout(5.seconds)
+            fail "runner was not elected leader"
+          end
+          LavinMQ::Etcd.new("localhost:12379").lease_revoke(runner.id)
+          exit_code(runner, within: 5.seconds).should eq 3
+        ensure
+          runner.stop rescue nil
+          runner.close
+        end
+      end
+    end
+  end
+
   # A replication client takes over checksums.sha1 when it's made
   it "makes no replication client in a term that ended while it waited for the secret" do
     with_datadir do |data_dir|
@@ -694,6 +817,47 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         fail "follower monitor didn't return"
       end
       runner.repli_client.should be_nil
+    end
+  end
+
+  it "doesn't become leader if it's stopped before it starts" do
+    with_datadir do |data_dir|
+      # No client ports: #stop doesn't end the follower monitor, so a follower
+      # client it makes for a later spec's leader would bind them
+      config = lease_spec_config(data_dir, 5687)
+      hook_ran = File.join(data_dir, "leader_elected")
+      config.clustering_on_leader_elected = "touch #{hook_ran}"
+      runner = LavinMQ::Clustering::EtcdRunner.new(config)
+      # As a SIGTERM while it waits for the replication client to close
+      runner.stop
+
+      started = Channel(Nil).new
+      returned = Channel(Nil).new
+      spawn(name: "stopped runner") do
+        runner.run { started.close }
+        returned.close
+      rescue SpecExit
+      end
+
+      select
+      when returned.receive?
+      when started.receive?
+        fail "a stopped node became leader"
+      when timeout(5.seconds)
+        fail "EtcdRunner#run didn't return"
+      end
+
+      # The lease is released, so another node can win the election at once
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      lease = etcd.lease_grant(5)
+      elected = Channel(Nil).new
+      spawn { etcd.election_campaign("lavinmq/leader", "spec", lease.id); elected.close }
+      select
+      when elected.receive?
+      when timeout(1.seconds)
+        fail "the leader election wasn't released"
+      end
+      File.exists?(hook_ran).should be_false
     end
   end
 

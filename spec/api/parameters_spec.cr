@@ -745,6 +745,15 @@ describe LavinMQ::HTTP::ParametersController do
         response.status_code.should eq 400
       end
     end
+
+    it "should refuse keys not allowed in operator policies" do
+      with_http_server do |http, _|
+        body = %({"pattern": ".*", "definition": {"max-length": 100, "ha-params": 2}})
+        response = http.put("/api/operator-policies/%2f/name", body: body)
+        response.status_code.should eq 400
+        JSON.parse(response.body)["reason"].as_s.should contain "'ha-params'"
+      end
+    end
   end
   describe "DELETE /api/policies/vhost/name" do
     it "should delete policy" do

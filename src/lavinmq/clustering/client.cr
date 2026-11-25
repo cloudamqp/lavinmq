@@ -85,6 +85,10 @@ module LavinMQ
       # digest can cover the bytes already on disk (see #digest_for).
       @file_digests = Hash(String, Digest::SHA1?).new
       @follower_done = Channel(Nil).new
+      # Claimed by whichever of #follow and #close runs first, so #close only waits for a started follow loop
+      @follow_claimed = Atomic(Bool).new(false)
+      # Closed by #close to cut a reconnect backoff short
+      @closing = Channel(Nil).new
       # Buffers acks (byte counts) and fsync requests (paths, "" for the whole
       # data dir) from the stream-reading fiber to the ack-sending fiber.
       # Replaced with a fresh channel on each (re)connect in #stream_changes.
@@ -152,6 +156,11 @@ module LavinMQ
       end
 
       def follow(leader : Leader)
+        return if @follow_claimed.swap(true) # closed (or already following)
+        follow_loop(leader)
+      end
+
+      private def follow_loop(leader : Leader)
         host = leader.host
         port = leader.port
         Log.info { "Following #{host}:#{port}" }
@@ -172,7 +181,10 @@ module LavinMQ
           socket.try &.close
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
-          sleep 1.seconds
+          select
+          when @closing.receive? then break
+          when timeout(1.second)
+          end
         end
       ensure
         @follower_done.send(nil)
@@ -785,9 +797,12 @@ module LavinMQ
       # client, and the leader starts as soon as its call returns, so a call
       # made while another is closing waits for it to finish with the data dir.
       def close
+        follow_started = false
         closing = @close_lock.synchronize do
           next false if @closed
           @closed = true
+          follow_started = @follow_claimed.swap(true)
+          true
         end
         unless closing
           @close_done.receive?
@@ -795,11 +810,13 @@ module LavinMQ
         end
         @files.each_value &.close
         @socket.try &.close
-        # Wait for follower loop to exit (with timeout to prevent hanging)
-        select
-        when @follower_done.receive
-        when timeout(5.seconds)
-          Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
+        @closing.close
+        if follow_started
+          select
+          when @follower_done.receive
+          when timeout(5.seconds)
+            Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
+          end
         end
         # The ack loop keeps draining acks buffered in @acks even after the
         # channel is closed, syncing to disk before each send. Wait for it to
