@@ -18,6 +18,6 @@ vhost-limits:
         max-retained-messages:
           type: integer
           description: Maximum number of retained MQTT messages allowed in the vhost.
-        max-retained-message-size:
+        max-retained-bytes:
           type: integer
-          description: Maximum payload size, in bytes, of one retained MQTT message in the vhost.
+          description: Maximum total payload size, in bytes, of the retained MQTT messages in the vhost.

@@ -35,8 +35,8 @@ module LavinMQ
                 when "max-retained-messages"
                   vhost.max_retained_messages = value
                   context.response.status_code = 204
-                when "max-retained-message-size"
-                  vhost.max_retained_message_size = value
+                when "max-retained-bytes"
+                  vhost.max_retained_bytes = value
                   context.response.status_code = 204
                 end
               end
@@ -59,9 +59,9 @@ module LavinMQ
             when "max-retained-messages"
               context.response.status_code = 204
               vhost.max_retained_messages = nil
-            when "max-retained-message-size"
+            when "max-retained-bytes"
               context.response.status_code = 204
-              vhost.max_retained_message_size = nil
+              vhost.max_retained_bytes = nil
             end
           end
           context
@@ -76,7 +76,7 @@ module LavinMQ
 
         def self_if_limited : VHostLimitsView?
           self if @vhost.max_connections || @vhost.max_queues ||
-                  @vhost.max_retained_messages || @vhost.max_retained_message_size
+                  @vhost.max_retained_messages || @vhost.max_retained_bytes
         end
 
         def details_tuple
@@ -90,8 +90,8 @@ module LavinMQ
           if max = @vhost.max_retained_messages
             value = value.merge({"max-retained-messages": max})
           end
-          if max = @vhost.max_retained_message_size
-            value = value.merge({"max-retained-message-size": max})
+          if max = @vhost.max_retained_bytes
+            value = value.merge({"max-retained-bytes": max})
           end
           {
             vhost: @vhost.name,

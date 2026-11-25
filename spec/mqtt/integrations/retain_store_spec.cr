@@ -87,24 +87,24 @@ module MqttSpecs
         store.try &.close
       end
 
-      it "doesn't store a message larger than max_message_size" do
+      it "doesn't store a new topic over max_bytes" do
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
-        store.retain(publish_packet(topic: "a", payload: "12345".to_slice, retain: true), max_message_size: 4_i64).should be_false
-        store.retain(publish_packet(topic: "a", payload: "1234".to_slice, retain: true), max_message_size: 4_i64).should be_true
-        store.retain(publish_packet(topic: "b", payload: "1234".to_slice, retain: true), max_message_size: 4_i64).should be_true
+        store.retain(publish_packet(topic: "a", payload: "1234".to_slice, retain: true), max_bytes: 6_i64).should be_true
+        store.retain(publish_packet(topic: "b", payload: "123".to_slice, retain: true), max_bytes: 6_i64).should be_false
+        store.retain(publish_packet(topic: "b", payload: "12".to_slice, retain: true), max_bytes: 6_i64).should be_true
         store.message_count.should eq 2
-        store.bytesize.should eq 8
+        store.bytesize.should eq 6
       ensure
         store.try &.close
       end
 
-      it "keeps the old message when a replacement is larger than max_message_size" do
+      it "keeps the old message when a larger replacement goes over max_bytes" do
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
-        store.retain(publish_packet(topic: "a", payload: "old".to_slice, retain: true), max_message_size: 4_i64)
-        store.retain(publish_packet(topic: "a", payload: "larger".to_slice, retain: true), max_message_size: 4_i64).should be_false
+        store.retain(publish_packet(topic: "a", payload: "old".to_slice, retain: true), max_bytes: 4_i64)
+        store.retain(publish_packet(topic: "a", payload: "larger".to_slice, retain: true), max_bytes: 4_i64).should be_false
         retained_body(store, "a").should eq "old"
         store.bytesize.should eq 3
-        store.retain(publish_packet(topic: "a", payload: "new!".to_slice, retain: true), max_message_size: 4_i64).should be_true
+        store.retain(publish_packet(topic: "a", payload: "new!".to_slice, retain: true), max_bytes: 4_i64).should be_true
         retained_body(store, "a").should eq "new!"
         store.bytesize.should eq 4
       ensure
@@ -116,10 +116,8 @@ module MqttSpecs
         store.retain(publish_packet(topic: "a", payload: "1234".to_slice, retain: true))
         store.retain(publish_packet(topic: "b", payload: "1234".to_slice, retain: true))
         store.retain(publish_packet(topic: "c", payload: "1".to_slice, retain: true), 1_i64, 2_i64).should be_false
-        store.retain(publish_packet(topic: "a", payload: "123".to_slice, retain: true), 1_i64, 2_i64).should be_false
         store.message_count.should eq 2
-        store.bytesize.should eq 8
-        # A replacement within the size limit and a delete still work
+        # A replacement that doesn't grow is stored, a delete always works
         store.retain(publish_packet(topic: "a", payload: "12".to_slice, retain: true), 1_i64, 2_i64).should be_true
         store.retain(publish_packet(topic: "b", payload: Bytes.empty, retain: true), 1_i64, 2_i64).should be_true
         store.message_count.should eq 1
@@ -154,7 +152,7 @@ module MqttSpecs
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil)
         store.message_count.should eq 2
         store.bytesize.should eq 6
-        store.retain(publish_packet(topic: "c", payload: "1".to_slice, retain: true), max_messages: 2_i64).should be_false
+        store.retain(publish_packet(topic: "c", payload: "1".to_slice, retain: true), max_bytes: 6_i64).should be_false
       ensure
         store.try &.close
       end

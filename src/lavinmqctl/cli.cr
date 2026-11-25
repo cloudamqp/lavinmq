@@ -686,7 +686,7 @@ class LavinMQCtl
   @[Cmd("Starts the AMQP broker", "", section: "Server")]
   private def start_app; end
 
-  @[Cmd("Set VHost limits (max-connections, max-queues, max-retained-messages, max-retained-message-size)", "<json>", section: "Virtual Hosts")]
+  @[Cmd("Set VHost limits (max-connections, max-queues, max-retained-messages, max-retained-bytes)", "<json>", section: "Virtual Hosts")]
   private def set_vhost_limits
     vhost = @options["vhost"]? || "/"
     data = ARGV.shift?
@@ -703,14 +703,14 @@ class LavinMQCtl
       handle_response(resp, 204)
       ok = true
     end
-    {"max-retained-messages", "max-retained-message-size"}.each do |limit|
+    {"max-retained-messages", "max-retained-bytes"}.each do |limit|
       if value = json[limit]?.try(&.as_i64?)
         resp = http.put "/api/vhost-limits/#{URI.encode_www_form(vhost)}/#{limit}", @headers, {value: value}.to_json
         handle_response(resp, 204)
         ok = true
       end
     end
-    ok || abort "max-connections, max-queues, max-retained-messages or max-retained-message-size required"
+    ok || abort "max-connections, max-queues, max-retained-messages or max-retained-bytes required"
   end
 
   @[Cmd("Set permissions for a user", "<username> <configure> <write> <read>", section: "User Management")]

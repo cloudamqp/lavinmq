@@ -94,9 +94,9 @@ module LavinMQ
         @dirty = torn || lines != @index.size
       end
 
-      # Returns false, without storing the message, when it is over a limit.
-      # A delete is always allowed
-      def retain(packet : Protocol::Publish, max_messages : Int64? = nil, max_message_size : Int64? = nil) : Bool
+      # Returns false, without storing the message, when it would take the
+      # store over a limit. A delete is always allowed
+      def retain(packet : Protocol::Publish, max_messages : Int64? = nil, max_bytes : Int64? = nil) : Bool
         @lock.synchronize do
           topic = packet.topic
           payload = packet.payload
@@ -114,9 +114,7 @@ module LavinMQ
           msg_file_name = @index[topic]?
           old_size = msg_file_name ? stored_size(msg_file_name) : 0_i64
           new_size = payload.bytesize.to_i64
-          return false if max_message_size && new_size > max_message_size
-          # A replacement is not a new message
-          return false if msg_file_name.nil? && max_messages && @count.get(:relaxed) >= max_messages
+          return false if over_limit?(msg_file_name.nil?, old_size, new_size, max_messages, max_bytes)
 
           # The file is written before a new topic is indexed, so a failed
           # write leaves no topic without a message
@@ -154,6 +152,15 @@ module LavinMQ
           @persister.try &.mark_dirty(final_file_path)
           @persister.try &.mark_dirty(@dir)
         end
+      end
+
+      # A replacement that doesn't grow is stored also when a lowered limit has
+      # left the store over it
+      private def over_limit?(new_topic : Bool, old_size : Int64, new_size : Int64,
+                              max_messages : Int64?, max_bytes : Int64?) : Bool
+        return true if new_topic && max_messages && @count.get(:relaxed) >= max_messages
+        return false unless max_bytes && new_size > old_size
+        @bytes.get(:relaxed) - old_size + new_size > max_bytes
       end
 
       # Closes current index file, writes the inmemory index to a tmp file
