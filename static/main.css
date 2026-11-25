@@ -2122,6 +2122,11 @@ a:visited {
   color: red;
 }
 
+.state-failed:after {
+  content: "✕";
+  color: red;
+}
+
 pre {
   white-space: pre-wrap;
 }

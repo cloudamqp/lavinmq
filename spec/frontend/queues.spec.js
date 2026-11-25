@@ -149,3 +149,22 @@ test.describe('queues with automatic retries', _ => {
     await expect(badge.getByRole('link')).toHaveAttribute('href', /queue#vhost=%2F&name=orders$/)
   })
 })
+
+test.describe('queue states', _ => {
+  const states = ['running', 'flow', 'paused', 'closed', 'failed']
+  const stateQueues = states.map(state => qHelpers.queue(`q-${state}`, { state }))
+
+  test.beforeEach(async ({ apimap, page }) => {
+    const queuesLoaded = apimap.get('/api/queues', qHelpers.response(stateQueues))
+    await page.goto('/queues')
+    await queuesLoaded
+  })
+
+  test('shows a mark for each state', async ({ page }) => {
+    for (const state of states) {
+      const row = page.locator('#table tbody tr').filter({ has: page.getByRole('link', { name: `q-${state}`, exact: true }) })
+      const mark = await row.locator(`td.state-${state}`).evaluate(td => getComputedStyle(td, '::after').content)
+      expect(mark, state).not.toBe('none')
+    }
+  })
+})
