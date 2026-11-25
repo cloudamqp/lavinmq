@@ -65,6 +65,9 @@ module LavinMQ
       # every publish to the session takes, as the paused file is written
       # and replicated under it.
       @state_lock = Mutex.new
+      # Set under @state_lock once the store's failure is logged, so it's
+      # logged once, see #pause_on_store_error
+      @failure_logged = false
       # Counts the store errors that paused the session, see #resume!
       @store_errors = Atomic(UInt32).new(0)
       @has_capacity = BoolChannel.new(true)
@@ -227,14 +230,21 @@ module LavinMQ
       # restart of the broker.
       private def pause_on_store_error(ex : MessageStore::Error) : Nil
         @store_errors.add(1, :release)
-        paused = @state_lock.synchronize do
+        failed = @msg_store.failed?
+        # Logged at error only when the session goes from running to paused,
+        # or its store fails, like a queue's: an error per ack while the
+        # session is paused would flood the log on a failing disk
+        changed = @state_lock.synchronize do
           next false if closed?
+          was_paused = @paused.value
           @paused.set(true)
-          true
+          newly_failed = failed && !@failure_logged
+          @failure_logged = true if failed
+          !was_paused || newly_failed
         end
-        if paused
+        if changed
           @log.error(exception: ex) do
-            if @msg_store.failed?
+            if failed
               "Failed, message data can't be read. #{unreadable_advice}"
             else
               "Paused due to a temporary message store error, resume the session to try again"
@@ -537,8 +547,9 @@ module LavinMQ
             delete_message(sp)
           rescue ex : MessageStore::Error
             # The client isn't disconnected for it. The message stays in its
-            # segment, so it can come back after a restart of the broker.
-            @log.error(exception: ex) { "Failed to delete #{sp}" }
+            # segment, so it can come back after a restart of the broker. The
+            # error is logged by #pause_on_store_error, once per pause.
+            @log.debug(exception: ex) { "Failed to delete #{sp}" }
             pause_on_store_error(ex)
           rescue ex
             raise ::IO::Error.new("Could not acknowledge packet with id '#{id}'", ex)
