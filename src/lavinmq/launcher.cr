@@ -118,7 +118,7 @@ module LavinMQ
       @stopped.receive? if @closed.get
       @client_listeners.close
       @control_socket.close
-      @runner.broker_closed
+      @runner.close
       @data_dir_lock.try &.release
     ensure
       @run_done.close

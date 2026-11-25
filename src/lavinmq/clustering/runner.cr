@@ -33,11 +33,11 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
   abstract def coordinator : Coordinator
 
   # The replication server of the term this node leads, from #run's fiber
-  # until #broker_closed
+  # until it's closed, see #close
   @replicator = Atomic(Server?).new(nil)
 
   # The replication server for a term this node leads, which #run yields to
-  # the broker. See #listen and #broker_closed.
+  # the broker. See #listen and #close.
   private def new_replicator : Server
     Server.new(@config, coordinator, @id).tap { |r| @replicator.set(r) }
   end
@@ -56,7 +56,7 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
 
   # Disconnects the followers and stores the checksums, after the broker's
   # last writes
-  def broker_closed : Nil
+  def close : Nil
     @replicator.swap(nil).try &.close
   end
 

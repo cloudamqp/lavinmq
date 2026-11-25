@@ -1,6 +1,7 @@
 require "../etcd"
 require "./runner"
 require "./etcd_coordinator"
+require "wait_group"
 
 # Leader election and ISR storage in an external etcd cluster.
 class LavinMQ::Clustering::EtcdRunner < LavinMQ::Clustering::Runner
@@ -30,27 +31,35 @@ class LavinMQ::Clustering::EtcdRunner < LavinMQ::Clustering::Runner
     @coordinator.password
     lease = @etcd.lease_grant(ttl: @config.clustering_etcd_lease_ttl, id: @id)
     @lease.set(lease)
+    lease_released = WaitGroup.new
+    lease_released.spawn(name: "Lease watcher") { watch_lease(lease) }
     spawn(follow_leader, name: "Follower monitor")
-    wait_to_be_insync(lease)
-    return if @stopping.get
-    return unless campaign # blocks until becoming leader, or stopped
+    if !wait_to_be_insync(lease) || @stopping.get
+      lease.release if @stopping.get # #stop has no lease to release if it came before the grant
+      lease_released.wait            # exits if it was lost, see #watch_lease
+      return
+    end
+    unless campaign       # blocks until becoming leader, or stopped
+      lease_released.wait # #stop released the lease
+      return
+    end
     @elected_leader.set(true)
     ensure_in_isr!
-    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @follow_lock.synchronize { @repli_client.swap(nil) }.try &.close
     leader_changed # connections wait for this node to serve
+    # A stop before this point, e.g. while the replication client closed, must
+    # not make this node leader: it would set the ISR to only itself and exit
+    if @stopping.get
+      lease.release # #stop has no lease to release if it came before the grant
+      lease_released.wait
+      return
+    end
+    @announced_leader.set(true)
+    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     replicator = new_replicator
     yield replicator
     listen(replicator)
-    loop do
-      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
-    end
-  rescue Etcd::Lease::Expired
-    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
-    unless @stopping.get
-      Log.fatal { "Lease expired, lost leadership" }
-      exit 3
-    end
+    lease_released.wait # until #stop releases the lease
   rescue Etcd::LeaseAlreadyExists
     Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
     exit 3
@@ -58,6 +67,27 @@ class LavinMQ::Clustering::EtcdRunner < LavinMQ::Clustering::Runner
     Log.fatal { "Lease not found, etcd may have been reset" }
     exit 3
   end
+
+  # Exits when the lease expires, whether this node follows, campaigns, starts
+  # or serves: etcd answers a campaign on an expired lease as won
+  private def watch_lease(lease : Etcd::Lease) : Nil
+    loop do
+      lease.wait(1.hour) # blocks until the lease expires (raises Expired)
+    end
+  rescue ex : Etcd::Lease::Expired
+    return if @stepping_down.get # never led, so no leader_lost hook
+    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost") if @announced_leader.get
+    unless @stopping.get
+      Log.fatal { "Lease expired: #{ex.cause.try(&.message) || ex.message}" }
+      exit 3
+    end
+  end
+
+  # Set by #ensure_in_isr! before it releases the lease, so the lease watcher
+  # doesn't take that for a lost lease
+  @stepping_down = Atomic(Bool).new(false)
+  # Set when the leader_elected hook runs, so leader_lost only follows it
+  @announced_leader = Atomic(Bool).new(false)
 
   def stop
     client = @follow_lock.synchronize do
@@ -158,6 +188,7 @@ class LavinMQ::Clustering::EtcdRunner < LavinMQ::Clustering::Runner
     # Release the lease explicitly: the election key is bound to it, so this
     # revokes the just-won leadership at once instead of leaving the cluster
     # leaderless until the lease TTL expires.
+    @stepping_down.set(true)
     begin
       @lease.get.try &.release
     rescue ex
@@ -166,7 +197,8 @@ class LavinMQ::Clustering::EtcdRunner < LavinMQ::Clustering::Runner
     exit 3
   end
 
-  def wait_to_be_insync(lease)
+  # False if the lease ended first, lost or released by #stop
+  def wait_to_be_insync(lease : Etcd::Lease) : Bool
     if isr = @coordinator.isr
       unless isr.includes?(@id)
         Log.info { "ISR: #{isr.to_a}" }
@@ -181,18 +213,13 @@ class LavinMQ::Clustering::EtcdRunner < LavinMQ::Clustering::Runner
           end
         end
         select
-        when err = lease.expired.receive?
-          return if err.nil? && @stopping.get # released by #stop
-          if err
-            Log.fatal { "Lease expired while waiting to be in sync: #{err.message}" }
-          else
-            Log.fatal { "Lease expired while waiting to be in sync" }
-          end
-          exit 3
+        when lease.expired.receive?
+          return false
         when in_sync.receive?
           Log.info { "In sync with leader" }
         end
       end
     end
+    true
   end
 end

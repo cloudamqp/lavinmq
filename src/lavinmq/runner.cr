@@ -16,10 +16,10 @@ module LavinMQ
     def stopping : Nil
     end
 
-    # The broker it last yielded for is closed for good, so what the runner
-    # holds for it can go, e.g. replication: its checksums are stored after
-    # the broker's last writes
-    def broker_closed : Nil
+    # Called once the Launcher is done with the broker, before the process
+    # exits, so what the runner holds for it can go, e.g. replication: its
+    # checksums are stored after the broker's last writes
+    def close : Nil
     end
 
     # The leader, which client connections are forwarded to while this node

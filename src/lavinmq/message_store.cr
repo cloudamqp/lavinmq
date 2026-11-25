@@ -747,6 +747,15 @@ module LavinMQ
       # msg_dir does not exist, nothing to load
     end
 
+    # A crash can leave a 0-byte segment, which can't be mapped without a capacity
+    private def open_segment_at_load(path : String, last : Bool) : MFile
+      last || File.size(path).zero? ? open_last_segment(path) : open_segment(path)
+    end
+
+    private def delete_empty_segment(seg : UInt32, file : MFile) : Nil
+      delete_file(file, including_meta: true)
+    end
+
     private def load_segments_from_disk : Nil
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
@@ -762,7 +771,7 @@ module LavinMQ
       last_idx = ids.size - 1
       ids.each_with_index do |seg, idx|
         path = segment_path(seg)
-        file = idx == last_idx ? open_last_segment(path) : open_segment(path)
+        file = open_segment_at_load(path, idx == last_idx)
         @replicator.try &.register_file file
         file.delete unless @durable # mark files for non-durable queues for deletion
 
@@ -771,7 +780,7 @@ module LavinMQ
         rescue IO::EOFError
           # delete empty file, it will be recreated if it's needed
           @log.warn { "Empty file at #{path}, deleting it" }
-          delete_file(file, including_meta: true)
+          delete_empty_segment(seg, file)
           # One segment must exist, and the last one takes the writes
           if idx == 0 || idx == last_idx
             seg = recreated_segment_id(seg)
