@@ -81,7 +81,7 @@ jwks_cache_ttl = 3600
 
 Changes to these options take effect on a configuration reload (`SIGHUP`). When `issuer` changes, the keys are fetched again from the new issuer, and tokens from the old issuer are rejected, also when an existing connection refreshes its token. A changed `jwks_cache_ttl` keeps the current keys and applies from the next key refresh.
 
-Adding or removing `oauth` in `auth_backends` also takes effect on reload. To disable OAuth, edit the line to, for example, `auth_backends = local` rather than deleting it: a setting removed from the file, here or in `[oauth]`, keeps its current value on reload (see [Reloading](configuration.md#reloading)). When OAuth is disabled, new OAuth logins are refused, including management UI SSO. Connections already authenticated with OAuth stay open until their token expires, but can no longer refresh it.
+Adding or removing `oauth` in `auth_backends` also takes effect on reload. To disable OAuth, set the backends you want, for example `auth_backends = local`. Removing the `auth_backends` line also disables OAuth, and enables local password logins: a setting removed from the file goes back to its default on reload, which for `auth_backends` is local authentication only. The exception is `issuer`, which keeps its current value when it's removed (see [Reloading](configuration.md#reloading)). When OAuth is disabled, new OAuth logins are refused, including management UI SSO. Connections already authenticated with OAuth stay open until their token expires, but can no longer refresh it.
 
 ### Management UI SSO Login
 
