@@ -121,9 +121,9 @@ private def with_leader_and_candidate(name : String, candidate_ttl = 10, &)
         wait_for { etcd.get("lavinmq/leader/#{candidate.id.to_s(16)}") }
         yield leader, candidate, etcd
       ensure
-        leader.stop rescue nil
+        leader.shutdown { } rescue nil
         leader.close
-        candidate.stop rescue nil
+        candidate.shutdown { } rescue nil
         candidate.close
       end
     end
@@ -213,7 +213,7 @@ describe LavinMQ::Clustering::EtcdRunner do
         done.close
       end
       etcd.getting.receive
-      runner.stop
+      runner.shutdown { }
       runner.close
       etcd.gate.close
       select
@@ -238,7 +238,7 @@ describe LavinMQ::Clustering::EtcdRunner do
       etcd = FailingRevokeEtcd.new
       runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
       runner.lease_for_spec = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
-      runner.stop
+      runner.shutdown { }
       runner.close
     end
   end
@@ -288,25 +288,25 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     leader = listen.receive
     case leader
     when .try &.starts_with?(config1.clustering_advertised_uri.to_s)
-      runner1.stop
+      runner1.shutdown { }
       runner1.close
       listen.receive.to_s.should start_with config2.clustering_advertised_uri.to_s
       sleep 0.1.seconds
-      runner2.stop
+      runner2.shutdown { }
       runner2.close
     when .try &.starts_with?(config2.clustering_advertised_uri.to_s)
-      runner2.stop
+      runner2.shutdown { }
       runner2.close
       listen.receive.to_s.should start_with config1.clustering_advertised_uri.to_s
       sleep 0.1.seconds
-      runner1.stop
+      runner1.shutdown { }
       runner1.close
     else fail("no leader elected")
     end
   ensure
-    runner1.try &.stop rescue nil
+    runner1.try { |r| r.shutdown { } } rescue nil
     runner1.try &.close
-    runner2.try &.stop rescue nil
+    runner2.try { |r| r.shutdown { } } rescue nil
   end
 
   it "steps down if it wins the election while not in the ISR" do
@@ -356,7 +356,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     # runner2 falls out of the ISR (e.g. lagging replication) while its
     # candidacy stays queued; the leader then dies.
     etcd.put("lavinmq/isr", runner1.id.to_s(36))
-    runner1.stop
+    runner1.shutdown { }
     runner1.close
 
     # Winning the election out of the ISR means it lacks confirmed data:
@@ -369,7 +369,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     end
     served2.should be_false
   ensure
-    runner2.try &.stop rescue nil # closes the replication client, its lease is gone
+    runner2.try { |r| r.shutdown { } } rescue nil # closes the replication client, its lease is gone
     runner2.try &.close
     FileUtils.rm_rf "/tmp/isr-stepdown1"
     FileUtils.rm_rf "/tmp/isr-stepdown2"
@@ -391,7 +391,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         done.send ex.code
       end
       sleep 0.5.seconds # waiting to be in sync
-      runner.stop
+      runner.shutdown { }
       runner.close
       select
       when code = done.receive
@@ -421,7 +421,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         done.send ex.code
       end
       sleep 0.5.seconds # campaigning
-      runner.stop
+      runner.shutdown { }
       runner.close
       select
       when code = done.receive
@@ -462,7 +462,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         when served.receive
         when timeout(5.seconds)
         end
-        runner.stop
+        runner.shutdown { }
         runner.close
       end
     end
@@ -495,7 +495,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
           fail "runner was not elected leader"
         end
       ensure
-        runner.stop
+        runner.shutdown { }
         runner.close
       end
     end
@@ -529,7 +529,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
           fail "runner was not elected leader"
         end
       ensure
-        runner.stop
+        runner.shutdown { }
         runner.close
       end
     end
@@ -577,7 +577,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     it "exits once when it steps down for not being in the ISR" do
       with_leader_and_candidate("lease-isr") do |leader, candidate, etcd|
         etcd.put("lavinmq/isr", leader.id.to_s(36))
-        leader.stop
+        leader.shutdown { }
         exit_code(candidate, within: 5.seconds).should eq 3
         # Stepping down releases the lease, which the lease watcher mustn't
         # take for a lost lease
@@ -590,7 +590,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
 
     it "does not exit when a follower is stopped" do
       with_leader_and_candidate("lease-stop") do |_leader, candidate, _etcd|
-        candidate.stop
+        candidate.shutdown { }
         exit_code(candidate, within: 1.second).should be_nil
         candidate.leader_lost_hook_ran?.should be_false
       end
@@ -615,7 +615,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
           LavinMQ::Etcd.new("localhost:12379").lease_revoke(runner.id)
           exit_code(runner, within: 5.seconds).should eq 3
         ensure
-          runner.stop rescue nil
+          runner.shutdown { } rescue nil
           runner.close
         end
       end
@@ -631,7 +631,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       config.clustering_on_leader_elected = "touch #{hook_ran}"
       runner = LavinMQ::Clustering::EtcdRunner.new(config)
       # As a SIGTERM while it waits for the replication client to close
-      runner.stop
+      runner.shutdown { }
 
       started = Channel(Nil).new
       returned = Channel(Nil).new
@@ -748,7 +748,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         end
         etcd.lease_ttl(lease_id).should be > 10
       ensure
-        runner.stop
+        runner.shutdown { }
         runner.close
       end
     end
