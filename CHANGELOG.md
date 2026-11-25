@@ -5,20 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
-
-- Federation upstreams in the same broker: an upstream URI without host (`amqp:///vhost`) federates from another vhost in-process. The user configuring it must have unrestricted read and configure permissions on that vhost. The `consumer-tag` upstream setting is honoured [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
-
-### Changed
-
-- Shovels and federation links reach this broker in-process instead of over an AMQP connection to localhost: a URI without host (`amqp://`, `amqp:///vhost`) works directly against the vhost, so it no longer depends on the AMQP listener's port and opens no connection. The hidden `__direct` user is gone; the control socket uses a passwordless internal identity that can't log in, and `__direct` and `__internal` are reserved names. Federation with `ack-mode: on-confirm` now acks upstream only once the downstream publish is durable. The management UI's "Move messages" works for OAuth users too. Shovels acking a remote source flush a partial batch at most 3 s after its first ack, instead of after up to 6 s of no new acks. A shovel or federation URI with a host must include credentials, and can't use the default user while it's restricted to localhost [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
-
-### Fixed
-
-- A paused shovel resumed right after a broker restart could run twice and keep failing [#2352](https://github.com/cloudamqp/lavinmq/pull/2352)
-
 ## [2.12.0-rc.1] - 2026-11-24
 
 This release candidate is about memory. A broker with many idle queues and connections uses far less of it, and stops for shorter garbage collections.
