@@ -1316,15 +1316,13 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         relative = File.join(queue.@data_dir, "paused")[(s.data_dir.size + 1)..]
         follower_paused = File.join(cluster.follower_config.data_dir, relative)
 
-        # The followers have the change when the call returns, as a failover
-        # right after it must not lose it [#2847]
         queue.pause!
-        File.exists?(follower_paused).should be_true
+        wait_for { File.exists?(follower_paused) }
         queue.resume!
-        File.exists?(follower_paused).should be_false
+        wait_for { !File.exists?(follower_paused) }
 
         queue.pause!
-        File.exists?(follower_paused).should be_true
+        wait_for { File.exists?(follower_paused) }
         # A leader that starts with a paused queue has to offer the file in a full sync
         restart_server(s)
         cluster.replicator.with_file(relative) { |f, _size| f.should_not be_nil }
@@ -1391,13 +1389,46 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
         follower_paused = File.join(cluster.follower_config.data_dir, relative)
 
         shovel.pause
-        File.exists?(follower_paused).should be_true # replicated when it returns [#2847]
+        wait_for { File.exists?(follower_paused) }
         # A shovel that starts paused has to offer the file in a full sync
         LavinMQ::Shovel::Runner.new(source, dest, "paused-shovel", vhost).state.paused?.should be_true
         cluster.replicator.with_file(relative) { |f, _size| f.should_not be_nil }
 
         shovel.resume
-        File.exists?(follower_paused).should be_false
+        wait_for { !File.exists?(follower_paused) }
+        shovel.delete
+      end
+    end
+  end
+
+  # A failover right after the API call must not lose the change [#2847]
+  it "has the paused state on the followers when a pause or resume returns" do
+    with_clustering do |cluster|
+      with_http_server(replicator: cluster.replicator) do |http, s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        vhost = s.vhosts["/"]
+        follower_path = ->(path : String) { File.join(cluster.follower_config.data_dir, path[(s.data_dir.size + 1)..]) }
+        vhost.declare_queue("paused_q", true, false)
+        session_name = "#{LavinMQ::MQTT::SESSION_PREFIX}paused"
+        vhost.declare_queue(session_name, true, false, LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
+        queue = vhost.queue("paused_q").as(LavinMQ::AMQP::Queue)
+        session = vhost.session?(session_name).should_not be_nil
+        {"paused_q"   => follower_path.call(File.join(queue.@data_dir, "paused")),
+         session_name => follower_path.call(session.@paused_file)}.each do |name, paused|
+          http.put("/api/queues/%2f/#{name}/pause").status_code.should eq 204
+          File.exists?(paused).should be_true
+          http.put("/api/queues/%2f/#{name}/resume").status_code.should eq 204
+          File.exists?(paused).should be_false
+        end
+
+        config = {"src-uri": s.amqp_server.url, "src-queue": "q1", "dest-uri": s.amqp_server.url, "dest-queue": "q2"}
+        shovel = vhost.shovels.create("paused-shovel", JSON.parse(config.to_json))
+        paused = follower_path.call(shovel.@paused_file_path)
+        wait_for { shovel.running? }
+        http.put("/api/shovels/%2f/paused-shovel/pause").status_code.should eq 204
+        File.exists?(paused).should be_true
+        http.put("/api/shovels/%2f/paused-shovel/resume").status_code.should eq 204
+        File.exists?(paused).should be_false
         shovel.delete
       end
     end

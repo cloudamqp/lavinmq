@@ -272,7 +272,6 @@ module LavinMQ
           delete_paused_file
           @state = State::Starting
         end
-        wait_for_followers
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
         spawn(run, name: "Shovel name=#{@name} vhost=#{@vhost.name}")
       end
@@ -285,7 +284,6 @@ module LavinMQ
           Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
           halt(State::Paused)
         end
-        wait_for_followers
         Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
       end
 
@@ -311,12 +309,6 @@ module LavinMQ
         @stop_generation.add(1_u64, :release)
         @source.stop
         @destination.stop
-      end
-
-      # Before the API acknowledges a pause or resume, or a failover right
-      # after loses it. Outside @pause_lock, so a resume isn't held up by it.
-      private def wait_for_followers : Nil
-        @vhost.replicator.try &.wait_for_followers
       end
 
       private def delete_paused_file

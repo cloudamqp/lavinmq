@@ -44,6 +44,7 @@ module LavinMQ
                 next
               end
               current_shovel.pause
+              vhost.replicator.try &.wait_for_followers # the paused file, see QueueHelpers#wait_for_followers
               context.response.status_code = 204
             else
               context.response.status_code = 404
@@ -61,6 +62,7 @@ module LavinMQ
                 next
               end
               current_shovel.resume
+              vhost.replicator.try &.wait_for_followers # the paused file, see QueueHelpers#wait_for_followers
               context.response.status_code = 204
             else
               context.response.status_code = 404

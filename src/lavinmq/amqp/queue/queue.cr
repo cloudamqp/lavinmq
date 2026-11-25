@@ -855,13 +855,6 @@ module LavinMQ::AMQP
         @vhost.replicator.try &.replace_file(paused_file) if durable?
         set_paused
       end
-      wait_for_followers
-    end
-
-    # Before the API acknowledges a pause or resume, or a failover right after
-    # loses it. Outside @state_lock, which a store error takes to pause.
-    private def wait_for_followers : Nil
-      @vhost.replicator.try &.wait_for_followers if durable?
     end
 
     # Under @state_lock. Returns true if the queue was running.
@@ -919,11 +912,10 @@ module LavinMQ::AMQP
         if File.delete?(paused_file)
           @vhost.replicator.try &.delete_file(paused_file) if durable?
         end
-        state.failed? ? nil : @store_errors.get(:acquire)
-      end
-      wait_for_followers
-      if errors.nil?
-        raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read, it can't be resumed. #{unreadable_advice}")
+        if state.failed?
+          raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read, it can't be resumed. #{unreadable_advice}")
+        end
+        @store_errors.get(:acquire)
       end
       # The limits first, which a store error can have stopped: nothing is
       # delivered that they would drop
