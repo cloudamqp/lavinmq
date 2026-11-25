@@ -69,7 +69,7 @@ Sessions count towards the vhost's `max-queues` [limit](vhosts.md#vhost-limits),
 
 A session can be paused and resumed like a [queue](queues.md#queue-states), through `PUT /api/queues/:vhost/mqtt.<client_id>/pause` and `/resume`, the management UI and `lavinmqctl`. Both need `configure` permission on `mqtt.<client_id>`. A paused session delivers nothing, but its client stays connected and messages routed to it are still stored. The pause is kept when the broker restarts.
 
-A session whose message store fails is handled like a [queue's](queues.md#message-store-errors). After a temporary error it's paused, with the `paused_reason` `store_error`: fix the cause and resume it. If its message data can't be read, its state is `failed` and a resume is refused. Messages routed to a failed session are dropped, and their publishers still get a PUBACK. Delete the session to recover; its client then has to reconnect and subscribe again.
+A session whose message store fails is handled like a [queue's](queues.md#message-store-errors). After a temporary error it's paused, with the `paused_reason` `store_error`: fix the cause and resume it. If its message data can't be read, its state is `failed` and a resume is refused. Messages routed to a failed session are dropped, and their publishers still get a PUBACK. Delete the session to recover. A delete doesn't disconnect the session's client, which then gets nothing until it subscribes again, so also close its connection to make it reconnect and subscribe.
 
 ## Connection Limits
 
