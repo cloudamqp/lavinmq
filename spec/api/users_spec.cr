@@ -48,6 +48,28 @@ describe LavinMQ::HTTP::UsersController do
       end
     end
 
+    it "should persist deleted users to disk" do
+      with_http_server do |http, s|
+        s.users.create("alan1", "alan")
+        s.users.create("alan2", "alan")
+        body = %({"users": ["alan1", "alan2"]})
+        response = http.post("/api/users/bulk-delete", body: body)
+        response.status_code.should eq 204
+        reloaded = LavinMQ::Auth::UserStore.new(s.data_dir, nil)
+        reloaded["alan1"]?.should be_nil
+        reloaded["alan2"]?.should be_nil
+      end
+    end
+
+    it "should delete no users if a name is not a string" do
+      with_http_server do |http, s|
+        s.users.create("alan1", "alan")
+        response = http.post("/api/users/bulk-delete", body: %({"users": ["alan1", 1]}))
+        response.status_code.should eq 400
+        s.users["alan1"]?.should_not be_nil
+      end
+    end
+
     it "should handle request with empty body" do
       with_http_server do |http, _|
         response = http.post("/api/users/bulk-delete", body: "")
