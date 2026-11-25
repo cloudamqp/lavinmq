@@ -23,11 +23,9 @@ Settings of type Bool accept `1`, `true`, `yes`, `on` or `y` for true and `0`, `
 
 ## Reloading
 
-Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had. The configuration is rebuilt the same way as at startup: a setting removed from the file goes back to its default, and command line arguments and environment variables take precedence over the file.
+Send `SIGHUP` (or `systemctl reload lavinmq`) to re-read the configuration file without restarting. The reload is atomic: if the new file is missing, unreadable, or invalid, LavinMQ logs a warning and keeps running with the configuration it already had. The configuration is rebuilt the same way as at startup: a setting removed from the file goes back to its default, and command line arguments and environment variables take precedence over the file. A removed `[sni:...]` section removes that SNI host. A removed `[oauth] issuer` keeps its current value for verifying tokens, and a warning is logged. Management UI SSO login is turned off until it's set again.
 
-Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart.
-
-A reload reads the file on top of the running configuration, so a setting removed from the file keeps its current value instead of going back to its default. To change a setting with a reload, set the new value explicitly. `[sni:...]` sections are the exception: a removed SNI host is removed on reload.
+Not every setting takes effect on reload. The log level, TLS certificates, `auth_backends`, and the `[oauth]` settings (see [OAuth2 / OIDC Authentication](authentication.md#oauth2--oidc-authentication)) are applied to the running broker (see [Reloading certificates](tls.md#reloading-certificates) for the TLS details and limits). Settings that are only read at startup - ports, bind addresses, the data directory, and similar - require a full restart. Keep them unchanged in the file until then: a follower that is promoted to leader after a reload binds the ports and bind addresses in the reloaded file, not the ones it started with.
 
 ## [main] Section
 
