@@ -73,9 +73,17 @@ module ShovelTest
 
     # -------- users --------
 
+    def user_exists?(name : String) : Bool
+      request("GET", "/api/users/#{URI.encode_path_segment(name)}")[0] == 200
+    end
+
+    # Also resets the password and tags of an existing user
     def create_user(name : String, password : String) : Nil
+      request!("PUT", "/api/users/#{URI.encode_path_segment(name)}", {password: password, tags: ""}.to_json)
+    end
+
+    def grant_vhost(name : String) : Nil
       user = URI.encode_path_segment(name)
-      request!("PUT", "/api/users/#{user}", {password: password, tags: ""}.to_json)
       request!("PUT", "/api/permissions/#{@vhost}/#{user}", {configure: ".*", write: ".*", read: ".*"}.to_json)
     end
 

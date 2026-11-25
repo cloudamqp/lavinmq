@@ -86,12 +86,18 @@ module ShovelTest
     end
 
     # Returns true when the shovels' user was created here (and so is ours to
-    # delete). A given user gets permissions on the vhost either way.
+    # delete). A given user is left as it is, with its password and tags, and
+    # only gets permissions on the vhost.
     private def prepare_shovel_user : Bool
-      @api.create_user(@cfg.shovel_user, @cfg.shovel_password)
-      return false if @cfg.shovel_user_given?
-      log "created user #{@cfg.shovel_user}"
-      true
+      created = !@cfg.shovel_user_given?
+      if created
+        @api.create_user(@cfg.shovel_user, @cfg.shovel_password)
+      elsif !@api.user_exists?(@cfg.shovel_user)
+        raise "user #{@cfg.shovel_user} doesn't exist; create it, or leave --shovel-user out to have one created"
+      end
+      @api.grant_vhost(@cfg.shovel_user)
+      log "created user #{@cfg.shovel_user}" if created
+      created
     end
 
     private def teardown_shovel_user : Nil
