@@ -83,14 +83,19 @@ module ShovelTest
 
     # The URI this process connects to the server with
     def amqp_url : String
-      "amqp://#{@user}:#{@password}@#{@host}:#{@amqp_port}/#{URI.encode_path_segment(@vhost)}"
+      amqp_url_as(@user, @password)
     end
 
     # The URI the shovel (inside the broker) uses for its AMQP Source and
     # Destination — the same server, seen from the outside as we see it,
     # with the shovels' own user.
     def shovel_amqp_url : String
-      "amqp://#{@shovel_user}:#{@shovel_password}@#{@host}:#{@amqp_port}/#{URI.encode_path_segment(@vhost)}"
+      amqp_url_as(@shovel_user, @shovel_password)
+    end
+
+    private def amqp_url_as(user : String, password : String) : String
+      userinfo = "#{URI.encode_www_form(user)}:#{URI.encode_www_form(password)}"
+      "amqp://#{userinfo}@#{@host}:#{@amqp_port}/#{URI.encode_path_segment(@vhost)}"
     end
 
     def http_base : String
