@@ -18,7 +18,11 @@ module LavinMQ
       when nil
         vhosts_path = File.join(data_dir, "vhosts.json")
         if File.exists?(vhosts_path)
-          raise UnsupportedSchemaVersion.new(path) if pre_v4?(data_dir, vhosts_path)
+          case pre_v4_queues(data_dir, vhosts_path)
+          in .all?  then raise UnsupportedSchemaVersion.new(path)
+          in .some? then raise UnsupportedSchemaVersion.new(path, migration_interrupted: true)
+          in .none?
+          end
           Log.warn { "#{path} was missing or empty in a data directory with the current layout, writing it again" }
         end
         # Written durably: a confirm doesn't sync the whole data dir, so
@@ -39,19 +43,31 @@ module LavinMQ
       nil
     end
 
+    private enum PreV4Queues
+      None
+      Some
+      All
+    end
+
     # Before schema version 4 every queue directory had an enq and an ack
-    # index, and the messages were in the vhost directory
-    private def self.pre_v4?(data_dir, vhosts_path) : Bool
+    # index, and the messages were in the vhost directory. The 2.11
+    # migration moves the messages of one queue at a time into its directory.
+    private def self.pre_v4_queues(data_dir, vhosts_path) : PreV4Queues
+      pre_v4 = migrated = false
       File.open(vhosts_path) do |f|
         JSON.parse(f).as_a.each do |vhost|
           vhost_dir = File.join(data_dir, vhost["dir"].as_s)
           next unless Dir.exists?(vhost_dir)
           Dir.each_child(vhost_dir) do |queue|
-            return true if File.exists?(File.join(vhost_dir, queue, "enq"))
+            queue_dir = File.join(vhost_dir, queue)
+            next unless File.directory?(queue_dir)
+            pre_v4 ||= File.exists?(File.join(queue_dir, "enq"))
+            migrated ||= Dir.children(queue_dir).any?(&.starts_with?("msgs."))
           end
         end
       end
-      false
+      return PreV4Queues::None unless pre_v4
+      migrated ? PreV4Queues::Some : PreV4Queues::All
     end
   end
 
@@ -115,9 +131,15 @@ module LavinMQ
       super "Invalid schema version #{content.inspect} in #{path}"
     end
 
-    def initialize(path)
-      super "Missing #{path}, and the data directory has the message indexes of LavinMQ < 1.0. " \
-            "Upgrade it with LavinMQ 2.11 before upgrading to this version."
+    def initialize(path, *, migration_interrupted = false)
+      if migration_interrupted
+        super "Missing #{path}, and a migration by LavinMQ 2.11 was interrupted: some queues have the " \
+              "message indexes of LavinMQ < 1.0, others are migrated. Restore the data directory from the " \
+              "backup the migration saved in backups/, and upgrade it with LavinMQ 2.11 again."
+      else
+        super "Missing #{path}, and the data directory has the message indexes of LavinMQ < 1.0. " \
+              "Upgrade it with LavinMQ 2.11 before upgrading to this version."
+      end
     end
   end
 end

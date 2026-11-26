@@ -87,6 +87,22 @@ describe LavinMQ::SchemaVersion do
       end
     end
 
+    it "refuses a data directory that a LavinMQ 2.11 migration left half done" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "vhosts.json"), %([{"name":"/","dir":"vhost"}]))
+        migrated = File.join(data_dir, "vhost", "migrated")
+        not_migrated = File.join(data_dir, "vhost", "not-migrated")
+        Dir.mkdir_p(migrated)
+        Dir.mkdir_p(not_migrated)
+        File.write(File.join(migrated, "msgs.0000000001"), "")
+        File.write(File.join(not_migrated, "enq"), "")
+        expect_raises(LavinMQ::UnsupportedSchemaVersion, /interrupted.*backups/) do
+          LavinMQ::Schema.verify(data_dir, nil)
+        end
+        File.exists?(File.join(data_dir, "schema_version")).should be_false
+      end
+    end
+
     it "restores a lost schema_version in a data directory with the current layout" do
       with_datadir do |data_dir|
         File.write(File.join(data_dir, "vhosts.json"), %([{"name":"/","dir":"vhost"}]))
