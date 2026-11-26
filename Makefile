@@ -179,7 +179,7 @@ rpm:
 .PHONY: clean
 clean:
 	$(RM) $(BINS) $(DOCS) $(MANPAGES) $(VIEW_TARGETS) ext/libgc.a
-	$(RM) -r packaging/libgc/bdwgc
+	$(MAKE) -C packaging/libgc clean
 
 .PHONY: watch
 watch:
