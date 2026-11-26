@@ -57,7 +57,7 @@ module MqttSpecs
           pub = read_publish(sub)
           pub.topic.should eq "a/b"
           puback(sub, pub.packet_id)
-          server.vhosts["/"].session("mqtt.sub").closed?.should be_false
+          server.vhosts["/"].mqtt.session("mqtt.sub").closed?.should be_false
         end
       end
     end
@@ -135,7 +135,7 @@ module MqttSpecs
             publish(pub, topic: "t", payload: payload, qos: 0u8)
             disconnect(pub)
           end
-          session = server.vhosts["/"].session("mqtt.slow")
+          session = server.vhosts["/"].mqtt.session("mqtt.slow")
           # Published asynchronously, wait for it to be stored in its own segment
           wait_for { session.@msg_store.@segments.last_value.size > payload.size }
           segment = session.@msg_store.@segments.last_value
@@ -171,7 +171,7 @@ module MqttSpecs
           received.should eq payload
           # Still connected, and the message was acked
           pingpong(sub)
-          server.vhosts["/"].session("mqtt.fast").@unacked.should be_empty
+          server.vhosts["/"].mqtt.session("mqtt.fast").@unacked.should be_empty
           disconnect(sub)
         end
       end
@@ -190,7 +190,7 @@ module MqttSpecs
             publish(pub, topic: "t", payload: payload, qos: 1u8)
             disconnect(pub)
           end
-          s = server.vhosts["/"].session("mqtt.acked")
+          s = server.vhosts["/"].mqtt.session("mqtt.acked")
           session = s
           packet_id, _ = read_publish_up_to_packet_id(sub.io)
           puback(sub, packet_id)
@@ -209,7 +209,7 @@ module MqttSpecs
         with_client_io(server) do |sub|
           connect(sub, client_id: "unbuildable", clean_session: false)
           subscribe(sub, topic_filters: mk_topic_filters({"a/#", 1u8}))
-          session = server.vhosts["/"].session("mqtt.unbuildable")
+          session = server.vhosts["/"].mqtt.session("mqtt.unbuildable")
           # A wildcard topic makes Protocol::Publish.new raise
           props = AMQ::Protocol::Properties.new(delivery_mode: 1u8)
           session.publish(LavinMQ::Message.new("mqtt.default", "a/+", "body", props))
@@ -227,7 +227,7 @@ module MqttSpecs
           with_client_io(server) do |closing_io|
             connect(closing_io, client_id: "closing")
             subscribe(closing_io, topic_filters: mk_topic_filters({"a/b", 1u8}))
-            closing = server.vhosts["/"].session("mqtt.closing")
+            closing = server.vhosts["/"].mqtt.session("mqtt.closing")
             lock = closing.@msg_store_lock
             with_client_io(server) do |pub|
               connect(pub, client_id: "pub")
@@ -263,7 +263,7 @@ module MqttSpecs
             20_000.times { publish(pub, topic: "t", payload: payload, qos: 0u8) }
             disconnect(pub)
           end
-          session = server.vhosts["/"].session("mqtt.stuck")
+          session = server.vhosts["/"].mqtt.session("mqtt.stuck")
           wait_for { session.message_count > 0 }
           sleep 1.5.seconds # the first write has timed out, the client is closing
           sub.io.as(TCPSocket).read_timeout = 10.seconds

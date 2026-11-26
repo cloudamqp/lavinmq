@@ -620,7 +620,7 @@ module MqttSpecs
           connect(io, client_id: "sub")
           subscribe(io, topic_filters: [subtopic("a/+/c", 0u8)])
 
-          mqtt_default = vhost.mqtt_exchange
+          mqtt_default = vhost.mqtt.exchange
           mqtt_default.binding_count.should eq 1
           details = mqtt_default.bindings_details
           details.size.should eq 1

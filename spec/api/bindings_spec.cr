@@ -282,22 +282,22 @@ describe LavinMQ::HTTP::BindingsController do
         response = http.post("/api/bindings/%2f/e/#{x}/q/mqtt.sub",
           body: %({"routing_key": "b/#", "arguments": {"mqtt.qos": 0}}))
         response.status_code.should eq 201
-        session = s.vhosts["/"].session("mqtt.sub")
-        subscriptions = s.vhosts["/"].session_subscriptions(session)
+        session = s.vhosts["/"].mqtt.session("mqtt.sub")
+        subscriptions = s.vhosts["/"].mqtt.subscriptions(session)
         subscriptions.map { |b| {b.routing_key, b.binding_key.qos} }.sort!.should eq [{"a", 1u8}, {"b/#", 0u8}]
 
         props = URI.encode_path_segment(subscriptions.find!(&.routing_key.== "b/#").binding_key.properties_key)
         http.get("/api/bindings/%2f/e/#{x}/q/mqtt.sub/#{props}").status_code.should eq 200
         http.delete("/api/bindings/%2f/e/#{x}/q/mqtt.sub/#{props}").status_code.should eq 204
-        s.vhosts["/"].session_subscriptions(session).map(&.routing_key).should eq ["a"]
+        s.vhosts["/"].mqtt.subscriptions(session).map(&.routing_key).should eq ["a"]
       end
     end
 
     it "needs read on it and write on the session to change subscriptions" do
       with_http_server do |http, s|
         declare_mqtt_subscription(s, "mqtt.sub", "a", 1u8)
-        session = s.vhosts["/"].session("mqtt.sub")
-        props = URI.encode_path_segment(s.vhosts["/"].session_subscriptions(session).first.binding_key.properties_key)
+        session = s.vhosts["/"].mqtt.session("mqtt.sub")
+        props = URI.encode_path_segment(s.vhosts["/"].mqtt.subscriptions(session).first.binding_key.properties_key)
         x = LavinMQ::MQTT::EXCHANGE
         {
           "noread"  => {/^$/, /.*/, "User doesn't have read permissions to exchange '#{x}'"},
@@ -314,7 +314,7 @@ describe LavinMQ::HTTP::BindingsController do
             JSON.parse(response.body)["reason"].should eq reason
           end
         end
-        s.vhosts["/"].session_subscriptions(session).map(&.routing_key).should eq ["a"]
+        s.vhosts["/"].mqtt.subscriptions(session).map(&.routing_key).should eq ["a"]
       end
     end
 
