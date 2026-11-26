@@ -372,8 +372,8 @@ module LavinMQ
         @subscriptions.each { |filter, qos| yield filter, qos }
       end
 
-      # Called by the MQTT exchange for every binding, whether from a
-      # SUBSCRIBE, the HTTP API, a definitions import or a restore at startup
+      # Called by the MQTT exchange for every subscription, whether from a
+      # SUBSCRIBE, a definitions import or a restore at startup
       protected def subscription_bound(filter : String, qos : UInt8) : Nil
         @subscriptions[filter] = qos
       end
@@ -413,7 +413,7 @@ module LavinMQ
       end
 
       def bindings
-        @vhost.queue_bindings(self)
+        @vhost.session_subscriptions(self)
       end
 
       private def unbind(rk, arguments)

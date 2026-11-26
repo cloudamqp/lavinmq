@@ -505,4 +505,55 @@ describe LavinMQ::HTTP::ExchangesController do
       end
     end
   end
+
+  describe "the mqtt exchange" do
+    it "is listed first" do
+      with_http_server do |http, _|
+        {http.get("/api/exchanges"), http.get("/api/exchanges/%2f")}.each do |response|
+          response.status_code.should eq 200
+          first = JSON.parse(response.body).as_a.first
+          first["name"].should eq LavinMQ::MQTT::EXCHANGE
+          first["type"].should eq "mqtt"
+        end
+        response = http.get("/api/exchanges/%2f?page=1&name=mqtt")
+        JSON.parse(response.body)["items"].as_a.map(&.["name"]).should eq [LavinMQ::MQTT::EXCHANGE]
+      end
+    end
+
+    it "is shown with the policies that match it" do
+      with_http_server do |http, s|
+        v = s.vhosts["/"]
+        v.add_policy("all", ".*", "all", {"max-length" => JSON::Any.new(10)}, 0_i8)
+        v.add_policy("mqtt", "^mqtt\\.", "exchanges", {"alternate-exchange" => JSON::Any.new("ae")}, 2_i8)
+        v.add_policy("queues", ".*", "queues", {"max-length" => JSON::Any.new(20)}, 5_i8)
+        v.add_operator_policy("op", "^mqtt", "all", {"max-length" => JSON::Any.new(5)}, 1_i8)
+        response = http.get("/api/exchanges/%2f/#{LavinMQ::MQTT::EXCHANGE}")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["name"].should eq LavinMQ::MQTT::EXCHANGE
+        body["type"].should eq "mqtt"
+        body["internal"].should be_true
+        body["policy"].should eq "mqtt"
+        body["operator_policy"].should eq "op"
+        body["effective_policy_definition"].should eq JSON.parse(%({"alternate-exchange": "ae", "max-length": 5}))
+      end
+    end
+
+    it "can only be redeclared with its own properties" do
+      with_http_server do |http, s|
+        x = LavinMQ::MQTT::EXCHANGE
+        http.put("/api/exchanges/%2f/#{x}", body: %({"type": "topic"})).status_code.should eq 400
+        http.put("/api/exchanges/%2f/#{x}", body: %({"type": "mqtt", "internal": true})).status_code.should eq 204
+        s.vhosts["/"].exchange?(x).should be_nil
+      end
+    end
+
+    it "can't be deleted or published to" do
+      with_http_server do |http, _|
+        x = LavinMQ::MQTT::EXCHANGE
+        http.delete("/api/exchanges/%2f/#{x}").status_code.should eq 403
+        http.post("/api/exchanges/%2f/#{x}/publish", body: "{}").status_code.should eq 400
+      end
+    end
+  end
 end

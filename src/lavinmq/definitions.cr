@@ -388,7 +388,7 @@ module LavinMQ
         vhosts.each_value do |v|
           # Internal exchanges with user names (x-mqtt-topic, x-federation-upstream)
           # are exported: their bindings are exported either way, so skipping the
-          # exchange breaks the import. Reserved-prefix ones (mqtt.default) stay out.
+          # exchange breaks the import. Reserved-prefix ones stay out.
           v.exchanges.reject { |e| e.internal? && NameValidator.reserved_prefix?(e.name) }.each do |e|
             delayed = e.arguments["x-delayed-exchange"]?.try &.as?(Bool)
             if delayed
@@ -417,6 +417,12 @@ module LavinMQ
             e.bindings_details.each do |b|
               b.to_json(json)
             end
+          end
+          # The MQTT exchange is not in `each_exchange`, and only the sessions
+          # `export_queues` emits can be re-imported.
+          v.mqtt_exchange.bindings_details.each do |b|
+            next unless b.destination.durable?
+            b.to_json(json)
           end
         end
       end

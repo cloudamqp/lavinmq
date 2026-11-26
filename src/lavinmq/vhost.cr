@@ -17,7 +17,7 @@ require "./schema"
 require "./event_type"
 require "./stats"
 require "./queue_factory"
-require "./mqtt/session"
+require "./mqtt/definitions_store"
 require "./mqtt/broker"
 require "./mqtt/subscription_tree"
 require "./mqtt/subscriber"
@@ -52,6 +52,7 @@ module LavinMQ
         unacked += q.unacked_count
       end
       each_exchange(&.update_rates(interval))
+      mqtt_exchange.update_rates(interval)
       each_session do |s|
         s.update_rates(interval)
         ready += s.message_count
@@ -94,6 +95,7 @@ module LavinMQ
     @policy_generation = 0_u64
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
+    @mqtt_definitions : MQTT::DefinitionsStore?
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @mqtt_broker : MQTT::Broker?
@@ -146,7 +148,7 @@ module LavinMQ
     end
 
     def mqtt_exchange : MQTT::Exchange
-      definitions.mqtt_exchange
+      mqtt_definitions.exchange
     end
 
     # Queue accessors
@@ -198,31 +200,37 @@ module LavinMQ
     # Session accessors
 
     def session?(name : String) : MQTT::Session?
-      definitions.session?(name)
+      mqtt_definitions.session?(name)
     end
 
     def session(name : String) : MQTT::Session
-      definitions.session(name)
+      mqtt_definitions.session(name)
     end
 
     def session_exists?(name : String) : Bool
-      definitions.session_exists?(name)
+      mqtt_definitions.session_exists?(name)
     end
 
     def each_session(& : MQTT::Session ->) : Nil
-      definitions.each_session { |v| yield v }
+      mqtt_definitions.each_session { |v| yield v }
     end
 
     def sessions : Array(MQTT::Session)
-      definitions.sessions
+      mqtt_definitions.sessions
     end
 
     def sessions_size : Int32
-      definitions.sessions_size
+      mqtt_definitions.sessions_size
     end
 
     def sessions_clear : Nil
-      definitions.sessions_clear
+      mqtt_definitions.sessions_clear
+    end
+
+    # The subscriptions of an MQTT session, in binding-details shape. The MQTT
+    # counterpart of `queue_bindings`.
+    def session_subscriptions(session : MQTT::Session) : Array(MQTT::SubscriptionDetails)
+      mqtt_definitions.subscriptions(session)
     end
 
     # Connection accessors
@@ -287,7 +295,8 @@ module LavinMQ
       @mqtt_permission_service = MQTT::PermissionService.new(@name, @data_dir, @replicator, mqtt_default_group)
       @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
-      @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log)
+      @mqtt_definitions = mqtt = MQTT::DefinitionsStore.new(self)
+      @definitions = DefinitionsStore.new(self, @data_dir, @replicator, @log, mqtt)
       load!
       @mqtt_broker = MQTT::Broker.new(self)
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
@@ -329,7 +338,7 @@ module LavinMQ
     end
 
     def queue_limit_reached? : Bool
-      @max_queues.try { |max| definitions.queues_size + definitions.sessions_size >= max } || false
+      @max_queues.try { |max| definitions.queues_size + mqtt_definitions.sessions_size >= max } || false
     end
 
     private def load_limits
@@ -477,7 +486,7 @@ module LavinMQ
       definitions.fsync
     end
 
-    def queue_bindings(queue : Queue)
+    def queue_bindings(queue : AMQP::Queue)
       definitions.queue_bindings(queue)
     end
 
@@ -617,9 +626,7 @@ module LavinMQ
     # take other locks, e.g. a federation-upstream policy reconciles its link.
     def apply_policies(resources : Array(Queue | Exchange)? = nil)
       policies, operator_policies, generation = @policy_snapshot_lock.synchronize do
-        {@policies.values.sort_by!(&.priority).reverse,
-         @operator_policies.values.sort_by!(&.priority).reverse,
-         @policy_generation += 1}
+        {*sorted_policies, @policy_generation += 1}
       end
       if r = resources
         r.each do |resource|
@@ -636,6 +643,19 @@ module LavinMQ
       end
     rescue ex : TypeCastError
       @log.error { "Invalid policy. #{ex.message}" }
+    end
+
+    # The policies `apply_policies` would apply to an exchange named *name*
+    def exchange_policies(name : String) : Tuple(Policy?, OperatorPolicy?)
+      policies, operator_policies = @policy_snapshot_lock.synchronize { sorted_policies }
+      {policies.find(&.match_exchange?(name)), operator_policies.find(&.match_exchange?(name))}
+    end
+
+    # Highest priority first, the order policies are matched in.
+    # Call with @policy_snapshot_lock held.
+    private def sorted_policies : Tuple(Array(Policy), Array(OperatorPolicy))
+      {@policies.values.sort_by!(&.priority).reverse,
+       @operator_policies.values.sort_by!(&.priority).reverse}
     end
 
     private def apply_parameters(parameter : Parameter? = nil)
@@ -743,6 +763,10 @@ module LavinMQ
 
     private def definitions : DefinitionsStore
       @definitions.not_nil!("definitions not initialized")
+    end
+
+    private def mqtt_definitions : MQTT::DefinitionsStore
+      @mqtt_definitions.not_nil!("mqtt_definitions not initialized")
     end
   end
 end

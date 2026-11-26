@@ -82,7 +82,7 @@ describe "Websocket support" do
         end
         code.should eq HTTP::WebSocket::CloseCode::NormalClosure
         wait_for { s.vhosts["/"].connections.none?(LavinMQ::MQTT::Client) }
-        s.vhosts["/"].exchange("mqtt.default").publish_in_count.should eq 0
+        s.vhosts["/"].mqtt_exchange.publish_in_count.should eq 0
       end
     end
   end

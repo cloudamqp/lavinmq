@@ -183,6 +183,17 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should count the MQTT exchange and its subscriptions in object_totals" do
+      with_http_server do |http, s|
+        v = s.vhosts["/"]
+        v.declare_queue("mqtt.sub", true, false, LavinMQ::AMQP::Table.new({"x-queue-type" => "mqtt"}))
+        v.bind_queue("mqtt.sub", LavinMQ::MQTT::EXCHANGE, "a/b", LavinMQ::MQTT.qos_arguments(1u8))
+        totals = JSON.parse(http.get("/api/overview").body)["object_totals"]
+        totals["exchanges"].should eq v.exchanges_size + 1
+        totals["bindings"].should eq 1
+      end
+    end
+
     it "should return the number of acked and delivered messages" do
       with_http_server do |http, s|
         response = http.get("/api/overview")
