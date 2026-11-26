@@ -10,10 +10,20 @@ module LavinMQ::HTTP::Router
   alias Params = Hash(String, String)
 
   struct Route
-    getter method, action, pattern
+    getter method, action, pattern, rank
+    @rank : Array(Int32)
 
     def initialize(@method : String, @path : String, @action : Action)
-      path = @path.split("/").map do |part|
+      parts = @path.split("/")
+      # Per segment, lower is more specific: literal, then :param, then *rest
+      @rank = parts.map do |part|
+        case part[0]?
+        when ':' then 1
+        when '*' then 2
+        else          0
+        end
+      end
+      path = parts.map do |part|
         case part[0]?
         when ':' then "(?<#{Regex.escape(part[1..])}>[^/]*)"
         when '*' then "(?<#{Regex.escape(part[1..])}>.*)"
@@ -28,9 +38,16 @@ module LavinMQ::HTTP::Router
 
   {% for method in %w[delete get head options patch post put] %}
     def {{ method.id }}(path : String, &block : Action)
-      @_routes << Route.new({{ method.upcase }}, path, block)
+      add_route Route.new({{ method.upcase }}, path, block)
     end
   {% end %}
+
+  # find_route takes the first match, so keep the most specific routes first.
+  # Equal ranks keep registration order.
+  private def add_route(route : Route) : Nil
+    index = @_routes.bsearch_index { |r| r.rank > route.rank } || @_routes.size
+    @_routes.insert(index, route)
+  end
 
   # %XX of an unreserved char is equivalent to the char (RFC 3986 6.2.2.2), so decode those
   # to let literal segments match. The rest stays encoded: %2F must not become a separator,
