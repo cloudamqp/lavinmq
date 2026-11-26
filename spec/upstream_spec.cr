@@ -26,6 +26,27 @@ module UpstreamSpecHelpers
     {upstream, upstream_vhost, downstream_vhost}
   end
 
+  class StopDuringPrefetchUpstream < LavinMQ::Federation::Upstream
+    @stop_sent = false
+
+    def prefetch
+      unless @stop_sent
+        @stop_sent = true
+        links.each { |link| spawn link.stop }
+      end
+      super
+    end
+  end
+
+  def self.stop_during_prefetch_upstream(s, **args) : {StopDuringPrefetchUpstream, LavinMQ::VHost}
+    cleanup_vhosts(s)
+    s.vhosts.create("upstream")
+    downstream_vhost = s.vhosts.create("downstream")
+    upstream = StopDuringPrefetchUpstream.new(downstream_vhost, "stop during prefetch",
+      "#{s.amqp_server.url}/upstream", **args, reconnect_delay: 1.millisecond)
+    {upstream, downstream_vhost}
+  end
+
   # A TCP proxy to the AMQP server that holds accepted connections until the
   # gate is closed, to park a link in its upstream connect. `accepted` gets
   # a value for each accepted connection
@@ -790,6 +811,15 @@ describe LavinMQ::Federation::Upstream do
   end
 
   describe "QueueLink" do
+    it "stays stopped when it's stopped while it sets its prefetch" do
+      with_amqp_server do |s|
+        upstream, downstream_vhost = UpstreamSpecHelpers.stop_during_prefetch_upstream(s, queue: "uq")
+        downstream_vhost.declare_queue("dq", false, false)
+        link = upstream.link(downstream_vhost.queue("dq"))
+        wait_for { link.state.terminated? }
+      end
+    end
+
     it "terminates when it's stopped while it waits for a consumer" do
       with_amqp_server do |s|
         upstream, _, downstream_vhost = UpstreamSpecHelpers.setup_federation(s, "stop while idle", nil, "uq")
@@ -799,6 +829,17 @@ describe LavinMQ::Federation::Upstream do
         link.stop
         # It consumed from the closed connection, which never returned
         wait_for { link.state.terminated? }
+      end
+    end
+
+    it "stays terminated when it's stopped again" do
+      with_amqp_server do |s|
+        upstream, downstream_vhost = UpstreamSpecHelpers.stop_during_prefetch_upstream(s, queue: "uq")
+        downstream_vhost.declare_queue("dq", false, false)
+        link = upstream.link(downstream_vhost.queue("dq"))
+        wait_for { link.state.terminated? }
+        link.stop
+        link.state.terminated?.should be_true
       end
     end
 
@@ -884,6 +925,15 @@ describe LavinMQ::Federation::Upstream do
   end
 
   describe "ExchangeLink" do
+    it "stays stopped when it's stopped while it sets its prefetch" do
+      with_amqp_server do |s|
+        upstream, downstream_vhost = UpstreamSpecHelpers.stop_during_prefetch_upstream(s, exchange: "upstream_ex")
+        downstream_vhost.declare_exchange("downstream_ex", "topic", false, false)
+        link = upstream.link(downstream_vhost.exchange("downstream_ex"))
+        wait_for { link.state.terminated? }
+      end
+    end
+
     it "should reflect all bindings to upstream exchange" do
       with_amqp_server do |s|
         upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_federation(s, "ef test bindings", "upstream_ex")
