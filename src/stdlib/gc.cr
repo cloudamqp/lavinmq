@@ -12,3 +12,14 @@
     fun get_grow_mark_stack = GC_get_grow_mark_stack : Int
   end
 {% end %}
+
+module GC
+  # Drops the object's finalizer. Dead finalizable objects make Boehm force
+  # collections, so an object that has released its resources should drop it.
+  def self.remove_finalizer(object : Reference) : Nil
+    {% unless flag?(:gc_none) || flag?(:interpreted) %}
+      LibGC.register_finalizer_ignore_self(object.as(Void*),
+        LibGC::Finalizer.new(Pointer(Void).null, Pointer(Void).null), nil, nil, nil)
+    {% end %}
+  end
+end

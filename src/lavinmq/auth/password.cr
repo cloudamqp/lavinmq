@@ -1,4 +1,5 @@
 require "openssl"
+require "../../stdlib/openssl_digest_free"
 require "crypto/bcrypt/password"
 
 module LavinMQ
@@ -34,10 +35,7 @@ module LavinMQ
 
         def self.create(password : String) : self
           salt = Random::Secure.random_bytes(SALT_SIZE)
-          dgst = OpenSSL::Digest.new(openssl_hash_algorithm)
-          dgst.update salt
-          dgst.update password
-          new(salt, dgst.final)
+          new(salt, OpenSSL::Digest.digest(openssl_hash_algorithm, &.update(salt).update(password)))
         end
 
         def initialize(@salt : Bytes, @hash : Bytes)
@@ -76,10 +74,8 @@ module LavinMQ
         end
 
         def verify(password) : Bool
-          dgst = OpenSSL::Digest.new(openssl_hash_algorithm)
-          dgst.update @salt
-          dgst.update password
-          Crypto::Subtle.constant_time_compare(@hash, dgst.final)
+          hash = OpenSSL::Digest.digest(openssl_hash_algorithm, &.update(@salt).update(password))
+          Crypto::Subtle.constant_time_compare(@hash, hash)
         end
 
         def to_s(io)
