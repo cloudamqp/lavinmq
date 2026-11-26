@@ -719,13 +719,14 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
-    it "logs one error, not one per ack, while the acks keep failing" do
+    it "logs one error, not one per ack, also while paused by an operator" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue("ack-open-log", durable: true)
           queue = s.vhosts["/"].queue("ack-open-log").as(LavinMQ::AMQP::DurableQueue)
           3.times { |i| q.publish_confirm "m#{i}" }
           msgs = Array.new(3) { q.get(no_ack: false).should_not be_nil }
+          queue.pause!
           Dir.mkdir(File.join(queue.@data_dir, "acks.0000000001"))
           Log.capture("lmq.queue", :error) do |logs|
             msgs.each &.ack

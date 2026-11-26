@@ -65,7 +65,10 @@ module LavinMQ
       # every publish to the session takes, as the paused file is written
       # and replicated under it.
       @state_lock = Mutex.new
+      # A store error is logged at ERROR once: a failure for good, a temporary
+      # error until #resume! tries the store again
       @failure_logged = false
+      @store_error_logged = false
       # Counts the store errors that paused the session, see #resume!
       @store_errors = Atomic(UInt32).new(0)
       @has_capacity = BoolChannel.new(true)
@@ -98,6 +101,7 @@ module LavinMQ
         @msg_store = SessionMessageStore.new(data_dir, @replicator, durable?, metadata: @metadata, persister: @vhost.persister)
         if @msg_store.failed?
           @log.error { "Failed, message data can't be loaded. #{unreadable_advice}" }
+          @failure_logged = true
           @paused.set(true)
         end
         @metadata_file = File.join(data_dir, ".metadata")
@@ -229,15 +233,19 @@ module LavinMQ
       private def pause_on_store_error(ex : MessageStore::Error) : Nil
         @store_errors.add(1, :release)
         failed = @msg_store.failed?
-        changed = @state_lock.synchronize do
+        log_error = @state_lock.synchronize do
           next false if closed?
-          was_paused = @paused.value
           @paused.set(true)
-          newly_failed = failed && !@failure_logged
-          @failure_logged = true if failed
-          !was_paused || newly_failed
+          if failed
+            next false if @failure_logged
+            @failure_logged = true
+          else
+            next false if @store_error_logged
+            @store_error_logged = true
+          end
+          true
         end
-        if changed
+        if log_error
           @log.error(exception: ex) do
             if failed
               "Failed, message data can't be read. #{unreadable_advice}"
@@ -631,6 +639,7 @@ module LavinMQ
           if @msg_store.failed?
             raise LavinMQ::Error::PreconditionFailed.new("Message data in session '#{@name}' can't be read, it can't be resumed. #{unreadable_advice}")
           end
+          @store_error_logged = false
           true
         end
         return unless resume

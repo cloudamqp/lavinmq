@@ -435,7 +435,7 @@ module MqttSpecs
       end
     end
 
-    it "logs one error, not one per ack, while the acks keep failing" do
+    it "logs one error, not one per ack, also while paused by an operator" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "resumer")
@@ -443,6 +443,7 @@ module MqttSpecs
           session = server.vhosts["/"].session("mqtt.resumer")
           publish_from(server, "a/b", ["1", "2", "3"])
           pubs = Array.new(3) { read_publish(io) }
+          session.pause!
           Dir.mkdir(File.join(session.@msg_store.@msg_dir, "acks.0000000001"))
           Log.capture("lmq.mqtt.session", :error) do |logs|
             pubs.each { |pub| puback(io, pub.packet_id) }
@@ -455,7 +456,7 @@ module MqttSpecs
       end
     end
 
-    it "enforces max-length before it resumes, and stays paused if that fails again" do
+    it "enforces max-length before it resumes, and logs and stays paused if that fails again" do
       with_server do |server|
         deliver_unacked(server, [] of String)
         session = server.vhosts["/"].session("mqtt.resumer")
@@ -469,7 +470,10 @@ module MqttSpecs
 
         # The limit fails again: still paused, nothing is delivered that it would drop
         LavinMQ::MQTT::SessionMessageStore.fail_next_delete = true
-        session.resume!
+        Log.capture("lmq.mqtt.session", :error) do |logs|
+          session.resume!
+          logs.next(:error, /Paused due to a temporary message store error/).empty
+        end
         session.paused_reason.should eq "store_error"
         session.message_count.should be > 1
 

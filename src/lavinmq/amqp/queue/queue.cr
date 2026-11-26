@@ -108,6 +108,8 @@ module LavinMQ::AMQP
     # Guards @state, the paused flag and the "paused" file. Taken last: a store
     # error pauses the queue under @msg_store_lock.
     @state_lock = Mutex.new
+    # A temporary store error is logged at ERROR once, until #resume! tries the store again
+    @store_error_logged = false
     # Counts the store errors that paused the queue, see #resume!
     @store_errors = Atomic(UInt32).new(0)
     @exclusive_consumer = false
@@ -885,8 +887,14 @@ module LavinMQ::AMQP
       @store_errors.add(1, :release)
       return if closed?
       failed = @msg_store.failed?
-      changed = @state_lock.synchronize { failed ? set_failed : set_paused }
-      if changed
+      log_error = @state_lock.synchronize do
+        next set_failed if failed
+        set_paused
+        next false if @store_error_logged
+        @store_error_logged = true
+        true
+      end
+      if log_error
         @log.error(ex) do
           if failed
             "Failed, message data can't be read. #{unreadable_advice}"
@@ -915,6 +923,7 @@ module LavinMQ::AMQP
         if state.failed?
           raise LavinMQ::Error::PreconditionFailed.new("Message data in queue '#{@name}' can't be read, it can't be resumed. #{unreadable_advice}")
         end
+        @store_error_logged = false
         @store_errors.get(:acquire)
       end
       # The limits first, which a store error can have stopped: nothing is
