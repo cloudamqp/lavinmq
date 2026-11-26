@@ -76,7 +76,7 @@ describe LavinMQ::SchemaVersion do
 
     it "refuses a pre 1.0 data directory without schema_version" do
       with_datadir do |data_dir|
-        File.write(File.join(data_dir, "vhosts.json"), "[]")
+        File.write(File.join(data_dir, "vhosts.json"), %([{"name":"/","dir":"vhost"}]))
         queue_dir = File.join(data_dir, "vhost", "queue")
         Dir.mkdir_p(queue_dir)
         File.write(File.join(queue_dir, "enq"), "")
@@ -89,11 +89,26 @@ describe LavinMQ::SchemaVersion do
 
     it "restores a lost schema_version in a data directory with the current layout" do
       with_datadir do |data_dir|
-        File.write(File.join(data_dir, "vhosts.json"), "[]")
+        File.write(File.join(data_dir, "vhosts.json"), %([{"name":"/","dir":"vhost"}]))
         queue_dir = File.join(data_dir, "vhost", "queue")
         Dir.mkdir_p(queue_dir)
         File.write(File.join(queue_dir, "msgs.0000000001"), "")
         LavinMQ::Schema.verify(data_dir, nil)
+        File.read(File.join(data_dir, "schema_version")).should eq LavinMQ::Schema::VERSION.to_s
+      end
+    end
+
+    it "only looks in the vhost directories that vhosts.json lists" do
+      with_datadir do |data_dir|
+        File.write(File.join(data_dir, "vhosts.json"), %([{"name":"/","dir":"vhost"}]))
+        Dir.mkdir_p(File.join(data_dir, "vhost", "queue"))
+        lost_found = File.join(data_dir, "lost+found")
+        Dir.mkdir(lost_found, 0o000)
+        begin
+          LavinMQ::Schema.verify(data_dir, nil)
+        ensure
+          File.chmod(lost_found, 0o700)
+        end
         File.read(File.join(data_dir, "schema_version")).should eq LavinMQ::Schema::VERSION.to_s
       end
     end

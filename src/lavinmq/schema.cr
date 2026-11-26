@@ -1,3 +1,4 @@
+require "json"
 require "./filesystem"
 
 module LavinMQ
@@ -15,8 +16,9 @@ module LavinMQ
       case v = version(path)
       when VERSION
       when nil
-        raise UnsupportedSchemaVersion.new(path) if pre_v4?(data_dir)
-        if File.exists?(File.join(data_dir, "vhosts.json"))
+        vhosts_path = File.join(data_dir, "vhosts.json")
+        if File.exists?(vhosts_path)
+          raise UnsupportedSchemaVersion.new(path) if pre_v4?(data_dir, vhosts_path)
           Log.warn { "#{path} was missing or empty in a data directory with the current layout, writing it again" }
         end
         # Written durably: a confirm doesn't sync the whole data dir, so
@@ -39,12 +41,14 @@ module LavinMQ
 
     # Before schema version 4 every queue directory had an enq and an ack
     # index, and the messages were in the vhost directory
-    private def self.pre_v4?(data_dir) : Bool
-      Dir.each_child(data_dir) do |vhost|
-        vhost_dir = File.join(data_dir, vhost)
-        next unless File.directory?(vhost_dir)
-        Dir.each_child(vhost_dir) do |queue|
-          return true if File.exists?(File.join(vhost_dir, queue, "enq"))
+    private def self.pre_v4?(data_dir, vhosts_path) : Bool
+      File.open(vhosts_path) do |f|
+        JSON.parse(f).as_a.each do |vhost|
+          vhost_dir = File.join(data_dir, vhost["dir"].as_s)
+          next unless Dir.exists?(vhost_dir)
+          Dir.each_child(vhost_dir) do |queue|
+            return true if File.exists?(File.join(vhost_dir, queue, "enq"))
+          end
         end
       end
       false
