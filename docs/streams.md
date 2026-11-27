@@ -40,6 +40,10 @@ Automatic offset tracking persists the consumer's offset position on the server.
 
 On reconnect, the consumer resumes from where it left off without needing to specify the offset manually.
 
+An ack stores the offset of the last message delivered to the consumer, not the offset of the acked message. For example, a consumer with a prefetch of 10 receives offsets 1 to 10, acks offset 1 and reconnects. It resumes at offset 11, and offsets 2 to 10 are not delivered again.
+
+Use a prefetch of 1 with automatic offset tracking, and ack each message after it is processed. A channel that does not set a prefetch uses `default_consumer_prefetch`, which is 65535 by default. For a higher prefetch, track the offsets in the client and give the next offset in `x-stream-offset` when the consumer starts.
+
 ## Stream Filtering
 
 Consumers can filter messages based on headers, avoiding unnecessary delivery of unwanted messages.
