@@ -22,13 +22,15 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 
 | Command | Description |
 |---------|-------------|
-| `add_user <username> <password>` | Create a new user |
+| `add_user <username> [password]` | Create a new user |
 | `delete_user <username>` | Delete a user |
-| `change_password <username> <password>` | Change user password |
+| `change_password <username> [password]` | Change user password |
 | `list_users` | List all users and their tags |
 | `set_user_tags <username> <tags>` | Set user tags |
 | `set_permissions <user> <configure> <write> <read>` | Set vhost permissions |
-| `hash_password <password>` | Hash a password |
+| `hash_password [password]` | Hash a password |
+
+When the password is left out, `add_user`, `change_password` and `hash_password` read it from stdin, which keeps it out of the process list, the shell history and sudo's log: `echo "$PASSWORD" | lavinmqctl change_password admin`. In a terminal they prompt for it without echoing.
 
 ### Vhost Management
 

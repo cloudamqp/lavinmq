@@ -30,6 +30,10 @@ Two things to check before you upgrade. An invalid boolean config value now stop
 - The queue and stream pages chart queued messages above the rates, from the new `messages_ready_details.log` and `messages_unacknowledged_details.log` on `GET /api/queues/{vhost}/{name}` [#2581](https://github.com/cloudamqp/lavinmq/pull/2581)
 - Prometheus metrics for MQTT: `mqtt_connections`, the number of open MQTT connections, and `global_mqtt_messages_published_total`, published MQTT messages per QoS level [#2507](https://github.com/cloudamqp/lavinmq/pull/2507)
 
+### Added
+
+- `lavinmqctl add_user`, `change_password` and `hash_password` read the password from stdin when it isn't given as an argument, so it no longer has to be exposed in the process list or in sudo's log. In a terminal they prompt for it without echoing
+
 ### Changed
 
 - A queue, stream or MQTT session is no longer closed when its message store fails. After a temporary store error it's paused, resume it to try again. If its message data can't be read it's in the new `failed` state: delete it, or fail over to a node with a good copy. Publishes to a failed queue are nacked, and a purge or resume is refused. `paused_reason` in the HTTP API, and the queue and stream pages, say why a queue is paused [#2781](https://github.com/cloudamqp/lavinmq/pull/2781)
