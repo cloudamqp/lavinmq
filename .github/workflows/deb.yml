@@ -15,6 +15,17 @@ on:
       - openapi/**
       - packaging/libgc/**
       - packaging/debian/**
+  # Packages from a PR are uploaded as artifacts, for installing it to try out
+  pull_request:
+    paths:
+      - .github/workflows/deb.yml
+      - Makefile
+      - shard.lock
+      - src/**
+      - static/**
+      - views/**
+      - openapi/**
+      - packaging/debian/**
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

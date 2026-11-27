@@ -5,13 +5,17 @@ require "./coordinator"
 require "./server"
 require "../runner"
 
-# Elects the leader and makes the other nodes follow it. Subclasses do the
-# leader election and ISR storage, e.g. with an etcd cluster (EtcdRunner).
+# Elects the leader and makes the other nodes follow it. The leader election
+# and ISR storage are done by an etcd cluster (EtcdRunner) or by the nodes
+# themselves with Raft (RaftRunner), chosen by `[clustering] backend`.
 abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
   Log = LavinMQ::Log.for "clustering.runner"
 
   def self.create(config : Config) : Runner
-    EtcdRunner.new(config)
+    case config.clustering_backend
+    in .etcd? then EtcdRunner.new(config)
+    in .raft? then RaftRunner.new(config)
+    end
   end
 
   getter id : Int32
@@ -30,8 +34,9 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
   # never keeps serving
   property demotion_timeout : Time::Span = 60.seconds
 
-  # *id*: this node's unique id, for tracking the ISR, e.g. the one in
-  # .clustering_id, see .clustering_id
+  # *id*: this node's unique id, for tracking the ISR. The etcd backend keeps
+  # it in .clustering_id, see .clustering_id, the raft backend in its raft
+  # state, see RaftRunner.
   def initialize(@config : Config, @id : Int32)
     @advertised_uri = Runner.advertised_uri(@config)
     Log.info { "ID: #{@id.to_s(36)}" }
@@ -77,8 +82,7 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
   # in the configured advertised_uri's query win, for when the leader is reached
   # through other ports than it binds (NAT, container port mappings).
   def self.advertised_uri(config : Config) : String
-    uri = URI.parse(config.clustering_advertised_uri ||
-                    "tcp://#{System.hostname}:#{config.clustering_port}")
+    uri = URI.parse(config.clustering_advertised_uri_or_default)
     params = uri.query_params
     tls = config.tls_configured?
     {
@@ -238,3 +242,4 @@ abstract class LavinMQ::Clustering::Runner < LavinMQ::Runner
 end
 
 require "./etcd_runner"
+require "./raft_runner"
