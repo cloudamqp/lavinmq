@@ -315,15 +315,30 @@ end
 describe LavinMQ::Etcd::Lease do
   it "revokes the lease before signaling expiry on release" do
     etcd = RecordingEtcd.new("127.0.0.1:1")
-    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    lease = etcd.lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
     lease.release
     etcd.expired_before_revoke.should be_false
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end
 
+  it "keeps no file descriptors once released" do
+    etcd = RecordingEtcd.new("127.0.0.1:1")
+    open_fds = -> { Dir.children("/dev/fd").size }
+    LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10).release
+    before = open_fds.call
+    20.times do |i|
+      lease = LavinMQ::Etcd::Lease.grant(etcd, i.to_i64 + 2, 10)
+      sleep 10.milliseconds # its keepalive waits for the next one
+      lease.release
+    end
+    sleep 100.milliseconds
+    # A leak is three per lease, other specs' fibers may hold a few meanwhile
+    (open_fds.call - before).should be < 20
+  end
+
   it "revokes on every release, and counts a lease already gone as released" do
     etcd = RecordingEtcd.new("127.0.0.1:1")
-    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    lease = etcd.lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
     lease.release
     etcd.revoke_error = LavinMQ::Etcd::LeaseNotFound.new("etcdserver: requested lease not found")
     lease.release
@@ -332,7 +347,7 @@ describe LavinMQ::Etcd::Lease do
 
   it "signals expiry when the revoke fails" do
     etcd = RecordingEtcd.new("127.0.0.1:1", revoke_error: LavinMQ::Etcd::Error.new("etcd unreachable"))
-    lease = etcd.lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 10)
+    lease = etcd.lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 10)
     expect_raises(LavinMQ::Etcd::Error, "etcd unreachable") { lease.release }
     expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(5.seconds) }
   end
@@ -346,7 +361,7 @@ describe LavinMQ::Etcd::Lease do
         raise error unless failed.swap(true)
         3
       end)
-      lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+      lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 3)
       lease.wait(4.seconds) # keepalives every second, the first one fails
     ensure
       lease.try &.release
@@ -358,7 +373,7 @@ describe LavinMQ::Etcd::Lease do
     stuck = Channel(Nil).new
     etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) { stuck.receive?; 3 })
     started = Time.instant
-    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+    lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 3)
     expect_raises(LavinMQ::Etcd::Lease::Expired, "No keepalive succeeded within the lease TTL") { lease.wait(6.seconds) }
     (Time.instant - started).should be >= 2.5.seconds
   ensure
@@ -379,7 +394,7 @@ describe LavinMQ::Etcd::Lease do
     address = server.bind_tcp("127.0.0.1", 0)
     spawn(name: "fake etcd") { server.listen }
     etcd = LavinMQ::Etcd.new("127.0.0.1:#{address.port}")
-    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+    lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 3)
     lease.wait(5.seconds) # longer than the 3 s TTL
     keepalives.get.should be > 1
   ensure
@@ -423,7 +438,7 @@ describe LavinMQ::Etcd::Lease do
     etcd = RecordingEtcd.new("127.0.0.1:1", keepalive: ->(_id : Int64) : Int32 do
       raise LavinMQ::Etcd::NoLeader.new("etcdserver: no leader")
     end)
-    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 1)
+    lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 1)
     select
     when err = lease.expired.receive?
       err.should be_a(LavinMQ::Etcd::NoLeader)
@@ -441,7 +456,7 @@ describe LavinMQ::Etcd::Lease do
       sleep 0.6.seconds # a slow answer
       3
     end)
-    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+    lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 3)
     first = sent.receive
     # A third of the TTL is 1 s, counted from the answer it would be 1.6 s
     (sent.receive - first).should be_close(1.second, 0.3.seconds)
@@ -452,7 +467,7 @@ describe LavinMQ::Etcd::Lease do
 
   it "expires when etcd reports the lease gone" do
     etcd = RecordingEtcd.new("127.0.0.1:1")
-    lease = LavinMQ::Etcd::Lease.new(etcd, 1i64, 3)
+    lease = LavinMQ::Etcd::Lease.grant(etcd, 1i64, 3)
     # Within the TTL, so the local deadline can't be what ends it
     ex = expect_raises(LavinMQ::Etcd::Lease::Expired) { lease.wait(2.seconds) }
     ex.cause.should be_a(LavinMQ::Etcd::LeaseNotFound)

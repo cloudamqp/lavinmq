@@ -1,5 +1,3 @@
-require "../../stdlib/isolated_wait_for"
-
 module LavinMQ
   class Etcd
     # Represents holding a Lease
@@ -7,16 +5,24 @@ module LavinMQ
     class Lease
       getter id, expired
 
+      # A thread of its own, so busy client fibers can't delay a keepalive
+      @@keepalive_context = Fiber::ExecutionContext::Concurrent.new("Etcd::Lease")
+
       # *started* is when the grant etcd answered was sent, its TTL counts from no earlier
-      def initialize(@etcd : Etcd, @id : Int64, ttl : Int32, @started : Time::Instant = Time.instant)
+      def self.grant(etcd : Etcd, id : Int64, ttl : Int32, started : Time::Instant = Time.instant) : self
+        lease = new(etcd, id, ttl, started)
+        @@keepalive_context.spawn(name: "Etcd::Lease #{id.to_s(16)} keepalive") do
+          lease.keepalive_loop(ttl)
+        end
+        lease
+      end
+
+      private def initialize(@etcd : Etcd, @id : Int64, ttl : Int32, @started : Time::Instant)
         @expired = Channel(Exception?).new
         @released = Atomic(Bool).new(false)
         # When etcd expires the lease at the earliest, its TTL counts from
         # when it got the last keepalive. Nanoseconds since @started.
         @deadline = Atomic(Int64).new(ttl.seconds.total_nanoseconds.to_i64)
-        Fiber::ExecutionContext::Isolated.new("Etcd::Lease") do
-          keepalive_loop(ttl)
-        end
       end
 
       # Force release of lease (and leadership). The lease is revoked before
@@ -67,7 +73,7 @@ module LavinMQ
       # to the deadline. A failed one is retried sooner.
       # Answers slower than *request_timeout* are cut off even if etcd renewed
       # the lease, so a sustained multi-second etcd latency ends the lease.
-      private def keepalive_loop(ttl : Int32)
+      protected def keepalive_loop(ttl : Int32)
         request_timeout = (ttl / 3).seconds
         next_at = @started + (ttl / 3).seconds
         failures = 0

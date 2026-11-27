@@ -106,7 +106,7 @@ module LavinMQ
       end
       ttl = json.dig("TTL").as_s.to_i
       id = json.dig("ID").as_s.to_i64
-      Lease.new(self, id, ttl, sent)
+      Lease.grant(self, id, ttl, sent)
     end
 
     # Returns the TTL and when the request etcd answered was sent.

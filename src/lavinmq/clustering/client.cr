@@ -65,8 +65,12 @@ module LavinMQ
       end
 
       @closed = false
+      # Makes #close, which may run on another thread, and #follow binding the
+      # listeners one step each, so only one caller closes and nothing is
+      # bound after it
+      @listen_lock = Mutex.new
       @close_done = Channel(Nil).new
-      # Read by #follows? from the controller's fiber while #follow sets it
+      # Read by #follows? from the runner's fiber while #follow sets it
       @leader = Atomic(Leader?).new(nil)
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
@@ -80,6 +84,15 @@ module LavinMQ
       @socket : TCPSocket?
       @internal_http_server : ::HTTP::Server?
       getter streamed_bytes = 0_u64
+
+      # To a HTTP::PrometheusWriter, see Runner#write_metrics
+      def write_metrics(writer) : Nil
+        writer.write({name:  "cluster_received_bytes_total",
+                      value: @streamed_bytes,
+                      type:  "counter",
+                      help:  "Bytes streamed from the current leader, counted from when this follower starts streaming; kept across reconnects, resets on leader change"})
+      end
+
       # Running SHA1 over each file's whole content, adopted as its checksum when
       # tracking ends. nil when we started seeing the file mid-content, so no
       # digest can cover the bytes already on disk (see #digest_for).
@@ -162,8 +175,11 @@ module LavinMQ
         port = leader.port
         Log.info { "Following #{host}:#{port}" }
         @leader.set(leader)
-        @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
-        start_proxies(leader)
+        @listen_lock.synchronize do
+          return if @closed # by #close before this fiber started
+          @internal_http_server ||= HTTP::Server.follower_internal_socket_http_server unless local_leader_host?(host)
+          start_proxies(leader)
+        end
         loop do
           hash_local_files
           return if @closed
@@ -828,26 +844,31 @@ module LavinMQ
         socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
-      # On promotion both the leader watcher and the controller close the
-      # client, and the controller binds the listeners as soon as its call
+      # On promotion both the leader watcher and the runner close the
+      # client, and the runner binds the listeners as soon as its call
       # returns, so a call made while another is closing waits for it to finish.
       def close
-        if @closed
+        follow_started = false
+        closing = @listen_lock.synchronize do
+          next false if @closed
+          @closed = true
+          follow_started = @follow_claimed.swap(true)
+          @internal_http_server.try &.close
+          @amqp_proxy.try &.close
+          @http_proxy.try &.close
+          @mqtt_proxy.try &.close
+          @amqps_proxy.try &.close
+          @https_proxy.try &.close
+          @mqtts_proxy.try &.close
+          @unix_amqp_proxy.try &.close
+          @unix_http_proxy.try &.close
+          @unix_mqtt_proxy.try &.close
+          true
+        end
+        unless closing
           @close_done.receive?
           return
         end
-        @closed = true
-        follow_started = @follow_claimed.swap(true)
-        @internal_http_server.try &.close
-        @amqp_proxy.try &.close
-        @http_proxy.try &.close
-        @mqtt_proxy.try &.close
-        @amqps_proxy.try &.close
-        @https_proxy.try &.close
-        @mqtts_proxy.try &.close
-        @unix_amqp_proxy.try &.close
-        @unix_http_proxy.try &.close
-        @unix_mqtt_proxy.try &.close
         @files.each_value &.close
         @socket.try &.close
         @closing.close
@@ -857,8 +878,6 @@ module LavinMQ
           when timeout(5.seconds)
             Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
           end
-          # The loop may have bound the control socket after the close above
-          @internal_http_server.try { |s| s.close unless s.closed? }
         end
         # The ack loop keeps draining acks buffered in @acks even after the
         # channel is closed, syncing to disk before each send. Wait for it to

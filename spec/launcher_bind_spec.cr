@@ -3,7 +3,33 @@ require "../src/lavinmq/launcher"
 
 class LavinMQ::Launcher
   def start_for_spec
-    start
+    start(nil)
+  end
+
+  def runner_for_spec=(@runner : LavinMQ::Runner)
+  end
+end
+
+# Returns from #run once a shutdown starts, as when its lease expires
+# meanwhile, and takes a while to stop
+private class EarlyReturnRunner < LavinMQ::Runner
+  getter? stopped = false
+  getter started = Channel(Nil).new
+  @stopping = Channel(Nil).new
+
+  def run(& : LavinMQ::Clustering::Replicator? -> _)
+    yield nil
+    @started.close
+    @stopping.receive?
+  end
+
+  private def stopping : Nil
+    @stopping.close
+  end
+
+  private def stop
+    sleep 200.milliseconds
+    @stopped = true
   end
 end
 
@@ -65,6 +91,37 @@ describe LavinMQ::Launcher do
       launcher.try &.stop
       LavinMQ::Config.instance = original_config if original_config
       serving.try &.close
+    end
+  end
+
+  it "returns from #run only once a shutdown that started has finished" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.data_dir_lock = false
+      config.amqp_port = config.amqps_port = config.http_port = config.https_port = -1
+      config.mqtt_port = config.mqtts_port = config.metrics_http_port = -1
+      config.control_unix_path = File.join(data_dir, "control.sock")
+      original_config = LavinMQ::Config.instance
+      LavinMQ::Config.instance = config # the HTTP server reads the control socket path from it
+      launcher = LavinMQ::Launcher.new(config)
+      runner = EarlyReturnRunner.new
+      launcher.runner_for_spec = runner
+      done = Channel(Nil).new
+      spawn(name: "launcher run") do
+        launcher.run
+        done.close
+      end
+      runner.started.receive?
+      spawn(name: "shutdown") { launcher.stop }
+      select
+      when done.receive?
+      when timeout(5.seconds)
+        fail "run didn't return"
+      end
+      runner.stopped?.should be_true
+    ensure
+      LavinMQ::Config.instance = original_config if original_config
     end
   end
 
