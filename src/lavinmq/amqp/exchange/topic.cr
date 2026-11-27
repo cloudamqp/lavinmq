@@ -4,19 +4,22 @@ module LavinMQ
   module AMQP
     struct RkIterator
       getter value : Bytes
+      @raw : Bytes?
 
       def initialize(raw : Bytes)
         if first_dot = raw.index '.'.ord
           @value = raw[0, first_dot]
-          @raw = raw[(first_dot + 1)..]? || Bytes.empty
+          @raw = raw[first_dot + 1, raw.size - first_dot - 1]
         else
           @value = raw
-          @raw = Bytes.empty
+          @raw = nil
         end
       end
 
       def next : RkIterator?
-        self.class.new(@raw) unless @raw.empty?
+        if raw = @raw
+          self.class.new(raw)
+        end
       end
     end
 

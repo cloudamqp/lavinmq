@@ -230,6 +230,45 @@ module MessageRoutingSpec
         matches(x, "a.b.c").should be_empty
         x.unbind(q, "a.b")
       end
+
+      it "matches routing keys with a trailing dot" do
+        q = LavinMQ::QueueFactory.make(vhost, "q_trailing_dot")
+
+        x.bind(q, "a.")
+        matches(x, "a.").should eq(Set{q})
+        matches(x, "a").should be_empty
+        x.unbind(q, "a.")
+
+        x.bind(q, "a.b.")
+        matches(x, "a.b.").should eq(Set{q})
+        matches(x, "a.b").should be_empty
+        x.unbind(q, "a.b.")
+
+        x.bind(q, ".")
+        matches(x, ".").should eq(Set{q})
+        matches(x, "").should be_empty
+        x.unbind(q, ".")
+
+        x.bind(q, "a.*")
+        matches(x, "a.").should eq(Set{q})
+        matches(x, "a").should be_empty
+        x.unbind(q, "a.*")
+
+        x.bind(q, "*.*")
+        matches(x, "a.").should eq(Set{q})
+        matches(x, ".").should eq(Set{q})
+        matches(x, "a").should be_empty
+        x.unbind(q, "*.*")
+
+        x.bind(q, "a")
+        matches(x, "a.").should be_empty
+        x.unbind(q, "a")
+
+        x.bind(q, "")
+        matches(x, "").should eq(Set{q})
+        matches(x, ".").should be_empty
+        x.unbind(q, "")
+      end
     end
   end
 
