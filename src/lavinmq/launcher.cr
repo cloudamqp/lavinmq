@@ -28,11 +28,14 @@ module LavinMQ
     # Closed once #run has returned
     @run_done = Channel(Nil).new
     @data_dir_lock : DataDirLock?
-    # Set when #stop starts, from the shutdown fiber, read by #run
-    @closed = Atomic(Bool).new(false)
+    @closed = false
+    # While #start runs, #stop leaves what it opens to it, see #start
+    @starting = false
     # Closed when #stop is done
     @stopped = Channel(Nil).new
     @runner : Runner
+    # Serializes starting and stopping to serve as the leader with a shutdown
+    @role_lock = Mutex.new
     @server : LavinMQ::Server?
     @amqp_server : LavinMQ::AMQP::Server?
     @mqtt_server : LavinMQ::MQTT::Server?
@@ -58,6 +61,7 @@ module LavinMQ
       print_data_dir_read_ahead
 
       @runner = @config.clustering? ? Clustering::Runner.create(@config) : StandaloneRunner.new
+      @runner.on_demote { |hand_over| demote(hand_over) }
       @metrics_server = LavinMQ::HTTP::MetricsServer.new(metrics: runner_metrics) unless @config.metrics_http_port == -1
       @control_socket = HTTP::ControlSocket.new(@config.control_unix_path)
       @client_listeners = ClientListeners.new(@config, -> { @runner.leader.as(Clustering::Client::Leader?) })
@@ -75,9 +79,15 @@ module LavinMQ
     end
 
     private def start(replicator : Clustering::Replicator?) : self
+      # #stop may have run since the runner decided to serve, e.g. while the
+      # runner checked the ISR: nothing started from here on would be
+      # closed. A #stop from now on leaves the broker to this startup,
+      # closing it under it would fail what's still to come, e.g. loading
+      # definitions exits 1, and #run closes it once the runner returns.
+      return self unless @role_lock.synchronize { @starting = !@closed }
       started_at = Time.instant
       @control_socket.starting
-      @server = server = LavinMQ::Server.new(@config, replicator)
+      @server = server = new_server(replicator)
       load_definitions(server)
       server.start_log_exchange
       @amqp_server = amqp_server = LavinMQ::AMQP::Server.new(server, @config)
@@ -97,6 +107,8 @@ module LavinMQ
     rescue ex : Socket::BindError
       stop
       abort "Error: #{ex.message}"
+    ensure
+      @role_lock.synchronize { @starting = false }
     end
 
     def run
@@ -115,7 +127,12 @@ module LavinMQ
       end
       # The runner returns once a shutdown has started, e.g. when its lease
       # expires meanwhile, and the broker may still be closing
-      @stopped.receive? if @closed.get
+      @stopped.receive? if @role_lock.synchronize { @closed }
+      # What a startup that #stop raced with opened, see #start
+      @role_lock.synchronize do
+        close_listeners
+        @server.try &.close rescue nil
+      end
       @client_listeners.close
       @control_socket.close
       @runner.close
@@ -124,24 +141,60 @@ module LavinMQ
       @run_done.close
     end
 
+    # Stops serving as the leader, without exiting: the runner makes this
+    # node follow the new leader, and the next time it's elected #start
+    # serves again. When leadership was lost (no *hand_over*) the runner has
+    # disconnected the followers, so nothing more can be confirmed. When it's
+    # handed over the clients are disconnected first, and leadership is
+    # handed over once the followers have acked everything and before
+    # they're disconnected, so the target is still in the ISR.
+    private def demote(hand_over : Proc(Nil)?) : Nil
+      @role_lock.synchronize do
+        return if @closed
+        # Scrapes would get the closed broker's metrics until it's done
+        @metrics_server.try &.broker = nil
+        close_listeners
+        if server = @server
+          # Keeps the replicator's checksums, which the replication client
+          # reuses when it starts following
+          server.close rescue nil
+        end
+        hand_over.try &.call
+        @http_server = nil
+        @amqp_server = nil
+        @mqtt_server = nil
+        @server = nil
+      end
+    end
+
+    private def close_listeners : Nil
+      @control_socket.api = nil
+      @client_listeners.serve(nil)
+      @http_server.try &.close rescue nil
+      @amqp_server.try &.close rescue nil
+      @mqtt_server.try &.close rescue nil
+    end
+
     def stop
-      return if @closed.swap(true)
-      begin
-        Log.warn { "Stopping" }
-        SystemD.notify_stopping
-        @runner.shutdown do
-          @control_socket.api = nil
+      stopping = @role_lock.synchronize do
+        next false if @closed
+        @closed = true
+      end
+      return unless stopping
+      Log.warn { "Stopping" }
+      SystemD.notify_stopping
+      @runner.shutdown do
+        @role_lock.synchronize do
+          # A startup that's running closes what it opens once it's done, see #start
+          close_listeners unless @starting
           @client_listeners.close
           @control_socket.close
-          @http_server.try &.close rescue nil
-          @amqp_server.try &.close rescue nil
-          @mqtt_server.try &.close rescue nil
-          @server.try &.close rescue nil
+          @server.try(&.close) rescue nil unless @starting
           @metrics_server.try &.close rescue nil
         end
-      ensure
-        @stopped.close
       end
+    ensure
+      @stopped.close if stopping
     end
 
     # Exits if another process holds the lock, before the server or the
@@ -219,6 +272,15 @@ module LavinMQ
       nil
     end
 
+    # Replicated writes in it fail once leadership is lost, but what it opened
+    # before that wouldn't be closed when stopping to serve, so it exits
+    private def new_server(replicator : Clustering::Replicator?) : LavinMQ::Server
+      LavinMQ::Server.new(@config, replicator)
+    rescue ex : Clustering::Coordinator::StaleLeadership
+      Log.fatal { "Lost leadership while loading the broker, exiting: #{ex.message}" }
+      exit 3
+    end
+
     private def load_definitions(amqp_server)
       path = @config.load_definitions
       return if path.empty?
@@ -232,6 +294,8 @@ module LavinMQ
     rescue ex : JSON::ParseException
       Log.error { "Failed to load definitions: invalid JSON in '#{path}': #{ex.message}" }
       exit 1
+    rescue ex : Clustering::Coordinator::StaleLeadership
+      raise ex # lost leadership, the runner stops serving
     rescue ex
       Log.error(exception: ex) { "Failed to load definitions from '#{path}'" }
       exit 1

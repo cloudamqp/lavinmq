@@ -32,6 +32,33 @@ end
 describe LavinMQ::Clustering::Server, tags: "etcd" do
   add_etcd_around_each
 
+  # A leader that loses leadership right after it started to serve can close
+  # its replicator before the listener fiber runs
+  it "doesn't listen once closed, nor overwrite the checksums it didn't restore" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      checksums = File.join(data_dir, "checksums.sha1")
+      File.write(checksums, "#{Digest::SHA1.digest("a").hexstring} 1 *a\n")
+      server = LavinMQ::Clustering::Server.new(config, NullCoordinator.new, 0)
+      server.close
+      tcp = TCPServer.new("127.0.0.1", 0)
+      listened = Channel(Nil).new
+      spawn(name: "listener of a closed replicator") do
+        server.listen(tcp)
+        listened.close
+      end
+      select
+      when listened.receive?
+      when timeout(5.seconds)
+        tcp.close
+        fail "a closed replicator kept listening"
+      end
+      tcp.closed?.should be_true
+      File.read(checksums).should_not be_empty
+    end
+  end
+
   describe "#files_with_hash" do
     describe "for MFile" do
       it "should hash only the real (data) size, not the sparse capacity" do

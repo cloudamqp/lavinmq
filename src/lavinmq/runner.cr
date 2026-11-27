@@ -6,7 +6,7 @@ module LavinMQ
   # Launcher only uses it through this, the defaults are for a node without
   # clustering.
   abstract class Runner
-    # Yields once this node is to start serving, with what the broker
+    # Yields whenever this node is to start serving, with what the broker
     # replicates through, nil without clustering. Blocks until #shutdown.
     abstract def run(& : Clustering::Replicator? -> _)
 
@@ -29,6 +29,11 @@ module LavinMQ
 
     # Gives up the node's role, so #run returns, see #shutdown
     private abstract def stop
+
+    # How the Launcher stops serving when this node stops leading, while the
+    # process keeps running, see Clustering::Runner#on_demote
+    def on_demote(&_block : Proc(Nil)? ->) : Nil
+    end
 
     # Called once the Launcher is done with the broker, before the process
     # exits, so what the runner holds for it can go, e.g. replication: its

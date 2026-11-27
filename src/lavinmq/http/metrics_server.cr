@@ -21,7 +21,7 @@ module LavinMQ
         # Set from the fiber that starts the broker, read by request fibers
         @leader = Atomic(PrometheusController?).new(nil)
 
-        def leader=(controller : PrometheusController) : Nil
+        def leader=(controller : PrometheusController?) : Nil
           @leader.set(controller)
         end
 
@@ -46,9 +46,10 @@ module LavinMQ
         broker.try { |s| self.broker = s }
       end
 
-      # Reports the broker's metrics from now on
-      def broker=(server : LavinMQ::Server) : Nil
-        @source.leader = PrometheusController.new(server, require_authentication: false, metrics: @metrics)
+      # Reports the broker's metrics from now on, or with nil, once this node
+      # stopped serving, the runner's only
+      def broker=(server : LavinMQ::Server?) : Nil
+        @source.leader = server.try { |s| PrometheusController.new(s, require_authentication: false, metrics: @metrics) }
       end
 
       def bind_tcp(address, port)
