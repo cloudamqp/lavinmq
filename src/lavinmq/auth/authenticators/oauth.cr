@@ -36,7 +36,7 @@ module LavinMQ
       end
 
       def reload(config : Config) : Nil
-        @token_verifier.reload(config)
+        @token_verifier.reload(config.oauth_provider)
       end
 
       def cleanup

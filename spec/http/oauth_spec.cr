@@ -42,7 +42,7 @@ end
 # the /oauth/callback success path without real JWT signing.
 class StubOAuthAuthenticator < LavinMQ::Auth::OAuthAuthenticator
   def initialize(@user : LavinMQ::Auth::BaseUser, fetcher : LavinMQ::Auth::JWT::JWKSFetcher)
-    super(LavinMQ::Auth::JWT::TokenVerifier.new(LavinMQ::Config.instance, fetcher))
+    super(LavinMQ::Auth::JWT::TokenVerifier.new(test_oauth_provider, fetcher))
   end
 
   def authenticate(context : LavinMQ::Auth::Context) : LavinMQ::Auth::BaseUser?
@@ -50,10 +50,14 @@ class StubOAuthAuthenticator < LavinMQ::Auth::OAuthAuthenticator
   end
 end
 
+def test_oauth_provider : LavinMQ::OAuthProviderConfig
+  LavinMQ::OAuthProviderConfig.new(URI.parse("https://idp.example.com"))
+end
+
 def build_oauth_chain(oidc : LavinMQ::Auth::JWT::JWKSFetcher::OIDCConfiguration,
                       keys = {} of String => String) : LavinMQ::Auth::Chain
   fetcher = SeedableJWKSFetcher.new(oidc, keys)
-  verifier = LavinMQ::Auth::JWT::TokenVerifier.new(LavinMQ::Config.instance, fetcher)
+  verifier = LavinMQ::Auth::JWT::TokenVerifier.new(test_oauth_provider, fetcher)
   oauth_auth = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
   LavinMQ::Auth::Chain.new([oauth_auth] of LavinMQ::Auth::Authenticator)
 end
@@ -515,7 +519,7 @@ describe "OAuth2" do
         authorization_endpoint: "https://idp.example.com/authorize",
         token_endpoint: "https://idp.example.com/token")
       fetcher = OnDemandOIDCFetcher.new(oidc)
-      verifier = LavinMQ::Auth::JWT::TokenVerifier.new(LavinMQ::Config.instance, fetcher)
+      verifier = LavinMQ::Auth::JWT::TokenVerifier.new(test_oauth_provider, fetcher)
       chain = LavinMQ::Auth::Chain.new([LavinMQ::Auth::OAuthAuthenticator.new(verifier)] of LavinMQ::Auth::Authenticator)
 
       with_http_server(authenticator: chain) do |http, _|
