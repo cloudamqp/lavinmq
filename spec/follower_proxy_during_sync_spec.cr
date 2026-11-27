@@ -263,9 +263,14 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: "slo
     password = replicator.password
     socket = TCPSocket.new("127.0.0.1", listener.local_address.port)
     socket.read_timeout = 5.seconds
-    socket.write LavinMQ::Clustering::StartV2
-    socket.write_byte password.bytesize.to_u8
-    socket.write password.to_slice
+    socket.write LavinMQ::Clustering::StartV3
+    header = Bytes.new(8)
+    socket.read_fully(header)
+    leader_nonce = Bytes.new(LavinMQ::Clustering::CHALLENGE_SIZE)
+    socket.read_fully(leader_nonce)
+    nonce = Random::Secure.random_bytes(LavinMQ::Clustering::CHALLENGE_SIZE)
+    socket.write nonce
+    socket.write LavinMQ::Clustering.challenge_response(password, :follower, leader_nonce, nonce)
     socket.read_byte.should eq 0u8 # authenticated, the id isn't sent yet
     replicator.follower_address?("127.0.0.1").should be_true
     replicator.all_followers.should be_empty
