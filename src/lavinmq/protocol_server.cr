@@ -2,6 +2,7 @@ require "socket"
 require "openssl"
 require "wait_group"
 require "./server"
+require "./proxy_protocol"
 require "./accept_loop"
 require "../stdlib/io_buffered"
 
@@ -13,6 +14,8 @@ module LavinMQ
 
   abstract class ProtocolServer
     @listeners = Array(Socket::Server).new
+    # Listed, but owned by ClientListeners, which accepts on them
+    @adopted = Array(Socket::Server).new
     @tls_contexts = Hash(TCPServer, OpenSSL::SSL::Context::Server).new
     @closed = BoolChannel.new(false)
     @config : Config
@@ -67,6 +70,23 @@ module LavinMQ
       addr
     rescue ex : Socket::BindError
       abort "Error: #{ex.message}"
+    end
+
+    # A listener ClientListeners owns, listed by #listeners. It hands this
+    # server what it accepts, see #accept, and it's not closed with it.
+    def adopt(s : Socket::Server) : Nil
+      @adopted << s
+      @listeners << s
+    end
+
+    # A connection accepted on an adopted listener, over TLS with *tls*
+    def accept(client : Socket, tls : OpenSSL::SSL::Context::Server?) : Nil
+      return client.close if closed? || @server.closed?
+      case client
+      when TCPSocket  then tls ? accept_tls(client, tls) : accept_tcp(client)
+      when UNIXSocket then accept_unix(client)
+      else                 client.close
+      end
     end
 
     def listen : Nil
@@ -166,9 +186,11 @@ module LavinMQ
       return if @closed.swap(true)
       Log.debug { "Closing #{@protocol} listeners" }
       @listeners.each do |listener|
+        next if @adopted.includes?(listener)
         listener.close rescue nil
       end
       @listeners.clear
+      @adopted.clear
       @tls_contexts.clear
       @listening = false
     end
@@ -224,7 +246,7 @@ module LavinMQ
       end
     end
 
-    private def handle_tls_connection(ssl_client, conn_info)
+    private def handle_tls_connection(ssl_client, conn_info : ConnectionInfo)
       set_buffer_size(ssl_client)
       conn_info.ssl = true
       conn_info.ssl_version = ssl_client.tls_version
@@ -249,7 +271,7 @@ module LavinMQ
     end
 
     private def from_follower?(remote_address) : Bool
-      @config.clustering? && @server.all_followers.any? { |f| f.remote_address.address == remote_address.address }
+      @config.clustering? && @server.follower_address?(remote_address.address)
     end
 
     private def set_socket_options(socket)

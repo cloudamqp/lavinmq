@@ -26,20 +26,6 @@ private class SelfLeaderRunner < LavinMQ::Clustering::EtcdRunner
   end
 end
 
-private class ProxyBindEtcd < LavinMQ::Etcd
-  def initialize(@leader_uri : String)
-    super("localhost:1")
-  end
-
-  def elect_listen(_name, &)
-    yield @leader_uri
-  end
-
-  def get(_key) : String?
-    "secret"
-  end
-end
-
 # Waits in #get, as an etcd slow to answer, until *gate* is closed
 private class SlowSecretEtcd < LavinMQ::Etcd
   getter getting = Channel(Nil).new(1)
@@ -179,7 +165,7 @@ ensure
 end
 
 describe LavinMQ::Clustering::EtcdRunner do
-  # Its proxies would hold the client ports the broker binds next
+  # It would replicate from the old leader while this node serves
   it "makes no replication client once elected while it waited for the secret" do
     with_datadir do |data_dir|
       config = LavinMQ::Config.new
@@ -255,32 +241,6 @@ describe LavinMQ::Clustering::EtcdRunner do
       runner.shutdown { }
       runner.close
     end
-  end
-
-  it "reports follower proxy bind failures without the generic unhandled exception log" do
-    blocker = TCPServer.new("127.0.0.1", 0)
-    with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.amqp_bind = "127.0.0.1"
-      config.amqp_port = blocker.local_address.port
-      config.http_port = 0
-      config.mqtt_port = 0
-      config.metrics_http_port = -1
-      config.clustering_advertised_uri = "tcp://127.0.0.1:5679"
-      etcd = ProxyBindEtcd.new("tcp://192.0.2.10:5679")
-      coordinator = LavinMQ::Clustering::EtcdCoordinator.new(config, etcd)
-      runner = SelfLeaderRunner.new(config, etcd, coordinator)
-
-      Log.capture("lmq.clustering.runner", :fatal) do |logs|
-        ex = expect_raises(SpecExit) { runner.follow_leader_public }
-        ex.code.should eq 36
-        logs.check(:fatal, /Could not bind to '127\.0\.0\.1:#{blocker.local_address.port}'/)
-        logs.entry.to_s.should_not contain "Unhandled exception while following leader"
-      end
-    end
-  ensure
-    blocker.try &.close
   end
 end
 
@@ -442,6 +402,38 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
     end
   end
 
+  it "stops without exiting while campaigning to lead" do
+    with_datadir do |data_dir|
+      # Another node leads, so this one's campaign blocks
+      etcd = LavinMQ::Etcd.new("localhost:12379")
+      leader_lease = etcd.lease_grant(ttl: 10)
+      etcd.election_campaign("lavinmq/leader", "tcp://localhost:5699", leader_lease.id)
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5698"
+      runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      done = Channel(Int32?).new(1)
+      spawn(name: "campaigning runner") do
+        runner.run { fail "served while another node leads" }
+        done.send nil
+      rescue ex : SpecExit
+        done.send ex.code
+      end
+      sleep 0.5.seconds # campaigning
+      runner.shutdown { }
+      runner.close
+      select
+      when code = done.receive
+        code.should be_nil
+      when timeout(5.seconds)
+        fail "run didn't return after stop"
+      end
+    ensure
+      leader_lease.try &.release
+    end
+  end
+
   # Followers read it once they see a leader, and a watch for it started
   # after the leader wrote it would wait forever
   it "writes the clustering secret before it campaigns" do
@@ -484,7 +476,7 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
       config.clustering_advertised_uri = "tcp://localhost:5686"
       etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
       runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
-      client = LavinMQ::Clustering::Client.new(config, runner.id, "secret", proxy: false)
+      client = LavinMQ::Clustering::Client.new(config, runner.id, "secret")
       runner.following_for_spec(client)
       # follow was never called, satisfy close's follower-done handshake
       spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
@@ -499,6 +491,40 @@ describe LavinMQ::Clustering::EtcdRunner, tags: "etcd" do
         select
         when body = metrics.receive
           body.should_not contain "cluster_received_bytes_total"
+        when timeout(5.seconds)
+          fail "runner was not elected leader"
+        end
+      ensure
+        runner.shutdown { }
+        runner.close
+      end
+    end
+  end
+
+  # Client connections then wait for this node to serve, see ClientListeners
+  it "tells that there's no leader host before it serves" do
+    with_datadir do |data_dir|
+      config = LavinMQ::Config.new
+      config.data_dir = data_dir
+      config.clustering_etcd_endpoints = "localhost:12379"
+      config.clustering_advertised_uri = "tcp://localhost:5687"
+      etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
+      runner = UnmonitoredRunner.new(config, etcd, LavinMQ::Clustering::EtcdCoordinator.new(config, etcd))
+      client = LavinMQ::Clustering::Client.new(config, runner.id, "secret")
+      runner.following_for_spec(client)
+      # follow was never called, satisfy close's follower-done handshake
+      spawn(name: "follower done feeder") { client.@follower_done.send(nil) }
+      changed = Atomic(Bool).new(false)
+      runner.on_leader_change { changed.set(true) }
+      served = Channel(Bool).new(1)
+      spawn(name: "promoted runner") do
+        runner.run { served.send changed.get }
+      rescue SpecExit
+      end
+      begin
+        select
+        when told = served.receive
+          told.should be_true
         when timeout(5.seconds)
           fail "runner was not elected leader"
         end

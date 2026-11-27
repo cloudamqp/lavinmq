@@ -36,6 +36,25 @@ module LavinMQ
       abstract def request_fsync(paths : Enumerable(String)) : Nil
       abstract def request_syncfs : Nil
       abstract def all_followers : Array(Follower)
+
+      # Whether a follower that has authenticated is connected from *address*,
+      # registered or not yet. Its PROXY headers are trusted, see ClientListeners.
+      def follower_address?(address : String) : Bool
+        address = Replicator.plain_address(address)
+        all_followers.any? { |f| Replicator.plain_address(f.remote_address.address) == address }
+      end
+
+      # An IPv4 address as a dual-stack listener reports it ("::ffff:10.0.0.2")
+      # as an IPv4 listener does ("10.0.0.2"), as the replication and client
+      # listeners may be bound differently
+      def self.plain_address(address : String) : String
+        if address.starts_with?("::ffff:") && address.includes?('.')
+          address[7..]
+        else
+          address
+        end
+      end
+
       abstract def close
       abstract def listen(server : TCPServer)
       abstract def clear

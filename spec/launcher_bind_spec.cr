@@ -1,11 +1,19 @@
 require "./spec_helper"
 require "../src/lavinmq/launcher"
 
-class LavinMQ::Launcher
-  def start_for_spec
-    start(nil)
-  end
+# Without listeners other than the lavinmqctl socket
+private def standalone_config(data_dir) : LavinMQ::Config
+  config = LavinMQ::Config.new
+  config.data_dir = data_dir
+  config.data_dir_lock = false
+  config.amqp_port = config.amqps_port = config.http_port = config.https_port = -1
+  config.mqtt_port = config.mqtts_port = config.metrics_http_port = -1
+  config.unix_path = config.http_unix_path = config.mqtt_unix_path = ""
+  config.control_unix_path = File.join(data_dir, "control.sock")
+  config
+end
 
+class LavinMQ::Launcher
   def runner_for_spec=(@runner : LavinMQ::Runner)
   end
 end
@@ -53,7 +61,7 @@ describe LavinMQ::Launcher do
       launcher = LavinMQ::Launcher.new(config)
 
       expect_raises(SpecExit, /Exiting with code 1/) do
-        launcher.start_for_spec
+        launcher.run
       end
     ensure
       launcher.try &.stop
@@ -62,49 +70,47 @@ describe LavinMQ::Launcher do
     blocker.try &.close
   end
 
-  it "aborts startup when the control socket is in use, leaving it to the node serving it" do
+  it "serves the API over the lavinmqctl socket, and removes it when stopped" do
     with_datadir do |data_dir|
-      socket_path = File.tempname("lavinmqctl-spec", ".sock")
-      serving = UNIXServer.new(socket_path)
-      launcher : LavinMQ::Launcher? = nil
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.data_dir_lock = false
-      config.amqp_bind = "127.0.0.1"
-      config.amqp_port = 0
-      config.amqps_port = -1
-      config.http_port = -1
-      config.https_port = -1
-      config.mqtt_port = -1
-      config.mqtts_port = -1
-      config.metrics_http_port = -1
-      config.control_unix_path = socket_path
-      original_config = LavinMQ::Config.instance
-      LavinMQ::Config.instance = config # the HTTP server reads the control socket path from it
+      config = standalone_config(data_dir)
       launcher = LavinMQ::Launcher.new(config)
-
-      expect_raises(SpecExit, /Exiting with code 1/) do
-        launcher.start_for_spec
+      done = Channel(Nil).new
+      spawn(name: "launcher spec") do
+        launcher.run
+      ensure
+        done.close
       end
-      File.exists?(socket_path).should be_true
+      # A 503 until the broker serves
+      wait_for do
+        HTTP::Client.new(UNIXSocket.new(config.control_unix_path)).get("/api/whoami").status_code == 200
+      rescue Socket::Error
+        false
+      end
+      launcher.stop
+      select
+      when done.receive?
+      when timeout(10.seconds)
+        fail "launcher didn't stop"
+      end
+      File.exists?(config.control_unix_path).should be_false
+    end
+  end
+
+  it "aborts when another process serves the lavinmqctl socket" do
+    with_datadir do |data_dir|
+      config = standalone_config(data_dir)
+      other = UNIXServer.new(config.control_unix_path)
+      launcher = LavinMQ::Launcher.new(config)
+      expect_raises(SpecExit, /Exiting with code 1/) { launcher.run }
+      File.exists?(config.control_unix_path).should be_true # left to the process serving it
     ensure
-      launcher.try &.stop
-      LavinMQ::Config.instance = original_config if original_config
-      serving.try &.close
+      other.try &.close
     end
   end
 
   it "returns from #run only once a shutdown that started has finished" do
     with_datadir do |data_dir|
-      config = LavinMQ::Config.new
-      config.data_dir = data_dir
-      config.data_dir_lock = false
-      config.amqp_port = config.amqps_port = config.http_port = config.https_port = -1
-      config.mqtt_port = config.mqtts_port = config.metrics_http_port = -1
-      config.control_unix_path = File.join(data_dir, "control.sock")
-      original_config = LavinMQ::Config.instance
-      LavinMQ::Config.instance = config # the HTTP server reads the control socket path from it
-      launcher = LavinMQ::Launcher.new(config)
+      launcher = LavinMQ::Launcher.new(standalone_config(data_dir))
       runner = EarlyReturnRunner.new
       launcher.runner_for_spec = runner
       done = Channel(Nil).new
@@ -120,8 +126,6 @@ describe LavinMQ::Launcher do
         fail "run didn't return"
       end
       runner.stopped?.should be_true
-    ensure
-      LavinMQ::Config.instance = original_config if original_config
     end
   end
 
