@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "log/spec"
 require "./../src/lavinmq/amqp/queue"
 require "./../src/lavinmq/policy"
 
@@ -714,6 +715,25 @@ describe LavinMQ::AMQP::Queue do
           Dir.delete(acks)
           queue.resume!
           q.get(no_ack: true).try(&.body_io.to_s).should eq "m1"
+        end
+      end
+    end
+
+    it "logs one error, not one per ack, also while paused by an operator" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ack-open-log", durable: true)
+          queue = s.vhosts["/"].queue("ack-open-log").as(LavinMQ::AMQP::DurableQueue)
+          3.times { |i| q.publish_confirm "m#{i}" }
+          msgs = Array.new(3) { q.get(no_ack: false).should_not be_nil }
+          queue.pause!
+          Dir.mkdir(File.join(queue.@data_dir, "acks.0000000001"))
+          Log.capture("lmq.queue", :error) do |logs|
+            msgs.each &.ack
+            should_eventually(be_true) { queue.state.paused? }
+            should_eventually(eq 0) { queue.unacked_count }
+            logs.next(:error, /Paused due to a temporary message store error/).empty
+          end
         end
       end
     end
