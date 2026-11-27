@@ -84,6 +84,42 @@ Retained messages are stored per topic and delivered to new subscribers upon sub
 - Publishing a retained message with an empty payload clears the retained message for that topic
 - Retained messages are replicated across cluster nodes
 
+### Retained Message Limits
+
+Without a limit, any client that may publish can store one retained message per topic on as many topics as it likes. Two [vhost limits](vhosts.md#vhost-limits) cap this:
+
+| Limit | Description |
+|-------|-------------|
+| `max-retained-messages` | Maximum number of retained messages in the vhost |
+| `max-retained-bytes` | Maximum total payload size, in bytes, of the retained messages in the vhost |
+
+`max-retained-bytes` counts payload bytes only. Every retained message also takes a file and an index entry on disk, however small its payload is, so set `max-retained-messages` as well to cap the number of topics.
+
+A retained publish that would take the vhost over a limit is still delivered to the current subscribers and still acknowledged, but it is not stored. MQTT 3.1.1 has no way to tell the publisher, so the broker counts the publish in the `global_mqtt_retained_not_stored_total` [metric](monitoring.md) and logs a warning, at most once every 10 seconds per vhost. The warning is written when a publish is refused, so it can lag behind or leave out the last refused publishes. Use the metric for alerts.
+
+- Replacing the retained message of a topic does not count as a new message, so it works when the vhost is at `max-retained-messages`
+- If a replacement is larger than the stored message and would take the vhost over `max-retained-bytes`, the topic keeps the message it already has. Clients that subscribe later get that older message, not the refused one. Raise `max-retained-bytes` to store the larger message
+- Clearing a retained message with an empty payload always works
+- Lowering a limit below the current usage deletes nothing. New retained messages are refused until usage is below the limit again
+
+### Retained Message Overflow
+
+The `retained-overflow` [vhost limit](vhosts.md#vhost-limits) sets what a retained publish over `max-retained-messages` or `max-retained-bytes` does.
+
+| Value | Description |
+|-------|-------------|
+| `reject` | Default. The new message is delivered but not stored, as described above |
+| `drop-head` | The oldest retained messages of the vhost are removed until the new message fits, and the new message is stored |
+
+With `drop-head`:
+
+- The oldest message is the one whose topic was published to the longest time ago
+- A message that can never fit is not stored, and nothing is removed for it: a payload larger than `max-retained-bytes`, or a new topic when `max-retained-messages` is `0`
+- A client that publishes to many new topics pushes out the retained messages of all other clients in the vhost. Use it when retained messages are a cache of recent values, not when clients rely on a retained message to stay
+- Removed messages are counted in the `global_mqtt_retained_dropped_total` [metric](monitoring.md)
+
+The current number and size of retained messages per vhost are in `GET /api/vhosts/:name` (`mqtt_retained_messages`, `mqtt_retained_bytes`) and in the metrics.
+
 ## Topic Matching
 
 MQTT topics use `/` as a level separator. LavinMQ supports the standard MQTT wildcards:

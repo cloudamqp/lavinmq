@@ -24,15 +24,13 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             if body = context.request.body
               json = JSON.parse(body)
-              if value = json["value"]?.try &.as_i?
-                case params["type"]
-                when "max-connections"
-                  vhost.max_connections = value
-                  context.response.status_code = 204
-                when "max-queues"
-                  vhost.max_queues = value
+              if params["type"] == "retained-overflow"
+                if overflow = json["value"]?.try(&.as_s?).try { |s| MQTT::RetainStore::Overflow.from_setting?(s) }
+                  vhost.retained_overflow = overflow
                   context.response.status_code = 204
                 end
+              elsif (value = json["value"]?.try &.as_i64?) && set_limit(vhost, params["type"], value)
+                context.response.status_code = 204
               end
             end
           end
@@ -43,17 +41,25 @@ module LavinMQ
           context.response.status_code = 400
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            case params["type"]
-            when "max-connections"
-              context.response.status_code = 204
-              vhost.max_connections = nil
-            when "max-queues"
-              context.response.status_code = 204
-              vhost.max_queues = nil
-            end
+            context.response.status_code = 204 if set_limit(vhost, params["type"], nil)
           end
           context
         end
+      end
+
+      # Returns false for an unknown limit type
+      private def set_limit(vhost : VHost, type : String, value : Int64?) : Bool
+        case type
+        when "max-connections"       then vhost.max_connections = value.try &.to_i32
+        when "max-queues"            then vhost.max_queues = value.try &.to_i32
+        when "max-retained-messages" then vhost.max_retained_messages = value
+        when "max-retained-bytes"    then vhost.max_retained_bytes = value
+        when "retained-overflow"
+          return false if value
+          vhost.retained_overflow = MQTT::RetainStore::Overflow::Reject
+        else return false
+        end
+        true
       end
 
       struct VHostLimitsView
@@ -63,7 +69,9 @@ module LavinMQ
         end
 
         def self_if_limited : VHostLimitsView?
-          self if @vhost.max_connections || @vhost.max_queues
+          self if @vhost.max_connections || @vhost.max_queues ||
+                  @vhost.max_retained_messages || @vhost.max_retained_bytes ||
+                  @vhost.retained_overflow.drop_head?
         end
 
         def details_tuple
@@ -73,6 +81,15 @@ module LavinMQ
           end
           if max = @vhost.max_queues
             value = value.merge({"max-queues": max})
+          end
+          if max = @vhost.max_retained_messages
+            value = value.merge({"max-retained-messages": max})
+          end
+          if max = @vhost.max_retained_bytes
+            value = value.merge({"max-retained-bytes": max})
+          end
+          if @vhost.retained_overflow.drop_head?
+            value = value.merge({"retained-overflow": @vhost.retained_overflow.to_setting})
           end
           {
             vhost: @vhost.name,

@@ -15,3 +15,15 @@ vhost-limits:
         max-queues:
           type: integer
           description: Maximum number of queues allowed in the vhost.
+        max-retained-messages:
+          type: integer
+          description: Maximum number of retained MQTT messages allowed in the vhost.
+        max-retained-bytes:
+          type: integer
+          description: Maximum total payload size, in bytes, of the retained MQTT messages in the vhost.
+        retained-overflow:
+          type: string
+          enum:
+          - reject
+          - drop-head
+          description: What a retained MQTT publish over a limit does. Only present when it is `drop-head`.

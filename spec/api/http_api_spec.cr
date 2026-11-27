@@ -320,6 +320,67 @@ describe LavinMQ::HTTP::Server do
     end
   end
 
+  describe "retained message vhost limits" do
+    it "sets, lists and persists a limit larger than Int32" do
+      with_http_server do |http, s|
+        response = http.put("/api/vhost-limits/%2f/max-retained-bytes", body: %({"value": 3000000000}))
+        response.status_code.should eq 204
+        response = http.put("/api/vhost-limits/%2f/max-retained-messages", body: %({"value": 10}))
+        response.status_code.should eq 204
+        value = JSON.parse(http.get("/api/vhost-limits/%2f").body)[0]["value"]
+        value["max-retained-bytes"].should eq 3_000_000_000
+        value["max-retained-messages"].should eq 10
+        restart_server(s)
+        s.vhosts["/"].max_retained_bytes.should eq 3_000_000_000
+        s.vhosts["/"].max_retained_messages.should eq 10
+      end
+    end
+
+    it "sets, persists and resets retained-overflow" do
+      with_http_server do |http, s|
+        http.put("/api/vhost-limits/%2f/retained-overflow", body: %({"value": "sideways"})).status_code.should eq 400
+        http.put("/api/vhost-limits/%2f/retained-overflow", body: %({"value": 1})).status_code.should eq 400
+        http.put("/api/vhost-limits/%2f/retained-overflow", body: %({"value": "drop-head"})).status_code.should eq 204
+        JSON.parse(http.get("/api/vhost-limits/%2f").body)[0]["value"]["retained-overflow"].should eq "drop-head"
+        definitions = http.get("/api/definitions").body
+        restart_server(s)
+        s.vhosts["/"].retained_overflow.drop_head?.should be_true
+        http.delete("/api/vhost-limits/%2f/retained-overflow").status_code.should eq 204
+        s.vhosts["/"].retained_overflow.reject?.should be_true
+        JSON.parse(http.get("/api/vhost-limits/%2f").body).as_a.should be_empty
+        http.post("/api/definitions", body: definitions).status_code.should eq 200
+        s.vhosts["/"].retained_overflow.drop_head?.should be_true
+      end
+    end
+
+    it "clears a limit with a negative value or a delete" do
+      with_http_server do |http, s|
+        s.vhosts["/"].max_retained_bytes = 100_i64
+        s.vhosts["/"].max_retained_messages = 100_i64
+        http.put("/api/vhost-limits/%2f/max-retained-bytes", body: %({"value": -1})).status_code.should eq 204
+        http.delete("/api/vhost-limits/%2f/max-retained-messages").status_code.should eq 204
+        s.vhosts["/"].max_retained_bytes.should be_nil
+        s.vhosts["/"].max_retained_messages.should be_nil
+        restart_server(s)
+        s.vhosts["/"].max_retained_bytes.should be_nil
+        s.vhosts["/"].max_retained_messages.should be_nil
+      end
+    end
+
+    it "exports and imports the limits with the definitions" do
+      with_http_server do |http, s|
+        s.vhosts["/"].max_retained_bytes = 3_000_000_000_i64
+        s.vhosts["/"].max_retained_messages = 10_i64
+        definitions = http.get("/api/definitions").body
+        s.vhosts["/"].max_retained_bytes = nil
+        s.vhosts["/"].max_retained_messages = nil
+        http.post("/api/definitions", body: definitions).status_code.should eq 200
+        s.vhosts["/"].max_retained_bytes.should eq 3_000_000_000
+        s.vhosts["/"].max_retained_messages.should eq 10
+      end
+    end
+  end
+
   describe "DELETE /api/vhost-limits/vhost/type" do
     it "clears max-connections" do
       with_http_server do |http, s|

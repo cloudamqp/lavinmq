@@ -23,6 +23,12 @@ vhost:
     messages_ready:
       type: integer
       description: Number of ready messages in the vhost.
+    mqtt_retained_messages:
+      type: integer
+      description: Number of retained MQTT messages in the vhost.
+    mqtt_retained_bytes:
+      type: integer
+      description: Total payload size, in bytes, of the retained MQTT messages in the vhost.
     messages_stats:
       type: object
       properties:

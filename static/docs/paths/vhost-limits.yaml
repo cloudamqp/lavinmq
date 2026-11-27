@@ -3,7 +3,7 @@
   get:
     tags:
     - vhost-limits
-    description: List all vhosts with their limits (max-connections, max-queues).
+    description: List all vhosts with their limits (max-connections, max-queues, max-retained-messages, max-retained-bytes).
     summary: List vhost limits
     operationId: GetVhostLimits
     responses:
@@ -76,11 +76,14 @@
       enum:
       - max-connections
       - max-queues
+      - max-retained-messages
+      - max-retained-bytes
+      - retained-overflow
       description: Type of limit to set or delete.
   put:
     tags:
     - vhost-limits
-    description: Set a specific limit (max-connections or max-queues) for a vhost.
+    description: Set a specific limit (max-connections, max-queues, max-retained-messages or max-retained-bytes) for a vhost.
     summary: Set vhost limit
     operationId: PutVhostLimit
     requestBody:
@@ -91,8 +94,10 @@
             type: object
             properties:
               value:
-                type: integer
-                description: Value of the limit. Use `null` to remove the limit.
+                oneOf:
+                - type: integer
+                - type: string
+                description: Value of the limit, an integer. A negative value removes the limit. For `retained-overflow` the value is the string `reject` or `drop-head`.
     responses:
       '204':
         description: The limit was successfully set.
@@ -111,7 +116,7 @@
   delete:
     tags:
     - vhost-limits
-    description: Remove a specific limit (max-connections or max-queues) for a vhost.
+    description: Remove a specific limit (max-connections, max-queues, max-retained-messages or max-retained-bytes) for a vhost.
     summary: Delete vhost limit
     operationId: DeleteVhostLimit
     responses:

@@ -71,7 +71,8 @@ module LavinMQ
                         "dead_lettered_maxlen_disabled", "dead_lettered_maxlen_at_most_once",
                         "dead_lettered_rejected_disabled", "dead_lettered_rejected_at_most_once"}
     MQTT_PUBLISHED_KEYS = {"mqtt_published_qos0", "mqtt_published_qos1", "mqtt_published_qos2"}
-    {% for key in DEAD_LETTER_KEYS + MQTT_PUBLISHED_KEYS %}
+    MQTT_RETAINED_KEYS  = {"mqtt_retained_not_stored", "mqtt_retained_dropped"}
+    {% for key in DEAD_LETTER_KEYS + MQTT_PUBLISHED_KEYS + MQTT_RETAINED_KEYS %}
       @{{ key.id }}_count = Atomic(UInt64).new(0_u64)
 
       def {{ key.id }}_count : UInt64
@@ -91,6 +92,7 @@ module LavinMQ
     # Set by the server's disk space monitor, read by every publishing client
     @flow = Atomic(Bool).new(true)
     @policy_snapshot_lock = Mutex.new
+    @limits_lock = Mutex.new
     @policy_generation = 0_u64
     @direct_reply_consumers = DirectReplyConsumerStore.new
     @definitions : DefinitionsStore?
@@ -314,8 +316,10 @@ module LavinMQ
 
     def max_connections=(value : Int32?) : Nil
       value = nil if value && value < 0
-      @max_connections = value
-      store_limits
+      @limits_lock.synchronize do
+        @max_connections = value
+        store_limits
+      end
     end
 
     def connection_limit_reached? : Bool
@@ -324,12 +328,44 @@ module LavinMQ
 
     def max_queues=(value : Int32?) : Nil
       value = nil if value && value < 0
-      @max_queues = value
-      store_limits
+      @limits_lock.synchronize do
+        @max_queues = value
+        store_limits
+      end
     end
 
     def queue_limit_reached? : Bool
       @max_queues.try { |max| definitions.queues_size + definitions.sessions_size >= max } || false
+    end
+
+    # Read by every retained MQTT publish, set over HTTP. Negative is no limit
+    {% for limit in {"max_retained_messages", "max_retained_bytes"} %}
+      @{{ limit.id }} = Atomic(Int64).new(-1_i64)
+
+      def {{ limit.id }} : Int64?
+        value = @{{ limit.id }}.get(:relaxed)
+        value unless value < 0
+      end
+
+      def {{ limit.id }}=(value : Int64?) : Nil
+        @limits_lock.synchronize do
+          @{{ limit.id }}.set(value || -1_i64, :relaxed)
+          store_limits
+        end
+      end
+    {% end %}
+
+    @retained_overflow = Atomic(MQTT::RetainStore::Overflow).new(MQTT::RetainStore::Overflow::Reject)
+
+    def retained_overflow : MQTT::RetainStore::Overflow
+      @retained_overflow.get(:relaxed)
+    end
+
+    def retained_overflow=(value : MQTT::RetainStore::Overflow) : Nil
+      @limits_lock.synchronize do
+        @retained_overflow.set(value, :relaxed)
+        store_limits
+      end
     end
 
     private def load_limits
@@ -337,17 +373,25 @@ module LavinMQ
         limits = JSON.parse(f)
         @max_queues = limits["max-queues"]?.try &.as_i?
         @max_connections = limits["max-connections"]?.try &.as_i?
+        @max_retained_messages.set(limits["max-retained-messages"]?.try(&.as_i64?) || -1_i64, :relaxed)
+        @max_retained_bytes.set(limits["max-retained-bytes"]?.try(&.as_i64?) || -1_i64, :relaxed)
+        if overflow = limits["retained-overflow"]?.try(&.as_s?).try { |s| MQTT::RetainStore::Overflow.from_setting?(s) }
+          @retained_overflow.set(overflow, :relaxed)
+        end
         @replicator.try &.register_file(f)
       end
     rescue File::NotFoundError
     end
 
     private def store_limits
-      File.open(File.join(@data_dir, "limits.json"), "w") do |f|
+      FileSystem.replace(File.join(@data_dir, "limits.json")) do |f|
         JSON.build(f) do |json|
           json.object do
             json.field "max-queues", @max_queues if @max_queues
             json.field "max-connections", @max_connections if @max_connections
+            json.field "max-retained-messages", max_retained_messages if max_retained_messages
+            json.field "max-retained-bytes", max_retained_bytes if max_retained_bytes
+            json.field "retained-overflow", retained_overflow.to_setting if retained_overflow.drop_head?
           end
         end
       end
@@ -727,6 +771,22 @@ module LavinMQ
       when 1 then @mqtt_published_qos1_count.add(1, :relaxed)
       when 2 then @mqtt_published_qos2_count.add(1, :relaxed)
       end
+    end
+
+    def count_mqtt_retained_not_stored : Nil
+      @mqtt_retained_not_stored_count.add(1, :relaxed)
+    end
+
+    def count_mqtt_retained_dropped(count : Int32) : Nil
+      @mqtt_retained_dropped_count.add(count.to_u64, :relaxed)
+    end
+
+    def mqtt_retained_messages : Int64
+      @mqtt_broker.try(&.retained_message_count) || 0_i64
+    end
+
+    def mqtt_retained_bytes : Int64
+      @mqtt_broker.try(&.retained_bytesize) || 0_i64
     end
 
     def add_recv_bytes(bytes : UInt64) : Nil

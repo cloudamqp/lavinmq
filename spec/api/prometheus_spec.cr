@@ -782,6 +782,39 @@ module PrometheusMqttSpecs
   end
 
   describe "LavinMQ::HTTP::PrometheusController MQTT metrics" do
+    it "counts retained messages and the ones a vhost limit kept out" do
+      with_server do |s|
+        s.vhosts["/"].max_retained_messages = 1_i64
+        with_client_io(s) do |io|
+          connect(io)
+          publish(io, topic: "a", payload: "1234".to_slice, qos: 1u8, retain: true)
+          publish(io, topic: "b", payload: "1234".to_slice, qos: 1u8, retain: true)
+          disconnect(io)
+        end
+        serve_metrics(s) do |http|
+          metric_value(http, "lavinmq_global_mqtt_retained_messages").should eq 1
+          metric_value(http, "lavinmq_global_mqtt_retained_bytes").should eq 4
+          metric_value(http, "lavinmq_global_mqtt_retained_not_stored_total").should eq 1
+        end
+      end
+    end
+
+    it "exports the retained gauges after a restart, before an MQTT client has connected" do
+      with_server do |s|
+        with_client_io(s) do |io|
+          connect(io)
+          publish(io, topic: "a", payload: "1234".to_slice, qos: 1u8, retain: true)
+          disconnect(io)
+        end
+        restart_server(s)
+        serve_metrics(s) do |http|
+          metric_value(http, "lavinmq_global_mqtt_retained_messages").should eq 1
+          metric_value(http, "lavinmq_global_mqtt_retained_bytes").should eq 4
+          http.get("/metrics").body.should_not contain("mqtt_retained_not_stored")
+        end
+      end
+    end
+
     it "leaves out MQTT series until an MQTT client has connected" do
       with_server do |s|
         serve_metrics(s) do |http|

@@ -13,6 +13,8 @@ HTTP.request('GET', vhostUrl).then(item => {
   document.getElementById('messages_total').textContent = item.messages.toLocaleString()
 }).catch(() => {})
 
+const RETAINED_LIMITS = ['max-retained-messages', 'max-retained-bytes']
+
 async function fetchLimits () {
   const arr = await HTTP.request('GET', HTTP.url`api/vhost-limits/${vhost}`)
   const limits = arr[0] || { value: {} }
@@ -22,6 +24,14 @@ async function fetchLimits () {
   const maxQueues = limits.value['max-queues'] || ''
   document.getElementById('max-queues').textContent = maxQueues.toLocaleString()
   document.forms.setLimits['max-queues'].value = maxQueues
+  RETAINED_LIMITS.forEach(name => {
+    const value = limits.value[name] ?? ''
+    document.getElementById(name).textContent = value.toLocaleString()
+    document.forms.setLimits[name].value = value
+  })
+  const overflow = limits.value['retained-overflow'] || 'reject'
+  document.getElementById('retained-overflow').textContent = overflow
+  document.forms.setLimits['retained-overflow'].value = overflow
 }
 fetchLimits().catch(() => {})
 
@@ -104,7 +114,12 @@ document.forms.setLimits.addEventListener('submit', function (evt) {
   const maxQueuesBody = { value: Number(this['max-queues'].value || -1) }
   Promise.allSettled([
     HTTP.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }).catch(() => {}),
-    HTTP.request('PUT', maxQueuesUrl, { body: maxQueuesBody }).catch(() => {})
+    HTTP.request('PUT', maxQueuesUrl, { body: maxQueuesBody }).catch(() => {}),
+    ...RETAINED_LIMITS.map(name => {
+      const body = { value: this[name].value === '' ? -1 : Number(this[name].value) }
+      return HTTP.request('PUT', HTTP.url`api/vhost-limits/${vhost}/${name}`, { body }).catch(() => {})
+    }),
+    HTTP.request('PUT', HTTP.url`api/vhost-limits/${vhost}/retained-overflow`, { body: { value: this['retained-overflow'].value } }).catch(() => {})
   ])
     .then(fetchLimits)
     .catch(() => {})

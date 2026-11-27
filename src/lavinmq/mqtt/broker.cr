@@ -31,7 +31,8 @@ module LavinMQ
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator, persister: @vhost.persister)
+        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @vhost.replicator,
+          persister: @vhost.persister, on_dropped: ->@vhost.count_mqtt_retained_dropped(Int32))
         @exchange = @vhost.mqtt_exchange
       end
 
@@ -111,9 +112,43 @@ module LavinMQ
           raise TopicTooLong.new("topic is #{packet.topic.bytesize} bytes, max #{MAX_TOPIC_BYTESIZE}")
         end
         return false unless @vhost.flow?
-        @retain_store.retain(packet) if packet.retain?
+        if packet.retain? && !@retain_store.retain(packet, @vhost.max_retained_messages,
+             @vhost.max_retained_bytes, @vhost.retained_overflow)
+          retain_not_stored
+        end
         @exchange.publish(packet, ctx)
         true
+      end
+
+      NOT_STORED_WARNING_INTERVAL_MS = 10_000
+
+      @not_stored_unlogged = Atomic(UInt64).new(0_u64)
+      @not_stored_warned_at = Atomic(Int64).new(0_i64)
+
+      # MQTT 3.1.1 can't tell the publisher, so the operator gets a metric and
+      # at most one warning per interval
+      private def retain_not_stored : Nil
+        @vhost.count_mqtt_retained_not_stored
+        @not_stored_unlogged.add(1_u64, :relaxed)
+        now = RoughTime.unix_ms
+        warned_at = @not_stored_warned_at.get(:relaxed)
+        return if now - warned_at < NOT_STORED_WARNING_INTERVAL_MS
+        return unless @not_stored_warned_at.compare_and_set(warned_at, now)[1]
+        count = @not_stored_unlogged.swap(0_u64, :relaxed)
+        Log.warn do
+          "#{count} retained messages delivered but not stored in vhost '#{@vhost.name}', " \
+          "limit reached (max-retained-messages=#{@vhost.max_retained_messages || "unset"}, " \
+          "max-retained-bytes=#{@vhost.max_retained_bytes || "unset"}). " \
+          "Topics that already have a retained message keep it. Raise the limit to store more"
+        end
+      end
+
+      def retained_message_count : Int64
+        @retain_store.message_count
+      end
+
+      def retained_bytesize : Int64
+        @retain_store.bytesize
       end
 
       def subscribe(client, topics) : Array(Protocol::SubAck::ReturnCode)
