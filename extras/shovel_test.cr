@@ -1,9 +1,10 @@
 # Black-box test suite for the Shovel feature, run against a *running* LavinMQ.
 #
 # Drives the server through its management API and AMQP port: creates a
-# vhost, queues and shovels, serves the HTTP endpoint the HTTP scenarios
-# deliver to, and checks what is observable from the outside — what ended up
-# in which queue, what the endpoint received, and what the shovel reports.
+# vhost, a user for the shovels to connect with, queues and shovels, serves
+# the HTTP endpoint the HTTP scenarios deliver to, and checks what is
+# observable from the outside — what ended up in which queue, what the
+# endpoint received, and what the shovel reports.
 #
 # Usage:
 #   make bin/shovel-test

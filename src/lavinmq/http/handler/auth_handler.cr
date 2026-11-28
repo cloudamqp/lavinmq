@@ -6,15 +6,15 @@ module LavinMQ
     class AuthHandler
       include ::HTTP::Handler
 
-      def initialize(@authenticator : Auth::Authenticator, @direct_user : Auth::User, @internal_unix_socket_path : String)
+      def initialize(@authenticator : Auth::Authenticator, @internal_user : Auth::BaseUser, @internal_unix_socket_path : String)
       end
 
       def call(context)
         if internal_unix_socket?(context)
-          context.user ||= @direct_user
+          context.user ||= @internal_user
         end
 
-        # Explicit credentials override a user assigned earlier (direct user
+        # Explicit credentials override a user assigned earlier (internal user
         # or OAuth cookie session) and must be valid for the request to stay
         # authenticated. The passwordless OAuth identity cookie does not
         # count as credentials.

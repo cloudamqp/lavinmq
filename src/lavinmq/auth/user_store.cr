@@ -1,17 +1,25 @@
 require "../filesystem"
 require "json"
 require "./user"
+require "./internal_user"
 
 module LavinMQ
   module Auth
     class UserStore
       include Enumerable({String, User})
-      private DIRECT_USER = "__direct"
-      Log         = LavinMQ::Log.for "user_store"
+      Log = LavinMQ::Log.for "user_store"
+
+      # Names reserved for the broker's own identities. "__direct" was the
+      # password-based user earlier versions used for shovels; it stays
+      # reserved so it can't be recreated as a regular login.
+      RESERVED_NAMES = {InternalUser::NAME, "__direct"}
 
       def self.hidden?(name)
-        DIRECT_USER == name
+        RESERVED_NAMES.includes?(name)
       end
+
+      # The passwordless identity of the broker itself, see InternalUser.
+      getter internal_user = InternalUser.new
 
       @save_lock = Mutex.new
 
@@ -98,7 +106,7 @@ module LavinMQ
       end
 
       def delete(name, save = true) : User?
-        return if name == DIRECT_USER
+        return if self.class.hidden?(name)
         if user = @users.delete name
           user.permissions.clear
           user.clear_permissions_cache
@@ -108,18 +116,15 @@ module LavinMQ
         end
       end
 
-      def default_user : User
+      # The administrator new vhosts are granted to when no user is given.
+      # Falls back to the internal user when there is no administrator.
+      def default_user : BaseUser
         @users.each_value do |u|
           if u.tags.includes?(Tag::Administrator) && !u.hidden?
             return u
           end
         end
-        @users.each_value do |u|
-          if u.tags.includes?(Tag::Administrator)
-            return u
-          end
-        end
-        raise "No user with administrator privileges found"
+        internal_user
       end
 
       def to_json(json : JSON::Builder)
@@ -129,10 +134,6 @@ module LavinMQ
             user.to_json(json)
           end
         end
-      end
-
-      def direct_user
-        @users[DIRECT_USER]
       end
 
       private def load!
@@ -149,7 +150,7 @@ module LavinMQ
           Log.debug { "Loading default users" }
           create_default_user
         end
-        create_direct_user
+        drop_reserved_users
         Log.debug { "#{size} users loaded" }
       rescue ex
         Log.error(exception: ex) { "Failed to load users" }
@@ -162,10 +163,10 @@ module LavinMQ
         save!
       end
 
-      private def create_direct_user
-        @users[DIRECT_USER] = User.create_hidden_user(DIRECT_USER)
-        perm = {config: /.*/, read: /.*/, write: /.*/}
-        @users[DIRECT_USER].permissions["/"] = perm
+      # Reserved names are never logins, even if a users.json (or an older
+      # definitions import) carries one.
+      private def drop_reserved_users
+        RESERVED_NAMES.each { |name| @users.delete(name) }
       end
 
       def save!

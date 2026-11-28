@@ -13,7 +13,7 @@ module ShovelTest
       src = queue("src")
       dest = queue("dest")
       broker.publish(src, total)
-      name = shovel("shovel", shovel_config(src, dest_uri: cfg.amqp_url, dest_queue: dest, src_delete_after: "queue-length"))
+      name = shovel("shovel", shovel_config(src, dest_uri: cfg.shovel_amqp_url, dest_queue: dest, src_delete_after: "queue-length"))
 
       eventually("every message to reach the destination") { api.queue(dest).ready >= total }
       eventually("the source to be empty") { api.queue(src).total == 0 }

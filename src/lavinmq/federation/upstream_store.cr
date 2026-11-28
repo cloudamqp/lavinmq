@@ -1,8 +1,12 @@
 require "./upstream"
 require "../logger"
+require "../endpoint"
+require "../auth/base_user"
 
 module LavinMQ
   module Federation
+    alias ConfigError = Endpoint::ConfigError
+
     class UpstreamStore
       include Enumerable(Upstream)
       Log          = LavinMQ::Log.for "federation.upstream_store"
@@ -37,6 +41,43 @@ module LavinMQ
         @log = Logger.new(Log, @metadata)
       end
 
+      # An upstream in this broker (a URI without host) is reached in-process,
+      # with no user of its own, so the user configuring it must have access
+      # to it. Which resources a link uses there isn't known here: without an
+      # `exchange` or `queue` the downstream resource's name is used, as
+      # chosen by policy later, and an exchange link declares a queue and
+      # exchange of its own. So the user needs unrestricted read and
+      # configure permission on the upstream vhost. A remote upstream is
+      # authorized by its broker, with the URI's credentials.
+      def self.validate_config!(component : String, config : JSON::Any, user : Auth::BaseUser?)
+        entries = case component
+                  when "federation-upstream"     then [config]
+                  when "federation-upstream-set" then config.as_a? || raise ConfigError.new("Upstream set must be an array")
+                  else                                return
+                  end
+        entries.each do |entry|
+          uris = Endpoint.parse_uris(entry["uri"]?)
+          if component == "federation-upstream" && uris.empty?
+            raise ConfigError.new("Field 'uri' is required")
+          end
+          uris.each { |uri| Endpoint.check_credentials(uri).try { |reason| raise ConfigError.new(reason) } }
+          uris.each { |uri| validate_access!(uri, entry, user) } if user
+        end
+      end
+
+      private def self.validate_access!(uri : URI, entry : JSON::Any, user : Auth::BaseUser)
+        return unless Endpoint.local?(uri)
+        vhost = Endpoint.vhost_name(uri)
+        perm = user.find_permission(vhost)
+        unless perm && unrestricted?(perm[:read]) && unrestricted?(perm[:config])
+          raise ConfigError.new("#{user.name} needs read and configure permission on everything in vhost '#{vhost}'")
+        end
+      end
+
+      private def self.unrestricted?(pattern : Regex) : Bool
+        pattern.source.in?(".*", "^.*$", "^.*", ".*$")
+      end
+
       def each(&)
         @upstreams.each_value do |v|
           yield v
@@ -48,11 +89,10 @@ module LavinMQ
       end
 
       private def do_create_upstream(name, config, retired)
-        uri = config["uri"].to_s
+        uri = Endpoint.parse_uris(config["uri"]?).first? || raise ConfigError.new("Field 'uri' is required")
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
         reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
-        ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
-        ack_mode = AckMode.parse?(ack_mode_str) || DEFAULT_ACK_MODE
+        ack_mode = AckMode.from_config?(config["ack-mode"]?.try(&.as_s)) || DEFAULT_ACK_MODE
         exchange = config["exchange"]?.try(&.as_s)
         max_hops = config["max-hops"]?.try(&.as_i64?) || DEFAULT_MAX_HOPS
         expires = config["expires"]?.try(&.as_i64?) || DEFAULT_EXPIRES
@@ -117,8 +157,8 @@ module LavinMQ
       # Whether the resources on the upstream broker can be reused: the
       # settings that name them, plus the declare arguments that a passive
       # re-declare would silently ignore
-      private def same_resources?(old : Upstream, uri, exchange, queue, expires, msg_ttl, max_hops) : Bool
-        same_broker?(old.uri, URI.parse(uri)) && old.exchange == exchange && old.queue == queue &&
+      private def same_resources?(old : Upstream, uri : URI, exchange, queue, expires, msg_ttl, max_hops) : Bool
+        same_broker?(old.uri, uri) && old.exchange == exchange && old.queue == queue &&
           old.expires == expires && old.msg_ttl == msg_ttl && old.max_hops == max_hops
       end
 
@@ -220,11 +260,10 @@ module LavinMQ
           end
           if cfg.as_h.keys.size > 1
             upstream = upstream.dup
-            cfg["uri"]?.try { |p| upstream.uri = URI.parse(p.as_s) }
+            Endpoint.parse_uris(cfg["uri"]?).first?.try { |p| upstream.uri = p }
             cfg["prefetch-count"]?.try { |p| upstream.prefetch = p.as_i.to_u16 }
             cfg["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i.seconds }
-            ack_mode_str = cfg["ack-mode"]?.try(&.as_s.delete("-")).to_s
-            AckMode.parse?(ack_mode_str).try { |p| upstream.ack_mode = p }
+            AckMode.from_config?(cfg["ack-mode"]?.try(&.as_s)).try { |p| upstream.ack_mode = p }
             cfg["exchange"]?.try { |p| upstream.exchange = p.as_s }
             cfg["max-hops"]?.try { |p| upstream.max_hops = p.as_i64 }
             cfg["expires"]?.try { |p| upstream.expires = p.as_i64 }

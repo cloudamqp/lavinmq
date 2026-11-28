@@ -1380,10 +1380,10 @@ describe LavinMQ::Clustering::Client, tags: %w[etcd slow] do
       with_amqp_server(replicator: cluster.replicator) do |s|
         wait_for { cluster.replicator.followers.first?.try &.synced? }
         vhost = s.vhosts["/"]
-        source = LavinMQ::Shovel::AMQPSource.new("paused-shovel", [URI.parse("amqp://localhost")], "paused_shovel_q",
-          direct_user: s.users.direct_user)
-        dest = LavinMQ::Shovel::AMQPDestination.new("paused-shovel", URI.parse("amqp://localhost"), "paused_shovel_q2",
-          direct_user: s.users.direct_user)
+        source = LavinMQ::Shovel::AMQPSource.new("paused-shovel",
+          [LavinMQ::Endpoint.session(URI.parse("amqp:///"), vhost, "paused-shovel source")], "paused_shovel_q")
+        dest = LavinMQ::Shovel::AMQPDestination.new("paused-shovel",
+          LavinMQ::Endpoint.session(URI.parse("amqp:///"), vhost, "paused-shovel sink"), "paused_shovel_q2")
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "paused-shovel", vhost)
         relative = shovel.@paused_file_path[(s.data_dir.size + 1)..]
         follower_paused = File.join(cluster.follower_config.data_dir, relative)

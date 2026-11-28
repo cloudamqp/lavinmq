@@ -1,5 +1,5 @@
-require "amqp-client"
 require "./constants"
+require "../endpoint/session"
 
 module LavinMQ
   module Shovel
@@ -18,7 +18,10 @@ module LavinMQ
 
       # Yields each consumed message. Returns when the source is exhausted
       # (delete-after) or stopped.
-      abstract def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
+      #
+      # The delivery's body and properties are borrowed (see
+      # Endpoint::Delivery): valid only until the block returns.
+      abstract def each(&blk : Endpoint::Delivery -> Nil)
 
       # Acknowledge a successfully shoveled message.
       abstract def ack(delivery_tag)

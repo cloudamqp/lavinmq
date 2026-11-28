@@ -240,7 +240,7 @@ module LavinMQ::AMQP
     private def notify_all_stream_consumers
       @consumers_lock.synchronize do
         @consumers.each do |consumer|
-          if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+          if stream_consumer = consumer.as?(AMQP::StreamConsumption)
             stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
           end
         end
@@ -345,7 +345,7 @@ module LavinMQ::AMQP
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       super
-      if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+      if stream_consumer = consumer.as?(AMQP::StreamConsumption)
         @msg_store_lock.synchronize { stream_consumer.cursor.close }
       end
     end

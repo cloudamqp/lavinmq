@@ -90,7 +90,7 @@ index c3130ee..1888a2f 100644
  
  	return res, nil
 diff --git a/rabbithole_test.go b/rabbithole_test.go
-index 6aea41d..47f02f6 100644
+index 6aea41d..1727c2d 100644
 --- a/rabbithole_test.go
 +++ b/rabbithole_test.go
 @@ -112,6 +112,30 @@ func mediumSleep() {
@@ -443,7 +443,7 @@ index 6aea41d..47f02f6 100644
  		Context("when there are no links", func() {
  			It("returns an empty response", func() {
  				list, err := rmqc.ListFederationLinksIn("rabbit/hole")
-@@ -3677,7 +3701,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+@@ -3677,12 +3701,12 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})
  
@@ -452,6 +452,75 @@ index 6aea41d..47f02f6 100644
  		It("declares a shovel using AMQP 1.0 protocol", func() {
  			vh := "rabbit/hole"
  			sn := "temporary"
+ 
+-			ssu := URISet([]string{"amqp://127.0.0.1/%2f"})
++			ssu := URISet([]string{"amqp:///%2f"})
+ 			sdu := URISet([]string{"amqp://127.0.0.1/%2f", "amqp://localhost/%2f"})
+ 
+ 			shovelDefinition := ShovelDefinition{
+@@ -3755,8 +3779,8 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 			vh := "rabbit/hole"
+ 			sn := "temporary"
+ 
+-			ssu := URISet([]string{"amqp://127.0.0.1/%2f"})
+-			sdu := URISet([]string{"amqp://127.0.0.1/%2f"})
++			ssu := URISet([]string{"amqp:///%2f"})
++			sdu := URISet([]string{"amqp:///%2f"})
+ 
+ 			shovelDefinition := ShovelDefinition{
+ 				AckMode:                       "on-confirm",
+@@ -3823,8 +3847,8 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 			vh := "rabbit/hole"
+ 			sn := "temporary"
+ 
+-			ssu := URISet([]string{"amqp://127.0.0.1/%2f"})
+-			sdu := URISet([]string{"amqp://127.0.0.1/%2f"})
++			ssu := URISet([]string{"amqp:///%2f"})
++			sdu := URISet([]string{"amqp:///%2f"})
+ 
+ 			shovelDefinition := ShovelDefinition{
+ 				SourceURI:         ssu,
+@@ -3879,8 +3903,8 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 			vh := "rabbit/hole"
+ 			sn := "temporary"
+ 
+-			ssu := URISet([]string{"amqp://localhost/%2f"})
+-			sdu := URISet([]string{"amqp://localhost/%2f"})
++			ssu := URISet([]string{"amqp:///%2f"})
++			sdu := URISet([]string{"amqp:///%2f"})
+ 
+ 			shovelDefinition := ShovelDefinition{
+ 				SourceURI:         ssu,
+@@ -3918,7 +3942,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 				name := "temporary"
+ 
+ 				pv := RuntimeParameterValue{
+-					"uri":             "amqp://server-name",
++					"uri":             "amqp://u:p@server-name",
+ 					"prefetch-count":  500,
+ 					"reconnect-delay": 5,
+ 					"ack-mode":        "on-confirm",
+@@ -3980,7 +4004,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 				Ω(err).Should(BeNil())
+ 
+ 				fDef := FederationDefinition{
+-					Uri: []string{"amqp://server-name/%2f"},
++					Uri: []string{"amqp://u:p@server-name/%2f"},
+ 				}
+ 
+ 				vh := "rabbit/hole"
+@@ -3990,9 +4014,9 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 				Ω(err).Should(BeNil())
+ 
+ 				sDef := ShovelDefinition{
+-					SourceURI:         URISet([]string{"amqp://127.0.0.1/%2f"}),
++					SourceURI:         URISet([]string{"amqp:///%2f"}),
+ 					SourceQueue:       "mySourceQueue",
+-					DestinationURI:    URISet([]string{"amqp://127.0.0.1/%2f"}),
++					DestinationURI:    URISet([]string{"amqp:///%2f"}),
+ 					DestinationQueue:  "myDestQueue",
+ 					AddForwardHeaders: true,
+ 					AckMode:           "on-confirm",
 @@ -4035,7 +4059,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
  		})
  	})

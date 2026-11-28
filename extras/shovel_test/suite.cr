@@ -33,6 +33,7 @@ module ShovelTest
     def run : Bool
       log "target #{@cfg.http_base} (LavinMQ #{@api.server_version || "?"}) vhost=#{@cfg.vhost}"
       created_vhost = prepare_vhost
+      created_user = prepare_shovel_user
       @endpoint.start
       log "HTTP endpoint at #{@endpoint.url("/")}"
 
@@ -47,6 +48,7 @@ module ShovelTest
       failed.empty?
     ensure
       @endpoint.stop
+      teardown_shovel_user if created_user && !@cfg.keep?
       teardown_vhost if created_vhost && !@cfg.keep?
     end
 
@@ -81,6 +83,31 @@ module ShovelTest
       @api.create_vhost
       log "created vhost #{@cfg.vhost}"
       true
+    end
+
+    # Returns true when the shovels' user was created here (and so is ours to
+    # delete). A given user is left as it is, with its password and tags, and
+    # only gets permissions on the vhost.
+    private def prepare_shovel_user : Bool
+      created = !@cfg.shovel_user_given?
+      if created
+        if @api.user_exists?(@cfg.shovel_user)
+          raise "user #{@cfg.shovel_user} already exists; pass --shovel-user and --shovel-password to reuse it"
+        end
+        @api.create_user(@cfg.shovel_user, @cfg.shovel_password)
+      elsif !@api.user_exists?(@cfg.shovel_user)
+        raise "user #{@cfg.shovel_user} doesn't exist; create it, or leave --shovel-user out to have one created"
+      end
+      @api.grant_vhost(@cfg.shovel_user)
+      log "created user #{@cfg.shovel_user}" if created
+      created
+    end
+
+    private def teardown_shovel_user : Nil
+      @api.delete_user(@cfg.shovel_user)
+      log "deleted user #{@cfg.shovel_user}"
+    rescue ex
+      log "could not delete user #{@cfg.shovel_user}: #{ex.message}"
     end
 
     private def teardown_vhost : Nil
