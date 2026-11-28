@@ -21,9 +21,12 @@ callback.
 _Avoid_: connection (for the local kind), direct user.
 
 **Source**:
-Where a Shovel reads messages from and settles them (ack / reject). Today only
-AMQP queues on an Endpoint (an exchange source is consumed through a temporary
-queue). The
+Where a Shovel reads messages from and settles them (ack / reject). AMQP
+queues on an Endpoint (an exchange source is consumed through a temporary
+queue), or a PostgreSQL logical replication slot (**PostgresSource**: one
+message per committed transaction; settling moves the slot's confirmed LSN over
+the frontier, and a requeue reconnects, since the stream can only be replayed
+from that LSN). The
 Source owns consume and settlement; it never decides *whether* a message
 succeeded. Acks are cumulative and batched behind a **settlement frontier**:
 the highest delivery tag below which everything is settled. A batch is
